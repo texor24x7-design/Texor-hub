@@ -101,6 +101,15 @@ First-party products skip the consent screen — you do not consent to Google
 showing you Gmail. Any third-party integration added later omits that flag and
 gets the standard "app X wants access to your account" prompt.
 
+## Signing up
+
+A Texor Account can be created with an email and password, or through **Google,
+Microsoft or LinkedIn**. Either way it is the same account, and every product
+sees the same `sub`. Providers are enabled per deployment by setting their
+credentials — no code change — and an upstream sign-in is only ever matched onto
+an existing account when the provider has actually verified the email address.
+See [social sign-in](./texor-accounts/documentation/social-sign-in.md).
+
 ## Adding a product to the ecosystem
 
 Register it with Texor Account, then copy `backend/src/texor/` from any existing
@@ -110,9 +119,16 @@ product. The full walkthrough is in
 ## Verifying the whole thing works
 
 ```bash
-cd texor-accounts/backend && npm run test:smoke
+cd texor-accounts/backend
+npm run test:smoke        # the OIDC provider, end to end
+npm run test:federation   # Google / Microsoft / LinkedIn sign-in
 ```
 
-Boots the provider against a throwaway in-memory MongoDB and drives a complete
-browser-shaped flow — discovery, authorization, login, consent, token exchange,
-userinfo, refresh, and a second product signing in silently. No mocks.
+The first boots the provider against a throwaway in-memory MongoDB and drives a
+complete browser-shaped flow — discovery, authorization, login, consent, token
+exchange, userinfo, refresh, and a second product signing in silently.
+
+The second drives federated sign-in against a protocol-accurate OIDC double
+(real discovery, JWKS, RS256 tokens and PKCE), covering the account-linking
+rules, a tampered `state`, and a federated sign-in that completes a product's
+authorization request. No mocks in either.
