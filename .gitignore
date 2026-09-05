@@ -1,0 +1,7 @@
+# Each product is a separate repository, tracked on its own.
+texor-accounts/
+texor-finvoice/
+texor-talk/
+texor-payroll/
+
+.DS_Store
