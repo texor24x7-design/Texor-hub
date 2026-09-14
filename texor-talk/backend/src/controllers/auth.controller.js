@@ -103,6 +103,29 @@ export async function logout(req, res) {
 export async function me(req, res) {
   if (!req.user) return res.json({ user: null });
 
+  /**
+   * A guest is a user here too, and a differently shaped one.
+   *
+   * There is no local `User` document behind a guest pass, so reading `_id`
+   * threw and this endpoint answered 500 — which the frontend reasonably read
+   * as "not signed in" and redirected to the sign-in page, immediately after
+   * somebody had successfully joined as a guest. The narrower shape is
+   * returned, marked, and scoped to its one meeting.
+   */
+  if (req.user.isGuest) {
+    return res.json({
+      user: {
+        texorId: req.user.texorId,
+        displayName: req.user.displayName,
+        email: '',
+        picture: '',
+        isGuest: true,
+        isAdmin: false,
+        meetingCode: req.user.meetingCode ?? null,
+      },
+    });
+  }
+
   return res.json({
     user: {
       id: req.user._id.toString(),
@@ -115,6 +138,7 @@ export async function me(req, res) {
       // Decides whether the admin console appears in the navigation. It is not
       // what protects it — every /api/admin route checks this again for itself.
       isAdmin: await isAdmin(req.user),
+      isGuest: false,
     },
   });
 }

@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { MicOffIcon } from '@/components/icons';
+import {
+  FullscreenExitIcon, FullscreenIcon, HandIcon, MicOffIcon, PinIcon,
+} from '@/components/icons';
+import { useFullscreen } from '@/lib/fullscreen';
 
 /**
  * One participant's tile.
@@ -50,9 +53,12 @@ const initialsOf = (name) =>
     .join('') || '?';
 
 export function VideoTile({
-  track, name, role, muted, speaking, mirrored, isYou, label, compact,
+  track, name, role, muted, speaking, handRaised, mirrored, isYou, label, compact,
+  onPin, pinned, allowFullscreen = true,
 }) {
   const video = useRef(null);
+  const frame = useRef(null);
+  const { active: isFullscreen, toggle: toggleFullscreen } = useFullscreen(frame, video);
 
   useEffect(() => {
     const element = video.current;
@@ -81,7 +87,13 @@ export function VideoTile({
   ].filter(Boolean).join(' ');
 
   return (
-    <div className={classes}>
+    <div
+      className={`${classes}${isFullscreen ? ' tile--fullscreen' : ''}`}
+      ref={frame}
+      // Double-click is the shortcut people already try on a video, and it
+      // costs nothing to honour it alongside the button.
+      onDoubleClick={allowFullscreen && track ? toggleFullscreen : undefined}
+    >
       {track ? (
         <video
           ref={video}
@@ -105,11 +117,51 @@ export function VideoTile({
         </div>
       )}
 
-      {muted ? (
-        <span className="tile__badge" title={`${nameOf(name) || 'This participant'} is muted`}>
-          <MicOffIcon />
-        </span>
-      ) : null}
+      <div className="tile__badges">
+        {handRaised ? (
+          <span className="tile__badge tile__badge--hand" title={`${nameOf(name) || 'They'} raised a hand`}>
+            <HandIcon />
+          </span>
+        ) : null}
+        {muted ? (
+          <span className="tile__badge" title={`${nameOf(name) || 'This participant'} is muted`}>
+            <MicOffIcon />
+          </span>
+        ) : null}
+      </div>
+
+      {/* Grouped so they lay out beside each other rather than each needing
+          to know what else happens to be rendered. */}
+      <div className="tile__actions">
+        {onPin ? (
+          <button
+            type="button"
+            className={`tile__action ${pinned ? 'tile__action--on' : ''}`}
+            onClick={onPin}
+            aria-pressed={pinned}
+            aria-label={pinned ? `Unpin ${nameOf(name)}` : `Pin ${nameOf(name)} to the stage`}
+            title={pinned ? 'Unpin' : 'Pin to the stage'}
+          >
+            <PinIcon />
+          </button>
+        ) : null}
+
+        {allowFullscreen && track ? (
+          <button
+            type="button"
+            className="tile__action"
+            onClick={toggleFullscreen}
+            aria-label={
+              isFullscreen
+                ? 'Exit fullscreen'
+                : `View ${label === 'screen' ? 'this shared screen' : nameOf(name) || 'this person'} fullscreen`
+            }
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+          </button>
+        ) : null}
+      </div>
 
       <div className="tile__label">
         {role === 'host' || role === 'cohost' ? <span className="tile__pip" title={role} /> : null}

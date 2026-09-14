@@ -135,6 +135,30 @@ export const ReactionIcon = (props) => (
   </Icon>
 );
 
+export const HandIcon = (props) => (
+  <Icon {...props}>
+    <path d="M13 1.5a1.5 1.5 0 0 0-3 0V10H9V3.5a1.5 1.5 0 0 0-3 0V13l-1.2-1.7a1.5 1.5 0 0 0-2.5 1.65l3.1 5.2A6 6 0 0 0 10.6 21H14a5 5 0 0 0 5-5V6.5a1.5 1.5 0 0 0-3 0V10h-1V3.5a1.5 1.5 0 0 0-3 0V10h1Z" />
+  </Icon>
+);
+
+export const PinIcon = (props) => (
+  <Icon {...props}>
+    <path d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3Z" />
+  </Icon>
+);
+
+export const FullscreenIcon = (props) => (
+  <Icon {...props}>
+    <path d="M7 14H5v5h5v-2H7v-3Zm-2-4h2V7h3V5H5v5Zm12 7h-3v2h5v-5h-2v3ZM14 5v2h3v3h2V5h-5Z" />
+  </Icon>
+);
+
+export const FullscreenExitIcon = (props) => (
+  <Icon {...props}>
+    <path d="M5 16h3v3h2v-5H5v2Zm3-8H5v2h5V5H8v3Zm6 11h2v-3h3v-2h-5v5Zm2-11V5h-2v5h5V8h-3Z" />
+  </Icon>
+);
+
 export const ShieldIcon = (props) => (
   <Icon {...props}>
     <path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4Zm-1.2 15L7 12.2l1.4-1.4 2.4 2.4 5-5 1.4 1.4-6.4 6.4Z" />
@@ -144,5 +168,6 @@ export const ShieldIcon = (props) => (
 export default {
   MicIcon, MicOffIcon, CameraIcon, CameraOffIcon, PresentIcon, PresentOffIcon,
   HangUpIcon, PeopleIcon, ChatIcon, InfoIcon, CloseIcon, SendIcon, CopyIcon,
-  CheckIcon, GridIcon, ReactionIcon, RemovePersonIcon, ShieldIcon,
+  CheckIcon, FullscreenIcon, FullscreenExitIcon, GridIcon, HandIcon, PinIcon,
+  ReactionIcon, RemovePersonIcon, ShieldIcon,
 };

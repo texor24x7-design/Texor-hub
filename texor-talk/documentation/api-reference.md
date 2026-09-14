@@ -140,6 +140,38 @@ document version, and an `RRULE` when the meeting repeats.
 
 ---
 
+## Guests
+
+The only two routes that work with no credential at all.
+
+### `GET /api/meetings/:code/guest`
+
+```json
+{ "meeting": { "code": "…", "title": "…", "hostName": "…", "status": "live" },
+  "guests": { "allowed": true, "reason": null, "willWait": true } }
+```
+
+Deliberately thin — enough to draw a join screen for somebody who has proved
+nothing. No agenda, no invitees, no participants, no join link.
+
+### `POST /api/meetings/:code/guest`
+
+```json
+{ "name": "Sam Rivera" }
+```
+
+Issues a guest pass as an httpOnly cookie scoped to this meeting, and returns
+`{ guest: { texorId: "guest:…", displayName, isGuest } }`. `403` unless the
+meeting's access is `anyone` and both org policy and the meeting allow external
+guests. See [meetings.md](./meetings.md#guests) for what the pass does and does
+not permit.
+
+### `POST /api/meetings/:code/guest/leave`
+
+Surrenders the pass and clears the cookie.
+
+---
+
 ## Joining
 
 ### `POST /api/meetings/:code/join`

@@ -161,7 +161,10 @@ export async function evaluateJoin({ meeting, user, policy, now = new Date() }) 
 
   const role = meeting.roleOf(user.texorId, user.email);
   const isHost = role === 'host' || role === 'cohost';
-  const isExternal = isExternalEmail(user.email);
+  // A guest has no email and therefore no domain to match; they are external by
+  // definition, and must not fall through to "nobody is external" when
+  // ORG_EMAIL_DOMAINS is unset.
+  const isExternal = Boolean(user.isGuest) || isExternalEmail(user.email);
 
   // ── Is this person allowed in at all ──
   if (isExternal && !(policy.allowExternalGuests && meeting.settings.allowExternalGuests)) {

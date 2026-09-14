@@ -17,6 +17,7 @@ import Meeting from '../models/Meeting.js';
 import Knock from '../models/Knock.js';
 import logger from '../utils/logger.js';
 import { resolveSession, SESSION_COOKIE } from '../services/session.service.js';
+import { GUEST_COOKIE, resolveGuest } from '../services/guest.service.js';
 import { getPolicy, isExternalEmail } from '../services/policy.service.js';
 import { ACTIONS, record } from '../services/audit.service.js';
 import {
@@ -27,6 +28,7 @@ import {
   markLeft,
 } from '../services/meeting.service.js';
 import { Peer, closeRoom, createWebRtcTransport, getOrCreateRoom, getRoom } from './room.js';
+import { attachSpeakingDetection } from './speaking.js';
 
 const ROOM_TICK_MS = 5_000;
 
@@ -98,15 +100,28 @@ async function handleConnection(socket, request) {
   const code = (url.searchParams.get('code') ?? '').toLowerCase().trim();
 
   // ── Who is this ──
-  const token = readCookie(request.headers.cookie, SESSION_COOKIE);
-  const resolved = await resolveSession(token);
+  // A Texor session first; a guest pass only if there is no real session, so
+  // somebody signed in is never downgraded by a stale cookie.
+  const resolved = await resolveSession(readCookie(request.headers.cookie, SESSION_COOKIE));
+  const user = resolved?.user
+    ?? await resolveGuest(readCookie(request.headers.cookie, GUEST_COOKIE));
 
-  if (!resolved) return refuse(socket, 'unauthorized', 'Sign in with Texor to join.');
-  const user = resolved.user;
+  if (!user) return refuse(socket, 'unauthorized', 'Sign in with Texor to join.');
 
   // ── May they be here ──
   const meeting = await Meeting.findOne({ code }).exec();
   if (!meeting) return refuse(socket, 'not_found', 'No meeting with that code.');
+
+  /**
+   * A guest pass opens exactly one meeting.
+   *
+   * Without this check a pass issued for an open meeting would be a credential
+   * for every other meeting in the product, which is precisely the hole that
+   * makes guest access dangerous to add carelessly.
+   */
+  if (user.isGuest && user.meetingId !== meeting._id.toString()) {
+    return refuse(socket, 'forbidden', 'Your guest pass is for a different meeting.');
+  }
 
   const policy = await getPolicy();
 
@@ -181,6 +196,8 @@ async function handleConnection(socket, request) {
   });
 
   broadcast(room, user.texorId, { type: 'peerJoined', data: { peer: peer.summary() } });
+
+  attachSpeakingDetection(room, broadcastAll);
 
   if (role === 'host' || role === 'cohost') await pushKnocks(room, meeting, socket);
 }
@@ -274,6 +291,12 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
       });
 
       peer.producers.set(producer.id, producer);
+
+      // Only microphones are candidates for "who is talking" — a shared screen
+      // playing a video would otherwise win the highlight permanently.
+      if (producer.kind === 'audio' && producer.appData.source === 'mic') {
+        room.audioLevelObserver.addProducer({ producerId: producer.id }).catch(() => {});
+      }
 
       producer.on('transportclose', () => peer.producers.delete(producer.id));
 
@@ -434,6 +457,70 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
       return {};
     }
 
+    /**
+     * A host muting somebody else.
+     *
+     * Enforced, not requested: the producer is paused **on the server**, so the
+     * audio stops being forwarded whatever the muted person's browser does or
+     * does not do about it. They are told as well, so their own button matches
+     * reality rather than claiming they are still live.
+     *
+     * There is deliberately no matching "unmute them". A host who could switch
+     * on somebody else's microphone could listen to a room they are not in, and
+     * no amount of UI makes that acceptable — every serious product draws the
+     * line in the same place. A host can mute, and ask.
+     */
+    case 'muteParticipant': {
+      requireHost(peer);
+
+      const target = room.peers.get(data.texorId);
+      if (!target) throw fail('gone', 'They are no longer in the meeting.');
+
+      const mic = [...target.producers.values()].find(
+        (producer) => producer.appData.source === 'mic',
+      );
+      if (!mic || mic.paused) return { alreadyMuted: true };
+
+      await mic.pause();
+
+      send(target.socket, {
+        type: 'forceMuted',
+        data: { by: peer.name, producerId: mic.id },
+      });
+      broadcastAll(room, {
+        type: 'producerPaused',
+        data: { peerTexorId: target.texorId, producerId: mic.id, kind: 'audio' },
+      });
+
+      return {};
+    }
+
+    /** The same rule, applied to the room. Hosts are left alone. */
+    case 'muteEveryone': {
+      requireHost(peer);
+      let muted = 0;
+
+      for (const target of room.peers.values()) {
+        if (target.role === 'host' || target.role === 'cohost') continue;
+
+        const mic = [...target.producers.values()].find(
+          (producer) => producer.appData.source === 'mic',
+        );
+        if (!mic || mic.paused) continue;
+
+        await mic.pause();
+        muted += 1;
+
+        send(target.socket, { type: 'forceMuted', data: { by: peer.name, producerId: mic.id } });
+        broadcastAll(room, {
+          type: 'producerPaused',
+          data: { peerTexorId: target.texorId, producerId: mic.id, kind: 'audio' },
+        });
+      }
+
+      return { muted };
+    }
+
     case 'removePeer': {
       requireHost(peer);
       const meeting = await Meeting.findOne({ code }).exec();
@@ -507,6 +594,31 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
       return {};
     }
 
+    case 'raiseHand': {
+      const raised = Boolean(data.raised);
+      peer.handRaised = raised;
+
+      broadcastAll(room, {
+        type: 'handChanged',
+        data: { texorId: user.texorId, name: peer.name, raised },
+      });
+      return {};
+    }
+
+    /** A host clearing someone's hand once it has been dealt with. */
+    case 'lowerHand': {
+      requireHost(peer);
+      const target = room.peers.get(data.texorId);
+      if (!target) return {};
+
+      target.handRaised = false;
+      broadcastAll(room, {
+        type: 'handChanged',
+        data: { texorId: target.texorId, name: target.name, raised: false },
+      });
+      return {};
+    }
+
     case 'chat': {
       const meeting = await Meeting.findOne({ code }).select('settings').exec();
       if (!meeting?.settings?.allowChat) throw fail('forbidden', 'Chat is off in this meeting.');
@@ -526,6 +638,13 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
   }
 }
 
+/**
+ * Broadcasts whoever is currently talking.
+ *
+ * Attached once per room, on first use. The observer outlives individual peers,
+ * so re-attaching per connection would stack duplicate listeners and send the
+ * same event several times over.
+ */
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fail(code, message) {
@@ -567,7 +686,8 @@ async function pushKnocks(room, meeting, socket) {
         name: knock.name,
         email: knock.email,
         picture: knock.picture,
-        isExternal: isExternalEmail(knock.email),
+        isExternal: Boolean(knock.isGuest) || isExternalEmail(knock.email),
+        isGuest: Boolean(knock.isGuest),
         knockedAt: knock.createdAt,
       })),
     },

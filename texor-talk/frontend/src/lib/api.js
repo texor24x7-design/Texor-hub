@@ -108,6 +108,15 @@ export const meetings = {
   // A full navigation rather than a fetch: the response is a file download, and
   // the browser's own download handling is what should receive it.
   inviteUrl: (code) => `${API_ORIGIN}/api/meetings/${code}/invite.ics`,
+
+  /**
+   * Guest access. These two are the only meeting calls that work with no
+   * credential at all — everything else needs a Texor session or a guest pass
+   * for that specific meeting.
+   */
+  guestPreview: (code) => api(`/api/meetings/${code}/guest`),
+  joinAsGuest: (code, name) => api(`/api/meetings/${code}/guest`, { method: 'POST', body: { name } }),
+  leaveAsGuest: (code) => api(`/api/meetings/${code}/guest/leave`, { method: 'POST' }),
 };
 
 export const admin = {

@@ -179,6 +179,37 @@ Concretely, these are enforced by the process that owns the media:
 
 ---
 
+## Who is talking
+
+Decided by the SFU, not by each browser. Every client watching its own audio
+levels would give a different answer at a different moment, and none of them
+would agree about somebody they cannot hear. The router sees every stream, so it
+is the only place the question has one answer.
+
+It uses an **`AudioLevelObserver`**, and the choice matters. mediasoup also
+offers `ActiveSpeakerObserver`, which runs a proper dominant-speaker algorithm —
+but it emits `dominantspeaker` and nothing else. There is **no silence event**,
+so it can say who started talking and never that everybody stopped: a highlight
+driven by it is set once and then sits on whoever last spoke for the rest of the
+call. That was a real bug here. `AudioLevelObserver` reports `volumes` while
+there is sound and `silence` when there is not, which is both halves.
+
+- `threshold: -50` dBov. Speech from a laptop microphone sits around −35; a
+  quiet room with noise suppression on sits below −60. Set it much lower and a
+  fan or a keyboard holds the highlight.
+- Only `mic` producers are added to the observer. A shared screen playing a
+  video would otherwise win it permanently.
+- Changes are deduplicated — `volumes` fires every interval for as long as
+  somebody talks, and without that a long anecdote is thousands of identical
+  messages to everyone in the meeting.
+- The client turns the highlight **off** on a delay and **on** immediately.
+  Silence is reported in the gaps between words as well as at the end of a
+  sentence, so clearing at once makes the ring strobe mid-thought.
+
+The rule lives in `src/media/speaking.js` with no imports, so
+`tests/speaker.test.mjs` drives the observer's events directly — the one thing a
+headless harness cannot do is generate real audio energy.
+
 ## Presence
 
 A connected socket is a participant who is present. That is more truthful than a
@@ -208,6 +239,8 @@ without one is a notification.
 | `closeProducer`, `pauseProducer`, `resumeProducer` | Stop, mute, unmute |
 | `consume`, `resumeConsumer` | Start receiving someone else's track |
 | `admitKnock`, `removePeer`, `endMeeting` | Host actions |
+| `muteParticipant`, `muteEveryone` | Host actions. There is no unmute-others |
+| `raiseHand`, `lowerHand` | A raised hand is state, not a reaction |
 | `chat` | In-call message |
 | `reaction` | One of a fixed set of emoji |
 
@@ -216,7 +249,7 @@ without one is a notification.
 `welcome` · `peerJoined` · `peerLeft` · `newProducer` · `producerClosed` ·
 `producerPaused` · `producerResumed` · `consumerClosed` · `knocks` ·
 `knockResolved` · `roleChanged` · `peerRoleChanged` · `chat` · `reaction` ·
-`removed` · `ended` · `refused`
+`removed` · `ended` · `refused` · `activeSpeaker` · `handChanged` · `forceMuted`
 
 **Reactions are allowlisted server-side.** Whatever arrives is broadcast
 verbatim to every participant, so the emoji must be one of the fixed set in

@@ -28,6 +28,7 @@ export const ACTIONS = {
   INVITEE_REMOVED: 'invitee.removed',
   INVITE_RESPONDED: 'invite.responded',
   POLICY_UPDATED: 'policy.updated',
+  GUEST_ADMITTED_PASS: 'guest.pass_issued',
 };
 
 // Field separator for the hashed form. A control character, so it cannot occur

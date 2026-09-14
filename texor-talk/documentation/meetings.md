@@ -91,6 +91,68 @@ behind.
 
 ---
 
+## Guests
+
+Somebody with no Texor Account can join a meeting by typing a name, if three
+independent gates all agree:
+
+1. org policy allows external guests
+2. the meeting's own settings allow them
+3. the meeting's `access` is **`anyone`**
+
+The third is the important one. `texor` means "anyone with a Texor Account",
+which is a statement that signing in is required — letting somebody past that
+with a typed name would make the setting a lie. Opening a meeting to people
+without accounts has to be a decision somebody took.
+
+### What a guest pass is
+
+**Not a session.** A Texor session says "this is who you are, everywhere in this
+product". A guest pass says something far narrower:
+
+> this browser may act as the name "Sam" in exactly one meeting, until it ends
+
+It is scoped to a single meeting id, so it cannot be replayed against another
+meeting even if it leaks, and it is short-lived and swept by a TTL index rather
+than left to a cleanup job. Guests get a synthetic id of the form
+`guest:<random>` so everything keyed on a participant id — attendance, knocks,
+peers, the audit log — works unchanged while remaining obviously not a Texor
+`sub`.
+
+### What a guest cannot do
+
+Everything under `/api` requires a Texor Account **except** five routes: join,
+poll their own knock, cancel it, leave, and surrender the pass. That list is
+explicit and the default is the strict one, so a route added later is closed to
+guests unless somebody deliberately opens it. Each of those five re-checks, once
+the meeting is loaded, that the pass is for *that* meeting.
+
+They cannot list meetings, read the full meeting record, download the calendar
+invite, see the waiting list, read channels, or reach the admin console. The
+guest test suite asserts all of it.
+
+### Guests are always external
+
+A guest has no email and therefore no domain to match, so they are external **by
+definition** — never falling through to "nobody is external" when
+`ORG_EMAIL_DOMAINS` is unset. In practice that means `forceLobbyForExternal`
+holds them in the lobby *even when the host has turned the lobby off*: policy
+tightens what a host chose, never the reverse.
+
+Hosts see them in the waiting list marked "Joining by name — no Texor Account",
+which is the thing worth knowing before admitting somebody.
+
+### Names
+
+A typed name is shown to everyone in the meeting by somebody who has proved
+nothing, so it is stripped of control characters, the bidirectional overrides
+that let text render over its neighbours, and runs of whitespace that can push a
+name out of its own label. It cannot stop somebody typing a colleague's name —
+no name field can — which is why guests are labelled as guests wherever they
+appear rather than trusted to identify themselves honestly.
+
+---
+
 ## Roles
 
 | Role | How you get it | What it adds |
@@ -112,6 +174,22 @@ This is what owning the media layer buys. When moderator status lived in a token
 minted for somebody else's service, a promotion could not reach the token the
 user was already holding, and only applied on their next join.
 
+### Muting someone
+
+A host can mute anyone. The producer is paused **on the server**, so the audio
+stops being forwarded whatever the muted person's browser does about it; they
+are also told, so their own button matches reality rather than showing a live
+microphone that is going nowhere. `Mute all` does the same to everyone at once
+and skips hosts, since otherwise a host silences themselves with their own
+button.
+
+**There is deliberately no "unmute someone else", and there will not be.** A
+host who could switch on another person's microphone could listen to a room they
+are not in. No arrangement of the interface makes that acceptable, and every
+serious product draws the line in the same place: a host can mute, and can ask.
+The action does not exist on the server, so it cannot be reached by a client
+that decides to try.
+
 ### Removing someone
 
 Both halves happen on the server:
@@ -124,6 +202,31 @@ nothing to ask nicely, and no chance of removing the wrong person by matching on
 a display name.
 
 ---
+
+## The stage
+
+How the call is arranged is the viewer's choice, not the room's:
+
+| Layout | What it does |
+|---|---|
+| `auto` | Promotes whoever is presenting or talking, but stays a grid at three people or fewer, where promoting one gains nothing and loses the others |
+| `tiled` | Everyone the same size, never rearranged |
+| `spotlight` | One person large, the rest in a strip |
+
+Precedence for the large tile is **pin → screen share → active speaker**. A pin
+is an explicit instruction, so it outranks everything and holds when somebody
+else starts talking.
+
+Any tile with video can be opened fullscreen, from its own button or by
+double-clicking it — most useful on a shared screen. In fullscreen the video
+switches from `cover` to `contain`: cropping is right in a grid, where the
+alternative is letterboxing every face, but someone who asked for fullscreen
+wants the whole picture, and cropping a shared screen cuts off the edges of the
+thing they enlarged it to read.
+
+On iOS no element can go fullscreen — only a `<video>`, through
+`webkitEnterFullscreen`. The tile's name overlay cannot come with it there, and
+native video fullscreen is the whole of what is on offer.
 
 ## Presence
 

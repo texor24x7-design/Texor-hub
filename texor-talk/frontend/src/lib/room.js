@@ -25,6 +25,9 @@ import { CAMERA_ENCODINGS, SCREEN_ENCODINGS } from '@/lib/encodings';
 
 const WS_ORIGIN = API_ORIGIN.replace(/^http/, 'ws');
 
+/** Close codes the server uses on purpose: refused, removed, meeting ended. */
+const DELIBERATE_CLOSE = [4001, 4003, 4004];
+
 /** Sensible constraints. Nothing exotic — exotic constraints fail on phones. */
 const VIDEO_CONSTRAINTS = {
   width: { ideal: 1280 },
@@ -48,6 +51,7 @@ export class MeetingRoom {
     this.pending = new Map(); // request id -> { resolve, reject }
     this.nextRequestId = 1;
     this.closed = false;
+    this.reconnecting = false;
   }
 
   // ── Signalling ─────────────────────────────────────────────────────────────
@@ -84,11 +88,40 @@ export class MeetingRoom {
         reject(error);
       };
 
-      socket.onerror = () => fail(new Error('Could not reach the meeting server.'));
+      /**
+       * A transport failure is "not right now", not "no".
+       *
+       * The server being unreachable — restarting, a dropped network, a proxy
+       * recycling — is temporary, and is flagged `retryable` so the caller
+       * shows "reconnecting" instead of ending a meeting that is still running.
+       * A refusal carries a reason and is not retryable; those are handled
+       * where the `refused` message is read.
+       */
+      socket.onerror = () =>
+        fail(Object.assign(new Error('Could not reach the meeting server.'), { retryable: true }));
 
       socket.onclose = (event) => {
-        fail(new Error(event.reason || 'The meeting connection closed.'));
-        if (!this.closed) this.on.closed?.(event.reason);
+        fail(Object.assign(
+          new Error(event.reason || 'The meeting connection closed.'),
+          { retryable: !DELIBERATE_CLOSE.includes(event.code) },
+        ));
+        if (this.closed) return;
+
+        /**
+         * A closed socket is not the end of a meeting.
+         *
+         * Wifi drops, laptops sleep, load balancers recycle connections and
+         * development servers restart on every file change. Treating any of
+         * those as "the meeting is over" — which is what this used to do —
+         * throws everybody out of a call that is still running. Only the codes
+         * the server uses deliberately mean stop.
+         */
+        if (DELIBERATE_CLOSE.includes(event.code)) {
+          this.on.closed?.(event.reason);
+          return;
+        }
+
+        this.reconnect();
       };
 
       socket.onmessage = async (event) => {
@@ -137,6 +170,92 @@ export class MeetingRoom {
         );
       };
     });
+  }
+
+  /**
+   * Rebuilds the session after an unexpected disconnect.
+   *
+   * Everything is re-negotiated from scratch — device, transports, producers,
+   * consumers — because the server's side of all of it went away with the
+   * socket. What survives is the local media: the camera and microphone tracks
+   * are still captured, so the browser does not re-prompt and the light on the
+   * webcam never blinks.
+   */
+  async reconnect() {
+    if (this.closed || this.reconnecting) return;
+    this.reconnecting = true;
+
+    /**
+     * Keep the captured tracks, drop everything the server knew about.
+     *
+     * The transports, producers and consumers all died with the socket, but the
+     * camera and microphone are still open locally. Holding the tracks and
+     * re-sending the same ones means the browser is never asked for permission
+     * again and the capture indicator does not blink — closing a producer does
+     * not stop its track unless we ask it to, which is why this works.
+     */
+    const carried = [];
+    for (const [source, producer] of this.producers) {
+      if (source === 'screen' || source === 'screenAudio') {
+        // A screen capture cannot be restarted without a fresh user gesture.
+        producer.track?.stop();
+      } else if (producer.track?.readyState === 'live') {
+        carried.push({ source, track: producer.track, paused: producer.paused });
+      }
+      producer.close();
+    }
+    const hadScreen = this.producers.has('screen');
+    this.producers.clear();
+
+    for (const { consumer } of this.consumers.values()) consumer.close();
+    this.consumers.clear();
+    this.sendTransport?.close();
+    this.recvTransport?.close();
+
+    for (let attempt = 0; attempt < 12 && !this.closed; attempt += 1) {
+      // Backs off to 8s and stays there, so a long outage does not become a
+      // tight retry loop against a server that is already struggling.
+      const delay = Math.min(1000 * 2 ** attempt, 8000);
+      this.on.reconnecting?.({ attempt: attempt + 1, delay });
+      await new Promise((resolve) => { setTimeout(resolve, delay); });
+      if (this.closed) return;
+
+      try {
+        await this.connect();
+        await this.resend(carried);
+        if (hadScreen) this.on.warning?.('Your screen share stopped when the connection dropped.');
+        this.reconnecting = false;
+        this.on.reconnected?.();
+        return;
+      } catch {
+        // Try again until the attempts run out.
+      }
+    }
+
+    this.reconnecting = false;
+    if (!this.closed) this.on.closed?.('Lost the connection to the meeting.');
+  }
+
+  /** Re-sends the tracks we were already sending, on the new transports. */
+  async resend(carried) {
+    for (const { source, track, paused } of carried) {
+      if (track.readyState !== 'live') continue;
+
+      try {
+        const producer = source === 'mic'
+          ? await this.sendTransport.produce({
+              track,
+              appData: { source },
+              codecOptions: { opusStereo: false, opusDtx: true, opusFec: true },
+            })
+          : await this.produceVideo(track, CAMERA_ENCODINGS, source);
+
+        this.producers.set(source, producer);
+        if (paused) await this.setPaused(source, true);
+      } catch {
+        this.on.warning?.(`Could not restart your ${source} after reconnecting.`);
+      }
+    }
   }
 
   /** Steps 2 and 3: load the device, then build both transports. */
@@ -224,6 +343,9 @@ export class MeetingRoom {
         break;
 
       case 'newProducer':
+        // Announced before consuming, so the indicator flips as soon as the
+        // track exists rather than when its first packet has been negotiated.
+        this.on.peerProducerAdded?.(data);
         await this.consume(data.producerId);
         break;
 
@@ -259,6 +381,26 @@ export class MeetingRoom {
       case 'reaction':
         this.on.reaction?.(data);
         break;
+
+      case 'activeSpeaker':
+        this.on.activeSpeaker?.(data.texorId);
+        break;
+
+      case 'handChanged':
+        this.on.handChanged?.(data);
+        break;
+
+      /**
+       * A host muted us. The server has already stopped forwarding the audio;
+       * pausing locally keeps our own producer and our own button honest about
+       * it, rather than showing a live microphone that is going nowhere.
+       */
+      case 'forceMuted': {
+        const producer = this.producers.get('mic');
+        if (producer && !producer.paused) producer.pause();
+        this.on.forceMuted?.(data);
+        break;
+      }
 
       // Our own role changed — a promotion to co-host takes effect now rather
       // than on a rejoin, because the role is a field on our peer at the SFU.
@@ -337,11 +479,18 @@ export class MeetingRoom {
     }
   }
 
-  async startMic() {
+  async startMic(deviceId) {
     if (this.producers.has('mic')) return null;
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: {
+        // Left on, unlike the screen-audio track: this is a voice in a room,
+        // and it is what stops a presenter's own speakers echoing back.
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+      },
     });
     const track = stream.getAudioTracks()[0];
 
@@ -542,6 +691,18 @@ export class MeetingRoom {
     return this.request('removePeer', { texorId });
   }
 
+  muteParticipant(texorId) {
+    return this.request('muteParticipant', { texorId });
+  }
+
+  muteEveryone() {
+    return this.request('muteEveryone');
+  }
+
+  setRoleOf(texorId, role) {
+    return this.request('setPeerRole', { texorId, role });
+  }
+
   endMeeting() {
     return this.request('endMeeting');
   }
@@ -552,6 +713,14 @@ export class MeetingRoom {
 
   sendReaction(emoji) {
     return this.request('reaction', { emoji });
+  }
+
+  raiseHand(raised) {
+    return this.request('raiseHand', { raised });
+  }
+
+  lowerHandOf(texorId) {
+    return this.request('lowerHand', { texorId });
   }
 
   // ── Teardown ───────────────────────────────────────────────────────────────

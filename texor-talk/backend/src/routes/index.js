@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { attachSession, requireUser } from '../middleware/session.js';
+import { attachSession, requireParticipant, requireUser } from '../middleware/session.js';
 import { validate } from '../middleware/validate.js';
 import { handleCallback, logout, me, startLogin } from '../controllers/auth.controller.js';
 import {
@@ -26,7 +26,11 @@ import {
   endMeetingNow,
   getKnock,
   getMeeting,
+  guestPreview,
+  guestSchema,
   inviteeSchema,
+  joinAsGuest,
+  leaveAsGuest,
   joinMeeting,
   knockDecisionSchema,
   leaveMeeting,
@@ -79,8 +83,51 @@ export function createApiRouter() {
   router.post('/channels/:id/messages', validate(messageSchema), postMessage);
   router.delete('/channels/:id/messages/:messageId', deleteMessage);
 
+  // ── Guests ──────────────────────────────────────────────────────────────────
+  /**
+   * The only two routes reachable with no credential at all, and the only ones
+   * that must be declared before the blanket `requireUser` below.
+   *
+   * `guestPreview` is deliberately thin — enough to draw a join screen for
+   * somebody who has proved nothing, and no more.
+   */
+  router.get('/meetings/:code/guest', guestPreview);
+  router.post('/meetings/:code/guest', validate(guestSchema), joinAsGuest);
+
   // ── Meetings ────────────────────────────────────────────────────────────────
-  router.use('/meetings', requireUser);
+  /**
+   * A Texor Account is required for everything under /meetings **except** the
+   * few routes below that a guest needs to take part in the one meeting they
+   * were let into. Those are listed explicitly and each re-checks, once the
+   * meeting is loaded, that the guest's pass is for that meeting.
+   *
+   * The default is the strict one on purpose: a route added here later is
+   * closed to guests unless somebody deliberately opens it.
+   */
+  /**
+   * Paths under /meetings a guest may reach, matched against `req.path`, which
+   * inside this mount is everything after `/meetings`.
+   */
+  const GUEST_ROUTES = [
+    // The meeting itself, and only itself — `/^\/[^/]+$/` cannot match any
+    // sub-resource, so the invite file, the waiting list and the invitee list
+    // all stay closed. `present()` further reduces what a guest is shown.
+    ['GET', /^\/[^/]+$/],
+    ['POST', /^\/[^/]+\/join$/],
+    ['GET', /^\/[^/]+\/knocks\/[^/]+\/status$/],
+    ['DELETE', /^\/[^/]+\/knocks\/[^/]+$/],
+    ['POST', /^\/[^/]+\/leave$/],
+    ['POST', /^\/[^/]+\/guest\/leave$/],
+  ];
+
+  router.use('/meetings', (req, res, next) => {
+    const openToGuests = GUEST_ROUTES.some(
+      ([method, pattern]) => method === req.method && pattern.test(req.path),
+    );
+    return openToGuests ? requireParticipant(req, res, next) : requireUser(req, res, next);
+  });
+
+  router.post('/meetings/:code/guest/leave', leaveAsGuest);
   router.get('/meetings', validate(listMeetingsSchema, 'query'), listMeetings);
   router.post('/meetings', validate(createMeetingSchema), createMeeting);
 

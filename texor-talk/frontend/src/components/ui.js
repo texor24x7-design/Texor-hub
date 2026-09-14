@@ -43,11 +43,19 @@ export function Alert({ kind = 'error', children }) {
   return <div className={`alert alert--${kind}`} role={kind === 'error' ? 'alert' : 'status'}>{children}</div>;
 }
 
-export function Button({ variant = 'primary', block, size, loading, children, ...props }) {
+export function Button({ variant = 'primary', block, size, loading, className, children, ...props }) {
   return (
     <button
-      className={['btn', `btn--${variant}`, block ? 'btn--block' : '', size === 'sm' ? 'btn--sm' : '']
-        .filter(Boolean).join(' ')}
+      // `className` is pulled out of props and merged, not spread: spreading it
+      // after this attribute would replace the computed classes outright and
+      // leave an unstyled button behind.
+      className={[
+        'btn',
+        `btn--${variant}`,
+        block ? 'btn--block' : '',
+        size === 'sm' ? 'btn--sm' : '',
+        className ?? '',
+      ].filter(Boolean).join(' ')}
       disabled={loading || props.disabled}
       {...props}
     >

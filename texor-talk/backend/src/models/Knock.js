@@ -19,6 +19,16 @@ const knockSchema = new Schema(
     email: { type: String, default: '' },
     picture: { type: String, default: '' },
 
+    /**
+     * Whether this person has no Texor Account at all.
+     *
+     * Not derivable from the email, because a guest has none — and
+     * `isExternalEmail('')` is false whenever ORG_EMAIL_DOMAINS is unset, which
+     * would show an anonymous stranger to the host as an ordinary colleague.
+     * That is exactly the thing a host needs to know before admitting somebody.
+     */
+    isGuest: { type: Boolean, default: false },
+
     status: {
       type: String,
       enum: ['waiting', 'admitted', 'denied', 'expired'],

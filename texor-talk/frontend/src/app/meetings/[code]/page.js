@@ -4,17 +4,18 @@ import { Fragment, use, useCallback, useEffect, useMemo, useRef, useState } from
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { VideoTile } from '@/components/VideoTile';
-import { Alert, Avatar, Button, Loading } from '@/components/ui';
+import { Alert, Avatar, Button, Field, Loading, Logo } from '@/components/ui';
 import {
   CameraIcon, CameraOffIcon, ChatIcon, CheckIcon, CloseIcon, CopyIcon, HangUpIcon,
   InfoIcon, MicIcon, MicOffIcon, PeopleIcon, PresentIcon, PresentOffIcon,
-  ReactionIcon, RemovePersonIcon, SendIcon,
+  GridIcon, HandIcon, PinIcon, ReactionIcon, RemovePersonIcon, SendIcon, ShieldIcon,
 } from '@/components/icons';
 
 /** Must match the server's allowlist in media/signalling.js. */
 const REACTIONS = ['👍', '👎', '❤️', '🎉', '👏', '😂', '😮', '😢', '🤔', '✋'];
-import { meetings as meetingApi } from '@/lib/api';
+import { auth, meetings as meetingApi, signInWithTexor } from '@/lib/api';
 import { MeetingRoom } from '@/lib/room';
+import { describeMediaError } from '@/lib/media-errors';
 
 /**
  * One meeting, in four states.
@@ -30,9 +31,219 @@ import { MeetingRoom } from '@/lib/room';
 
 const KNOCK_POLL_MS = 3_000;
 
+/**
+ * `getDisplayMedia` simply does not exist on mobile browsers.
+ *
+ * iOS Safari and Android Chrome have no API for capturing a screen, so the
+ * button cannot be made to work there — offering it and failing is worse than
+ * not offering it, which is why this is checked rather than attempted.
+ */
+const canCaptureScreen = () =>
+  typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+
+/**
+ * Turns a peer summary into what a tile needs.
+ *
+ * The server already says, per producer, what kind it is and whether it is
+ * paused. Throwing that away — which the roster used to do — meant somebody who
+ * joined muted showed as unmuted until they happened to toggle, and every
+ * indicator read backwards until then. Derived, never assumed.
+ */
+function hydrate(peer, existing = {}) {
+  const producers = peer.producers ?? existing.producers ?? [];
+  const mic = producers.find((p) => p.source === 'mic');
+  const camera = producers.find((p) => p.source === 'camera');
+
+  return {
+    ...existing,
+    ...peer,
+    producers,
+    tracks: existing.tracks ?? {},
+    // No microphone producer at all is also muted: they have not started one.
+    muted: !mic || mic.paused,
+    cameraOff: !camera || camera.paused,
+    handRaised: Boolean(peer.handRaised ?? existing.handRaised),
+  };
+}
+
 export default function MeetingPage({ params }) {
   const { code } = use(params);
-  return <AppShell>{(user) => <MeetingScreen code={code} user={user} />}</AppShell>;
+  return <MeetingEntry code={code} />;
+}
+
+/**
+ * Who is arriving, before anything else is decided.
+ *
+ * A meeting link is the one place in this product that has to work for somebody
+ * with no account, so this page cannot sit behind the usual `AppShell` bounce to
+ * sign-in. It asks who the caller is once: a Texor session goes down the normal
+ * path, and anybody else is offered a name box — but only if the meeting itself
+ * has been opened to guests, which the server decides, not this component.
+ */
+function MeetingEntry({ code }) {
+  const [state, setState] = useState({ phase: 'checking' });
+
+  const load = useCallback(async () => {
+    try {
+      const { user } = await auth.me();
+
+      if (user && !user.isGuest) return setState({ phase: 'member', user });
+
+      /**
+       * A guest pass already in the browser, from a refresh or a second tab.
+       * It is only good for the meeting it was issued for — anything else and
+       * they are treated as a new arrival and offered the name box again.
+       */
+      if (user?.isGuest && user.meetingCode === code) {
+        return setState({ phase: 'guest-joined', user });
+      }
+    } catch {
+      // Not signed in is not an error here; it is the other half of the flow.
+    }
+
+    try {
+      const preview = await meetingApi.guestPreview(code);
+      return setState({ phase: 'guest', preview });
+    } catch (previewError) {
+      return setState({ phase: 'unavailable', message: previewError.message });
+    }
+  }, [code]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (state.phase === 'checking') return <Loading label="Opening the meeting" />;
+
+  // Signed in: the ordinary path, with the usual chrome around it.
+  if (state.phase === 'member') {
+    return <AppShell>{(user) => <MeetingScreen code={code} user={user} />}</AppShell>;
+  }
+
+  /**
+   * A guest goes straight to the meeting, with no `AppShell`.
+   *
+   * `AppShell` exists to guarantee a Texor session and bounces to sign-in when
+   * there is not one — which is exactly what a guest does not have. Rendering it
+   * around them sent somebody who had *just* successfully joined by name
+   * straight to the sign-in page. They also get no product navigation, which is
+   * correct: a guest pass opens this meeting and nothing else.
+   */
+  if (state.phase === 'guest-joined') {
+    return <MeetingScreen code={code} user={state.user} />;
+  }
+
+  if (state.phase === 'guest') {
+    return (
+      <GuestEntry
+        code={code}
+        preview={state.preview}
+        onJoined={(guest) => setState({ phase: 'guest-joined', user: guest })}
+      />
+    );
+  }
+
+  return (
+    <div className="greenroom">
+      <div className="greenroom__card">
+        <h1>This meeting is not available</h1>
+        <Alert kind="error">{state.message}</Alert>
+        <Button onClick={() => { window.location.href = '/meetings'; }}>Go to Texor Talk</Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The name box.
+ *
+ * Deliberately offers signing in as the first option rather than the
+ * afterthought: somebody with a Texor Account gets a real identity in the
+ * attendance record and skips the lobby, and both are better for them and for
+ * whoever is hosting.
+ */
+function GuestEntry({ code, preview, onJoined }) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const { allowed, reason, willWait } = preview.guests;
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!name.trim()) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const { guest } = await meetingApi.joinAsGuest(code, name.trim());
+      onJoined({ ...guest, isAdmin: false });
+    } catch (joinError) {
+      setError(joinError.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="greenroom">
+      <div className="greenroom__card">
+        <Logo />
+
+        <div>
+          <h1 style={{ marginTop: '0.5rem' }}>{preview.meeting.title}</h1>
+          <p className="meta" style={{ marginTop: '0.35rem' }}>
+            Hosted by {preview.meeting.hostName}
+          </p>
+        </div>
+
+        {allowed ? (
+          <>
+            <form className="stack stack--tight" onSubmit={submit}>
+              <Alert kind="error">{error}</Alert>
+
+              <Field
+                label="Your name"
+                hint="This is what everyone in the meeting will see."
+                htmlFor="guestName"
+              >
+                <input
+                  id="guestName"
+                  className="input"
+                  autoFocus
+                  maxLength={60}
+                  placeholder="e.g. Sam Rivera"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </Field>
+
+              {willWait ? (
+                <Alert kind="info">
+                  You will wait in the lobby until a host lets you in.
+                </Alert>
+              ) : null}
+
+              <Button type="submit" loading={busy} disabled={!name.trim()} block>
+                Ask to join
+              </Button>
+            </form>
+
+            <div className="greenroom__alt">
+              <span className="meta">Have a Texor Account?</span>
+              <Button variant="secondary" size="sm" onClick={() => signInWithTexor(`/meetings/${code}`)}>
+                Sign in instead
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Alert kind="info">{reason}</Alert>
+            <Button onClick={() => signInWithTexor(`/meetings/${code}`)} block>
+              Sign in with Texor
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function MeetingScreen({ code, user }) {
@@ -46,6 +257,7 @@ function MeetingScreen({ code, user }) {
   const [errorCode, setErrorCode] = useState(null);
   const [notice, setNotice] = useState(null);
   const [joining, setJoining] = useState(false);
+  const [prefs, setPrefs] = useState(null);
 
   useEffect(() => {
     meetingApi
@@ -61,9 +273,11 @@ function MeetingScreen({ code, user }) {
       });
   }, [code]);
 
-  const join = useCallback(async () => {
+  const join = useCallback(async (preferences) => {
     setJoining(true);
     setError(null);
+    // Carried into the call so nobody is asked twice about the same devices.
+    setPrefs(preferences ?? null);
 
     try {
       const result = await meetingApi.join(code);
@@ -126,8 +340,9 @@ function MeetingScreen({ code, user }) {
         code={code}
         meeting={meeting}
         grant={grant}
+        prefs={prefs}
         user={user}
-        onLeave={() => router.push('/meetings')}
+        onLeave={() => router.push(user.isGuest ? `/meetings/${code}` : '/meetings')}
         onClosed={(reason) => {
           setNotice(reason);
           setPhase('over');
@@ -181,20 +396,71 @@ function MeetingScreen({ code, user }) {
  * object with sockets and transports attached, and putting it in state would
  * invite a re-render to replace it and drop everyone's media.
  */
-function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
+function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
+  /**
+   * What the green room chose, narrowed by what the meeting allows.
+   *
+   * A host can require everyone to arrive muted, and that has to win over
+   * somebody's preference — but only in that direction. Nobody is ever forced
+   * *on*, which is why these are `&&` rather than a straight override.
+   */
+  const wanted = {
+    mic: (prefs?.micOn ?? true) && !grant.startMuted,
+    camera: (prefs?.cameraOn ?? true) && !grant.startCameraOff,
+    devices: prefs?.devices ?? {},
+  };
+
   const roomRef = useRef(null);
 
   const [peers, setPeers] = useState(() => new Map());
   const [localCamera, setLocalCamera] = useState(null);
   const [localScreen, setLocalScreen] = useState(null);
-  const [micOn, setMicOn] = useState(!grant.startMuted);
-  const [cameraOn, setCameraOn] = useState(!grant.startCameraOff);
+  const [micOn, setMicOn] = useState(wanted.mic);
+  const [cameraOn, setCameraOn] = useState(wanted.camera);
   const [screenOn, setScreenOn] = useState(false);
   const [knocks, setKnocks] = useState([]);
   const [chat, setChat] = useState([]);
   const [unread, setUnread] = useState(0);
   const [reactions, setReactions] = useState([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [speaking, setSpeakingRaw] = useState(null);
+  const clearSpeaking = useRef(null);
+
+  /**
+   * Turning the highlight *off* waits; turning it on does not.
+   *
+   * Silence is reported during the gaps between words as well as at the end of
+   * a sentence, so clearing immediately makes the ring strobe while somebody is
+   * still mid-thought. A new speaker replaces the old one at once — only the
+   * emptying is held back.
+   */
+  const setSpeaking = useCallback((texorId) => {
+    clearTimeout(clearSpeaking.current);
+
+    if (texorId) {
+      setSpeakingRaw(texorId);
+      return;
+    }
+    clearSpeaking.current = setTimeout(() => setSpeakingRaw(null), 900);
+  }, []);
+
+  useEffect(() => () => clearTimeout(clearSpeaking.current), []);
+  const [myHand, setMyHand] = useState(false);
+  const [connection, setConnection] = useState({ state: 'live' });
+
+  /**
+   * How the stage is arranged.
+   *
+   *   auto      spotlight whoever is presenting or talking, grid when neither
+   *   tiled     everyone the same size, no promotion
+   *   spotlight one person large with the rest in a strip
+   *
+   * `pinned` overrides all of it — an explicit choice outranks anything the
+   * room works out for itself, and it stays put when somebody else speaks.
+   */
+  const [layout, setLayout] = useState('auto');
+  const [pinned, setPinned] = useState(null);
+  const [layoutOpen, setLayoutOpen] = useState(false);
   const [role, setRole] = useState(grant.role);
   const [status, setStatus] = useState('connecting');
   const [error, setError] = useState(null);
@@ -228,7 +494,7 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
     if (!peer?.texorId) return;
     setPeers((current) => {
       const next = new Map(current);
-      next.set(peer.texorId, { ...current.get(peer.texorId), ...peer, tracks: {} });
+      next.set(peer.texorId, hydrate(peer, current.get(peer.texorId)));
       return next;
     });
   }, []);
@@ -239,8 +505,7 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
     const room = new MeetingRoom(code, {
       // Arrives before any track is consumed, so the tracks that follow land on
       // top of this rather than being wiped by it.
-      roster: (list) =>
-        setPeers(new Map(list.map((peer) => [peer.texorId, { ...peer, tracks: {} }]))),
+      roster: (list) => setPeers(new Map(list.map((peer) => [peer.texorId, hydrate(peer)]))),
 
       peerJoined: (peer) => addPeer(peer),
 
@@ -265,6 +530,35 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
 
       peerMediaToggled: (peerTexorId, kind, paused) =>
         updatePeer(peerTexorId, () => (kind === 'audio' ? { muted: paused } : { cameraOff: paused })),
+
+      // Someone starting a track is also an indicator change — without this a
+      // person who turns their microphone on still reads as muted.
+      peerProducerAdded: ({ peerTexorId, kind, source }) =>
+        updatePeer(peerTexorId, () => (
+          source === 'mic' ? { muted: false } : source === 'camera' ? { cameraOff: false } : {}
+        )),
+
+      activeSpeaker: (texorId) => setSpeaking(texorId),
+
+
+      handChanged: ({ texorId, raised }) => {
+        if (texorId === user.texorId) setMyHand(raised);
+        updatePeer(texorId, () => ({ handRaised: raised }));
+      },
+
+      forceMuted: ({ by }) => {
+        setMicOn(false);
+        setError(`${by} muted you. You can unmute yourself when you need to speak.`);
+      },
+
+      reconnecting: ({ attempt }) => setConnection({ state: 'reconnecting', attempt }),
+      reconnected: () => {
+        setConnection({ state: 'live' });
+        // The first attempt may never have got this far, so this is also where
+        // the stage stops saying "joining" when a retry is what got us in.
+        setStatus('live');
+        setError(null);
+      },
 
       knocks: setKnocks,
       knockResolved: (knockId) => setKnocks((current) => current.filter((k) => k.id !== knockId)),
@@ -306,22 +600,45 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
 
         setStatus('live');
 
-        // Microphone first: a call where people can hear but not see each other
-        // still works, and the reverse does not.
-        await room.startMic().catch(() => setError('Could not use your microphone.'));
-        if (grant.startMuted) await room.setPaused('mic', true);
+        /**
+         * The microphone is always opened, even when joining muted.
+         *
+         * Producing it now and pausing it makes unmuting instant later. Waiting
+         * until someone clicks means a capture, a negotiation and a permission
+         * check standing between them and being heard, which is the worst
+         * possible moment for it.
+         */
+        await room
+          .startMic(wanted.devices.mic)
+          .catch((micError) => setError(describeMediaError(micError, 'audio')));
+        if (!wanted.mic) await room.setPaused('mic', true);
 
-        if (!grant.startCameraOff) {
-          const track = await room.startCamera().catch(() => null);
-          if (track) setLocalCamera(track);
-          else {
+        if (wanted.camera) {
+          try {
+            setLocalCamera(await room.startCamera(wanted.devices.camera));
+          } catch (cameraError) {
             setCameraOn(false);
-            setError('Could not use your camera. You are still in the meeting.');
+            setError(`${describeMediaError(cameraError, 'video')} You are still in the meeting.`);
           }
         }
       })
       .catch((connectError) => {
-        if (!cancelled) onClosed(connectError.message);
+        if (cancelled) return;
+
+        /**
+         * Only a real refusal ends the meeting here.
+         *
+         * If the very first connection could not be made — the server was
+         * restarting, the network blinked — the room is already retrying in the
+         * background, and throwing the user out to "meeting ended" while that
+         * happens is both wrong and unrecoverable. Show that it is reconnecting
+         * and let the loop do its work.
+         */
+        if (connectError.retryable) {
+          setConnection({ state: 'reconnecting', attempt: 1 });
+          return;
+        }
+        onClosed(connectError.message);
       });
 
     return () => {
@@ -348,6 +665,23 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
       window.removeEventListener('keydown', dismiss);
     };
   }, [pickerOpen]);
+
+  useEffect(() => {
+    if (!layoutOpen) return undefined;
+
+    const dismiss = (event) => {
+      if (event.type === 'keydown' && event.key !== 'Escape') return;
+      if (event.type === 'pointerdown' && event.target.closest?.('.meet__layout-wrap')) return;
+      setLayoutOpen(false);
+    };
+
+    window.addEventListener('pointerdown', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      window.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [layoutOpen]);
 
   // A host should not have to go looking for someone waiting at the door.
   useEffect(() => {
@@ -382,12 +716,35 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
     }
   }
 
+  async function changeRole(texorId, nextRole) {
+    try {
+      const { meeting: updated } = await meetingApi.setRole(code, texorId, nextRole);
+      updatePeer(texorId, () => ({ role: nextRole }));
+      if (updated) setError(null);
+    } catch (roleError) {
+      setError(roleError.message);
+    }
+  }
+
+  async function toggleHand() {
+    const next = !myHand;
+    setMyHand(next);
+    try {
+      await roomRef.current?.raiseHand(next);
+    } catch {
+      setMyHand(!next);
+    }
+  }
+
   async function toggleMic() {
     const room = roomRef.current;
     if (!room.has('mic')) {
-      const track = await room.startMic().catch(() => null);
-      if (!track) return setError('Could not use your microphone.');
-      return setMicOn(true);
+      try {
+        await room.startMic(wanted.devices.mic);
+        return setMicOn(true);
+      } catch (micError) {
+        return setError(describeMediaError(micError, 'audio'));
+      }
     }
     await room.setPaused('mic', micOn);
     return setMicOn(!micOn);
@@ -402,10 +759,13 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
       return setCameraOn(false);
     }
 
-    const track = await room.startCamera().catch(() => null);
-    if (!track) return setError('Could not use your camera.');
-    setLocalCamera(track);
-    return setCameraOn(true);
+    try {
+      const track = await room.startCamera(wanted.devices.camera);
+      setLocalCamera(track);
+      return setCameraOn(true);
+    } catch (cameraError) {
+      return setError(describeMediaError(cameraError, 'video'));
+    }
   }
 
   async function toggleScreen() {
@@ -444,6 +804,11 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
   async function leave() {
     roomRef.current?.close();
     await meetingApi.leave(code).catch(() => {});
+
+    // A guest pass has no purpose once its meeting is left, and leaving it in
+    // the browser is a credential nobody is tracking.
+    if (user.isGuest) await meetingApi.leaveAsGuest(code).catch(() => {});
+
     onLeave();
   }
 
@@ -464,6 +829,50 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
     return null;
   }, [peers, localScreen, user.displayName]);
 
+  /**
+   * Who gets the big tile, and whether anybody does.
+   *
+   * The order is deliberate. A pin is an explicit instruction and outranks
+   * everything, including a screen share. A screen share outranks the speaker,
+   * because somebody sharing has something specific to show. Only then does the
+   * active speaker get promoted, and only when the layout asks for it.
+   *
+   * `tiled` opts out entirely: some people want to see everybody all the time
+   * and find a stage that rearranges itself when someone coughs unbearable.
+   */
+  const stage = useMemo(() => {
+    const pinnedPeer = pinned === user.texorId
+      ? { texorId: user.texorId, name: user.displayName, isYou: true, track: localCamera }
+      : pinned
+        ? (() => {
+            const peer = peers.get(pinned);
+            return peer ? { ...peer, track: peer.tracks.camera } : null;
+          })()
+        : null;
+
+    if (pinnedPeer) return { mode: 'feature', feature: pinnedPeer, reason: 'pinned' };
+    if (presenting) return { mode: 'present', feature: presenting, reason: 'presenting' };
+    if (layout === 'tiled') return { mode: 'grid' };
+
+    if (layout === 'spotlight' || layout === 'auto') {
+      const id = speaking ?? [...peers.keys()][0] ?? user.texorId;
+      // In `auto`, a grid of two or three people is already a good view of
+      // everyone — promoting one of them gains nothing and loses the others.
+      if (layout === 'auto' && peers.size < 3) return { mode: 'grid' };
+
+      const feature = id === user.texorId
+        ? { texorId: user.texorId, name: user.displayName, isYou: true, track: localCamera }
+        : (() => {
+            const peer = peers.get(id);
+            return peer ? { ...peer, track: peer.tracks.camera } : null;
+          })();
+
+      if (feature) return { mode: 'feature', feature, reason: 'speaking' };
+    }
+
+    return { mode: 'grid' };
+  }, [pinned, presenting, layout, speaking, peers, localCamera, user.texorId, user.displayName]);
+
   const everyone = [...peers.values()];
   const tileCount = everyone.length + 1;
 
@@ -476,7 +885,9 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
       isYou
       mirrored
       muted={!micOn}
-      compact={Boolean(presenting)}
+      handRaised={myHand}
+      speaking={speaking === user.texorId && micOn}
+      compact={stage.mode !== 'grid'}
     />
   );
 
@@ -487,7 +898,13 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
       name={peer.name}
       role={peer.role}
       muted={peer.muted}
-      compact={Boolean(presenting)}
+      handRaised={peer.handRaised}
+      // Someone who is muted cannot be the one talking, whatever the observer
+      // last said — the highlight would otherwise stick to them after a mute.
+      speaking={speaking === peer.texorId && !peer.muted}
+      compact={stage.mode !== 'grid'}
+      onPin={() => setPinned((current) => (current === peer.texorId ? null : peer.texorId))}
+      pinned={pinned === peer.texorId}
     />
   ));
 
@@ -503,17 +920,28 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
           </div>
         ) : null}
 
-        {status !== 'live' ? (
-          <div className="meet__connecting">
+        {status !== 'live' || connection.state === 'reconnecting' ? (
+          <div className="meet__connecting" role="status">
             <span className="spinner" aria-hidden="true" />
-            <span>Joining&hellip;</span>
+            <span>
+              {connection.state === 'reconnecting'
+                ? `Reconnecting\u2026 (attempt ${connection.attempt})`
+                : 'Joining\u2026'}
+            </span>
+            {connection.state === 'reconnecting' ? (
+              <span className="meet__muted">Your meeting is still running.</span>
+            ) : null}
           </div>
         ) : null}
 
-        {presenting ? (
+        {stage.mode === 'grid' ? (
+          <div className="meet__grid" data-count={tileCount > 12 ? 'many' : tileCount}>
+            {[selfTile, ...peerTiles]}
+          </div>
+        ) : (
           <div className="meet__present">
             <div className="meet__present-main">
-              {presenting.isYou ? (
+              {stage.mode === 'present' && stage.feature.isYou ? (
                 <div className="meet__presenting-self">
                   <PresentIcon />
                   <p>You are presenting to everyone</p>
@@ -525,19 +953,29 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
                   </button>
                 </div>
               ) : (
-                <VideoTile track={presenting.track} name={presenting.name} label="screen" />
+                <VideoTile
+                  track={stage.feature.track}
+                  name={stage.feature.name}
+                  role={stage.feature.role}
+                  muted={stage.feature.isYou ? !micOn : stage.feature.muted}
+                  handRaised={stage.feature.isYou ? myHand : stage.feature.handRaised}
+                  speaking={!stage.feature.isYou && speaking === stage.feature.texorId}
+                  mirrored={stage.feature.isYou && stage.mode !== 'present'}
+                  isYou={stage.feature.isYou}
+                  label={stage.mode === 'present' ? 'screen' : undefined}
+                />
               )}
+
+              {stage.reason === 'pinned' ? (
+                <button type="button" className="meet__unpin" onClick={() => setPinned(null)}>
+                  <PinIcon /> Unpin
+                </button>
+              ) : null}
             </div>
+
             <div className="meet__strip">{[selfTile, ...peerTiles]}</div>
           </div>
-        ) : (
-          <div className="meet__grid" data-count={Math.min(tileCount, 12)}>
-            {[selfTile, ...peerTiles]}
-          </div>
         )}
-
-        <ReactionLayer reactions={reactions} onDone={(key) =>
-          setReactions((current) => current.filter((entry) => entry.key !== key))} />
 
         {/* Remote audio is played, never shown. One element per peer so one
             failing track cannot silence everybody else. */}
@@ -566,6 +1004,7 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
           room={roomRef}
           onError={setError}
           onDecide={decideKnock}
+          onSetRole={changeRole}
         />
       ) : null}
 
@@ -618,7 +1057,15 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
             />
           </div>
 
-          {grant.canShareScreen || isHost ? (
+          <ControlButton
+            on
+            active={myHand}
+            onClick={toggleHand}
+            label={myHand ? 'Lower your hand' : 'Raise your hand'}
+            icon={<HandIcon />}
+          />
+
+          {(grant.canShareScreen || isHost) && canCaptureScreen() ? (
             <ControlButton
               on
               active={screenOn}
@@ -634,6 +1081,45 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
         </div>
 
         <div className="meet__bar-right">
+          <div className="meet__layout-wrap">
+            {layoutOpen ? (
+              <div className="meet__menu" role="menu">
+                {[
+                  ['auto', 'Automatic', 'Promotes whoever is presenting or talking'],
+                  ['tiled', 'Tiled', 'Everyone the same size'],
+                  ['spotlight', 'Spotlight', 'One person large, the rest in a strip'],
+                ].map(([value, label, hint]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={layout === value}
+                    className={`meet__menu-item ${layout === value ? 'meet__menu-item--on' : ''}`}
+                    onClick={() => { setLayout(value); setLayoutOpen(false); }}
+                  >
+                    <strong>{label}</strong>
+                    <span>{hint}</span>
+                  </button>
+                ))}
+                {pinned ? (
+                  <button
+                    type="button" role="menuitem" className="meet__menu-item"
+                    onClick={() => { setPinned(null); setLayoutOpen(false); }}
+                  >
+                    <strong>Unpin</strong>
+                    <span>Stop holding one person on the stage</span>
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <PanelButton
+              active={layoutOpen}
+              onClick={() => setLayoutOpen((open) => !open)}
+              label="Change layout"
+              icon={<GridIcon />}
+            />
+          </div>
+
           <PanelButton
             active={panel === 'info'}
             onClick={() => openPanel('info')}
@@ -718,7 +1204,7 @@ function Clock() {
 
 // ── The side panel ───────────────────────────────────────────────────────────
 
-function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError, onDecide }) {
+function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError, onDecide, onSetRole }) {
   const titles = { people: 'People', chat: 'In-call messages', info: 'Meeting details' };
 
   return (
@@ -734,7 +1220,7 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
         {panel === 'people' ? (
           <PeoplePanel
             user={user} role={role} isHost={isHost} peers={peers} knocks={knocks}
-            room={room} onError={onError} onDecide={onDecide}
+            room={room} onError={onError} onDecide={onDecide} onSetRole={onSetRole}
           />
         ) : null}
         {panel === 'chat' ? <ChatPanel chat={chat} room={room} user={user} /> : null}
@@ -744,7 +1230,7 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
   );
 }
 
-function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecide }) {
+function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecide, onSetRole }) {
   return (
     <>
       {isHost && knocks.length > 0 ? (
@@ -779,7 +1265,18 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecid
       ) : null}
 
       <section className="meet__section">
-        <h3>In the call ({peers.length + 1})</h3>
+        <div className="row row--between" style={{ marginBottom: '0.75rem' }}>
+          <h3 style={{ margin: 0 }}>In the call ({peers.length + 1})</h3>
+          {isHost && peers.length > 0 ? (
+            <button
+              type="button"
+              className="meet__chip"
+              onClick={() => room.current?.muteEveryone().catch((e) => onError(e.message))}
+            >
+              Mute all
+            </button>
+          ) : null}
+        </div>
 
         <div className="meet__person">
           <span className="meet__knock-avatar">
@@ -801,16 +1298,44 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecid
               ) : null}
             </div>
             {peer.muted ? <span className="meet__muted-icon"><MicOffIcon /></span> : null}
-            {role === 'host' ? (
-              <button
-                type="button"
-                className="meet__tool meet__tool--sm"
-                aria-label={`Remove ${peer.name}`}
-                title={`Remove ${peer.name}`}
-                onClick={() => room.current?.removePeer(peer.texorId).catch((e) => onError(e.message))}
-              >
-                <RemovePersonIcon />
-              </button>
+
+            {isHost ? (
+              <div className="meet__person-actions">
+                {/* Muting is possible; unmuting somebody else is not, and the
+                    button says so rather than sitting there doing nothing. */}
+                <button
+                  type="button"
+                  className="meet__tool meet__tool--sm"
+                  disabled={peer.muted}
+                  aria-label={peer.muted ? `${peer.name} is already muted` : `Mute ${peer.name}`}
+                  title={peer.muted ? 'Already muted — only they can unmute' : `Mute ${peer.name}`}
+                  onClick={() => room.current?.muteParticipant(peer.texorId).catch((e) => onError(e.message))}
+                >
+                  <MicOffIcon />
+                </button>
+
+                {role === 'host' ? (
+                  <button
+                    type="button"
+                    className="meet__tool meet__tool--sm"
+                    aria-label={peer.role === 'cohost' ? `Remove co-host from ${peer.name}` : `Make ${peer.name} a co-host`}
+                    title={peer.role === 'cohost' ? 'Remove co-host' : 'Make co-host'}
+                    onClick={() => onSetRole(peer.texorId, peer.role === 'cohost' ? 'participant' : 'cohost')}
+                  >
+                    <ShieldIcon />
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="meet__tool meet__tool--sm meet__tool--danger"
+                  aria-label={`Remove ${peer.name} from the meeting`}
+                  title={`Remove ${peer.name}`}
+                  onClick={() => room.current?.removePeer(peer.texorId).catch((e) => onError(e.message))}
+                >
+                  <RemovePersonIcon />
+                </button>
+              </div>
             ) : null}
           </div>
         ))}
@@ -963,7 +1488,98 @@ function RemoteAudio({ track }) {
 
 // ── Screens ──────────────────────────────────────────────────────────────────
 
+/**
+ * The green room.
+ *
+ * People arrive at a meeting already worried about whether their camera is on
+ * and whether the right microphone is selected. Answering both before they are
+ * in front of anyone is the entire point of this screen — so it previews the
+ * real camera, lets the devices be chosen, and carries those choices into the
+ * call rather than asking again once everyone can see them.
+ */
 function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
+  const video = useRef(null);
+  const streamRef = useRef(null);
+
+  const [micOn, setMicOn] = useState(true);
+  const [cameraOn, setCameraOn] = useState(true);
+  const [devices, setDevices] = useState({ mics: [], cameras: [] });
+  const [chosen, setChosen] = useState({ mic: '', camera: '' });
+  const [deviceError, setDeviceError] = useState(null);
+
+  // Preview the selected camera, and re-open it when the choice changes.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function open() {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      if (video.current) video.current.srcObject = null;
+
+      try {
+        /**
+         * Audio is requested here even though nothing plays it back.
+         *
+         * Two reasons, and both were bugs. Asking for the camera alone meant
+         * the microphone prompt appeared *after* joining — the worst moment for
+         * it, and missing or dismissing it left someone in a meeting unable to
+         * speak. And `enumerateDevices` only reveals ids and labels for kinds
+         * you already have permission for, so the microphone picker was a list
+         * of blank entries nobody could choose between.
+         *
+         * One prompt, before the call, covering both.
+         */
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: chosen.mic ? { deviceId: { exact: chosen.mic } } : true,
+          video: cameraOn
+            ? (chosen.camera ? { deviceId: { exact: chosen.camera } } : true)
+            : false,
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        // Only the picture is previewed. Playing our own microphone back would
+        // be an echo, and a loud one on speakers.
+        if (video.current) video.current.srcObject = stream;
+        setDeviceError(null);
+
+        const all = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        setDevices({
+          mics: all.filter((d) => d.kind === 'audioinput' && d.deviceId),
+          cameras: all.filter((d) => d.kind === 'videoinput' && d.deviceId),
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setDeviceError(describeMediaError(error, cameraOn ? 'video' : 'audio'));
+
+        // Losing the camera should not cost the microphone too: fall back to
+        // audio alone so somebody can still join and be heard.
+        if (cameraOn) {
+          try {
+            const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (cancelled) { audioOnly.getTracks().forEach((t) => t.stop()); return; }
+            streamRef.current = audioOnly;
+            setCameraOn(false);
+          } catch {
+            // Neither is available; the message above already says so.
+          }
+        }
+      }
+    }
+
+    open();
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    };
+  }, [cameraOn, chosen.camera, chosen.mic]);
+
   const lobbyApplies =
     meeting &&
     !meeting.viewer.isHost &&
@@ -972,23 +1588,85 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
 
   return (
     <>
+      <div className="greenroom__preview">
+        {cameraOn ? (
+          <video ref={video} autoPlay playsInline muted className="greenroom__video" />
+        ) : (
+          <div className="greenroom__off">
+            <CameraOffIcon />
+            <span>Camera is off</span>
+          </div>
+        )}
+
+        <div className="greenroom__controls">
+          <button
+            type="button"
+            className={`meet__control ${micOn ? '' : 'meet__control--off'}`}
+            aria-pressed={!micOn}
+            aria-label={micOn ? 'Join with microphone off' : 'Join with microphone on'}
+            onClick={() => setMicOn((on) => !on)}
+          >
+            {micOn ? <MicIcon /> : <MicOffIcon />}
+          </button>
+          <button
+            type="button"
+            className={`meet__control ${cameraOn ? '' : 'meet__control--off'}`}
+            aria-pressed={!cameraOn}
+            aria-label={cameraOn ? 'Join with camera off' : 'Join with camera on'}
+            onClick={() => setCameraOn((on) => !on)}
+          >
+            {cameraOn ? <CameraIcon /> : <CameraOffIcon />}
+          </button>
+        </div>
+      </div>
+
       <div>
         <span className="badge">{meeting?.status === 'live' ? 'In progress' : 'Ready'}</span>
         <h1 style={{ marginTop: '0.6rem' }}>{meeting?.title}</h1>
         <p className="meta" style={{ marginTop: '0.35rem' }}>
           Hosted by {meeting?.host?.name}
           {meeting?.participantCount > 0
-            ? ` · ${meeting.participantCount} already here`
-            : ' · nobody here yet'}
+            ? ` \u00b7 ${meeting.participantCount} already here`
+            : ' \u00b7 nobody here yet'}
         </p>
       </div>
 
       {meeting?.agenda ? <p style={{ color: 'var(--text-muted)' }}>{meeting.agenda}</p> : null}
 
-      <Alert kind="error">{error}</Alert>
-
+      <Alert kind="error">{error ?? deviceError}</Alert>
       {lobbyApplies ? (
         <Alert kind="info">You will wait in the lobby until a host lets you in.</Alert>
+      ) : null}
+
+      {devices.mics.length > 1 || devices.cameras.length > 1 ? (
+        <div className="stack stack--tight">
+          {devices.mics.length > 1 ? (
+            <Field label="Microphone" htmlFor="micPick">
+              <select
+                id="micPick" className="input" value={chosen.mic}
+                onChange={(event) => setChosen((c) => ({ ...c, mic: event.target.value }))}
+              >
+                <option value="">Default</option>
+                {devices.mics.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
+          {devices.cameras.length > 1 ? (
+            <Field label="Camera" htmlFor="camPick">
+              <select
+                id="camPick" className="input" value={chosen.camera}
+                onChange={(event) => setChosen((c) => ({ ...c, camera: event.target.value }))}
+              >
+                <option value="">Default</option>
+                {devices.cameras.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || 'Camera'}</option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="row" style={{ gap: '0.6rem' }}>
@@ -999,10 +1677,16 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
         </div>
       </div>
 
-      <p className="meta">Your browser will ask for the microphone and camera once you join.</p>
-
       <div className="row" style={{ gap: '0.6rem' }}>
-        <Button onClick={onJoin} loading={joining}>
+        <Button
+          onClick={() => {
+            // Hand the preview back before the call re-opens the same devices.
+            streamRef.current?.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+            onJoin({ micOn, cameraOn, devices: chosen });
+          }}
+          loading={joining}
+        >
           {meeting?.viewer?.isHost && meeting?.status !== 'live' ? 'Start the meeting' : 'Join now'}
         </Button>
         <Button variant="ghost" onClick={onBack}>Back</Button>

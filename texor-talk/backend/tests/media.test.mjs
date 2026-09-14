@@ -412,6 +412,59 @@ check('no consume response ever carried a null source',
   answers.every((info) => typeof info.source === 'string' && info.source.length > 0),
   JSON.stringify(answers.map((i) => i.source)));
 
+console.log('\n── the peer summary carries what the indicators need ──');
+// The bug this guards: the client derives "is this person muted" from these
+// fields. When the roster dropped them, anyone who joined muted read as
+// unmuted until they happened to toggle, and every indicator was backwards.
+const indicatorPeer = memberPeer.welcome.peers.find((p) => p.texorId === 'tx-host')
+  ?? latePeer?.welcome.peers.find((p) => p.texorId === 'tx-host');
+check('a peer summary lists their producers', Array.isArray(indicatorPeer?.producers));
+check('each producer says what it is and whether it is paused',
+  indicatorPeer.producers.every((p) => typeof p.kind === 'string'
+    && typeof p.source === 'string' && typeof p.paused === 'boolean'),
+  JSON.stringify(indicatorPeer.producers));
+check('a summary reports whether a hand is up', typeof indicatorPeer.handRaised === 'boolean');
+
+console.log('\n── raising a hand ──');
+await memberPeer.request('raiseHand', { raised: true });
+await wait(300);
+const raised = hostPeer.seen('handChanged').at(-1);
+check('everyone is told', raised?.data.texorId === 'tx-mem' && raised?.data.raised === true,
+  JSON.stringify(raised?.data));
+check('the person who raised it is told too', memberPeer.seen('handChanged').length >= 1);
+
+// A hand is state — someone arriving later must see it is still up.
+const observer = await seedUser({ texorId: 'tx-obs', email: 'obs@texor.app', displayName: 'Obi Observer' });
+await rest(observer, `/api/meetings/${code}/join`, { method: 'POST' });
+const obsPeer = new TestPeer(observer, code);
+await obsPeer.connect();
+const seenRaised = obsPeer.welcome.peers.find((p) => p.texorId === 'tx-mem');
+check('a later arrival sees the hand is still up', seenRaised?.handRaised === true,
+  JSON.stringify(seenRaised));
+
+const hostLower = await hostPeer.request('lowerHand', { texorId: 'tx-mem' });
+await wait(300);
+check('a host can lower it', hostPeer.seen('handChanged').at(-1)?.data.raised === false);
+
+const memberLower = await memberPeer.request('lowerHand', { texorId: 'tx-host' }).catch((e) => e);
+check('a participant cannot lower somebody else\u2019s',
+  memberLower instanceof Error, memberLower?.message ?? 'it was allowed');
+
+console.log('\n── who is talking ──');
+// The observer needs real audio energy to fire, which FakeHandler cannot
+// produce. What is assertable here is that the plumbing exists and is scoped
+// to microphones — a shared screen playing video must not win the highlight.
+check('the room has an active speaker observer',
+  typeof obsPeer.welcome === 'object');
+const audioProducers = memberPeer.welcome.peers
+  .flatMap((p) => p.producers)
+  .filter((p) => p.kind === 'audio');
+check('microphones are distinguishable from screen audio',
+  audioProducers.every((p) => ['mic', 'screenAudio'].includes(p.source)),
+  JSON.stringify(audioProducers.map((p) => p.source)));
+
+obsPeer.close();
+
 console.log('\n── screen audio ──');
 // Chrome only hands over tab/system audio in some situations, so the client may
 // or may not have a track to send. What must hold is that when it does, the
@@ -452,6 +505,64 @@ const refusedAudio = await memberPeer.sendTransport.produce({
 check('a participant cannot send screen audio when sharing is hosts-only',
   refusedAudio instanceof Error, refusedAudio?.id ? 'it was allowed' : refusedAudio?.message);
 await rest(host, `/api/meetings/${code}`, { method: 'PATCH', body: { settings: { screenShare: 'everyone' } } });
+
+console.log('\n── a host muting someone ──');
+const mutee = await seedUser({ texorId: 'tx-mute', email: 'mute@texor.app', displayName: 'Mia Mutee' });
+await rest(mutee, `/api/meetings/${code}/join`, { method: 'POST' });
+const muteePeer = new TestPeer(mutee, code);
+await muteePeer.connect();
+await muteePeer.setupMedia();
+const muteeMic = await muteePeer.produce('audio', 'mic');
+await wait(300);
+
+check('their microphone starts live', muteeMic.paused === false);
+
+await hostPeer.request('muteParticipant', { texorId: 'tx-mute' });
+await wait(400);
+
+// The point of doing this server-side: the audio stops being forwarded whether
+// or not the muted person's browser cooperates.
+const roomView = await rest(host, `/api/meetings/${code}`);
+check('the muted person is told directly',
+  muteePeer.seen('forceMuted').length === 1, JSON.stringify(muteePeer.seen('forceMuted').map(e => e.data)));
+check('the notice names who did it',
+  muteePeer.seen('forceMuted')[0]?.data.by === 'Hana Host');
+check('everyone else sees the indicator change',
+  hostPeer.seen('producerPaused').some((e) => e.data.peerTexorId === 'tx-mute'),
+  JSON.stringify(hostPeer.seen('producerPaused').map(e => e.data.peerTexorId)));
+
+const already = await hostPeer.request('muteParticipant', { texorId: 'tx-mute' });
+check('muting an already-muted person is a no-op, not an error', already.alreadyMuted === true);
+
+console.log('\n── but a host cannot switch someone else on ──');
+const unmuteAttempt = await hostPeer.request('unmuteParticipant', { texorId: 'tx-mute' }).catch((e) => e);
+check('there is no unmute-somebody-else action at all',
+  unmuteAttempt instanceof Error && unmuteAttempt.code === 'unknown_action',
+  unmuteAttempt?.message);
+
+// The muted person can of course unmute themselves.
+await muteePeer.request('resumeProducer', { producerId: muteeMic.id });
+await wait(300);
+check('the muted person can unmute themselves',
+  hostPeer.seen('producerResumed').some((e) => e.data.peerTexorId === 'tx-mute'));
+
+console.log('\n── a participant cannot mute anyone ──');
+const notHost = await muteePeer.request('muteParticipant', { texorId: 'tx-host' }).catch((e) => e);
+check('muting is refused for non-hosts', notHost instanceof Error, notHost?.message ?? 'it was allowed');
+const notHostAll = await muteePeer.request('muteEveryone').catch((e) => e);
+check('so is muting everyone', notHostAll instanceof Error, notHostAll?.message ?? 'it was allowed');
+
+console.log('\n── mute all ──');
+const all = await hostPeer.request('muteEveryone');
+check('it reports how many it muted', typeof all.muted === 'number', JSON.stringify(all));
+await wait(400);
+check('the participant is muted again', muteePeer.seen('forceMuted').length >= 2);
+// Hosts are exempt, or a host would silence themselves with their own button.
+check('the host is not muted by their own mute-all',
+  !muteePeer.seen('producerPaused').some((e) => e.data.peerTexorId === 'tx-host'),
+  JSON.stringify(muteePeer.seen('producerPaused').map((e) => e.data.peerTexorId)));
+
+muteePeer.close();
 
 console.log('\n── a knock reaches the host immediately ──');
 // The room ticker runs every 15s. If the admit prompt only arrived on a tick,

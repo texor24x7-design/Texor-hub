@@ -14,6 +14,15 @@ import env from '../config/env.js';
 import ApiError from '../utils/ApiError.js';
 import { meetingInvite } from '../utils/ics.js';
 import { ejectPeer, endRoom, refreshKnocks, updatePeerRole } from '../media/signalling.js';
+import {
+  GUEST_COOKIE,
+  assertGuestScope,
+  cleanGuestName,
+  createGuestSession,
+  guestCookieOptions,
+  guestsAllowed,
+  revokeGuest,
+} from '../services/guest.service.js';
 import { ACTIONS, record } from '../services/audit.service.js';
 import {
   assertCanCreateMeeting,
@@ -108,6 +117,7 @@ export const listMeetingsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
+export const guestSchema = z.object({ name: z.string().min(1).max(60) });
 export const inviteeSchema = z.object({ invitees: z.array(inviteeInput).min(1).max(200) });
 export const rsvpSchema = z.object({ response: z.enum(['accepted', 'declined', 'tentative']) });
 export const knockDecisionSchema = z.object({ decision: z.enum(['admit', 'deny']) });
@@ -156,6 +166,15 @@ function requireHost(meeting, user) {
 function present(meeting, user, { policy } = {}) {
   const role = meeting.roleOf(user.texorId, user.email);
   const isHost = role === 'host' || role === 'cohost';
+  /**
+   * A guest sees the meeting, not the guest list.
+   *
+   * They need enough to render the call — title, host, settings, who is in the
+   * room — and none of the organisational detail around it. Who was *invited*
+   * is a list of names and addresses belonging to the host's organisation, and
+   * somebody who joined by typing a name into a box has no claim on it.
+   */
+  const isGuest = Boolean(user.isGuest);
   const occurrence = currentOccurrence(meeting);
   const window = joinWindow(meeting, occurrence);
 
@@ -187,13 +206,15 @@ function present(meeting, user, { policy } = {}) {
 
     // Emails of other invitees are host-only: a meeting invite should not hand
     // every attendee the address book of everyone else who was asked.
-    invitees: meeting.invitees.map((invitee) => ({
-      name: invitee.name,
-      role: invitee.role,
-      response: invitee.response,
-      texorId: invitee.texorId,
-      email: isHost || invitee.texorId === user.texorId ? invitee.email : undefined,
-    })),
+    invitees: isGuest
+      ? []
+      : meeting.invitees.map((invitee) => ({
+          name: invitee.name,
+          role: invitee.role,
+          response: invitee.response,
+          texorId: invitee.texorId,
+          email: isHost || invitee.texorId === user.texorId ? invitee.email : undefined,
+        })),
 
     participants: meeting.liveAttendance().map((entry) => ({
       texorId: entry.texorId,
@@ -218,6 +239,7 @@ function present(meeting, user, { policy } = {}) {
     viewer: {
       role,
       isHost,
+      isGuest,
       isExternal: isExternalEmail(user.email),
       canEdit: isHost,
       response:
@@ -363,6 +385,7 @@ export async function createMeeting(req, res) {
 
 export async function getMeeting(req, res) {
   const meeting = await loadMeeting(req.params.code);
+  assertGuestScope(req.user, meeting);
   const policy = await getPolicy();
 
   if (meeting.access === 'invited' && meeting.roleOf(req.user.texorId, req.user.email) === 'guest') {
@@ -434,6 +457,84 @@ export async function cancelMeeting(req, res) {
   res.json({ meeting: present(meeting, req.user) });
 }
 
+// ── Guests ───────────────────────────────────────────────────────────────────
+
+/**
+ * What an unauthenticated visitor is allowed to know about a meeting.
+ *
+ * Almost nothing, and that is the point: whoever is asking has proved nothing,
+ * and the code may well have been forwarded to them by mistake. Enough to
+ * render a join screen — the title, whether guests are welcome, whether they
+ * will be held in the lobby — and not the agenda, the host's address, who is
+ * invited or who is currently in the room.
+ */
+export async function guestPreview(req, res) {
+  const meeting = await loadMeeting(req.params.code);
+  const policy = await getPolicy();
+  const { allowed, reason } = guestsAllowed(meeting, policy);
+
+  res.json({
+    meeting: {
+      code: meeting.code,
+      title: meeting.title,
+      hostName: meeting.hostName,
+      status: meeting.status,
+    },
+    guests: {
+      allowed,
+      reason: reason ?? null,
+      // Worth saying before they type a name, not after.
+      willWait: allowed && meeting.lobby !== 'off',
+    },
+  });
+}
+
+/**
+ * Issues a guest pass for one meeting.
+ *
+ * The cookie this sets is scoped to this meeting and grants nothing else in the
+ * product — see `guest.service.js` for why it is not a session.
+ */
+export async function joinAsGuest(req, res) {
+  const meeting = await loadMeeting(req.params.code);
+  const policy = await getPolicy();
+
+  const { allowed, reason } = guestsAllowed(meeting, policy);
+  if (!allowed) throw ApiError.forbidden(reason);
+
+  // Somebody already signed in has no business taking a guest pass; it would
+  // only downgrade them and confuse every record of who was in the room.
+  if (req.user && !req.user.isGuest) {
+    throw ApiError.badRequest('You are already signed in — join with your Texor Account.');
+  }
+
+  const name = cleanGuestName(req.body.name);
+  const { token, guestId } = await createGuestSession({
+    meeting,
+    name,
+    ip: req.ip ?? '',
+    userAgent: req.get('user-agent') ?? '',
+  });
+
+  res.cookie(GUEST_COOKIE, token, guestCookieOptions());
+
+  await record({
+    action: ACTIONS.GUEST_ADMITTED_PASS,
+    actor: { texorId: guestId, displayName: name, email: '' },
+    meeting,
+    metadata: { name },
+    req,
+  });
+
+  res.status(201).json({ guest: { texorId: guestId, displayName: name, isGuest: true } });
+}
+
+export async function leaveAsGuest(req, res) {
+  await revokeGuest(req.guestToken);
+  res.clearCookie(GUEST_COOKIE, { ...guestCookieOptions(), maxAge: undefined });
+  res.json({ ok: true });
+}
+
 // ── Joining ──────────────────────────────────────────────────────────────────
 
 /**
@@ -446,6 +547,7 @@ export async function cancelMeeting(req, res) {
  */
 export async function joinMeeting(req, res) {
   const meeting = await loadMeeting(req.params.code);
+  assertGuestScope(req.user, meeting);
   const policy = await getPolicy();
 
   const { outcome, role } = await evaluateJoin({ meeting, user: req.user, policy });
@@ -462,6 +564,7 @@ export async function joinMeeting(req, res) {
           name: req.user.displayName,
           email: req.user.email,
           picture: req.user.picture,
+          isGuest: Boolean(req.user.isGuest),
           expiresAt,
         },
         $setOnInsert: { meeting: meeting._id, texorId: req.user.texorId, status: 'waiting' },
@@ -511,6 +614,7 @@ export async function joinMeeting(req, res) {
 /** The waiting person polls this until a host decides. */
 export async function getKnock(req, res) {
   const meeting = await loadMeeting(req.params.code);
+  assertGuestScope(req.user, meeting);
 
   const knock = await Knock.findOne({ _id: req.params.knockId, meeting: meeting._id }).exec();
   // A knock that has aged out of the TTL index is simply gone, and that is an
@@ -555,6 +659,7 @@ export async function getKnock(req, res) {
 
 export async function cancelKnock(req, res) {
   const meeting = await loadMeeting(req.params.code);
+  assertGuestScope(req.user, meeting);
 
   await Knock.deleteOne({
     _id: req.params.knockId,
@@ -584,7 +689,9 @@ export async function listKnocks(req, res) {
       email: knock.email,
       picture: knock.picture,
       texorId: knock.texorId,
-      isExternal: isExternalEmail(knock.email),
+      // A guest is external whatever the domain configuration says.
+      isExternal: Boolean(knock.isGuest) || isExternalEmail(knock.email),
+      isGuest: Boolean(knock.isGuest),
       knockedAt: knock.createdAt,
     })),
   });
@@ -631,6 +738,7 @@ export async function decideKnock(req, res) {
 
 export async function leaveMeeting(req, res) {
   const meeting = await loadMeeting(req.params.code);
+  assertGuestScope(req.user, meeting);
   const left = await markLeft({ meeting, texorId: req.user.texorId });
 
   if (left) {
@@ -855,6 +963,9 @@ export async function downloadInvite(req, res) {
 }
 
 export default {
+  guestPreview,
+  joinAsGuest,
+  leaveAsGuest,
   listMeetings,
   createMeeting,
   getMeeting,

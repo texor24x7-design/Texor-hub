@@ -434,19 +434,68 @@ p { margin: 0; }
 .meet__stage { grid-area: stage; position: relative; min-width: 0; min-height: 0; padding: 1rem; }
 
 /* ── tiles ────────────────────────────────────────────────────────────────── */
+/**
+ * The grid.
+ *
+ * Constrained on both axes, which is the whole difference. `auto-fit` alone
+ * only reasons about width, so past about six people the rows kept their width
+ * and ran off the bottom of the screen. Capping each tile's height by the
+ * number of rows it will actually form keeps everyone visible, and the tiles
+ * shrink instead of the grid scrolling.
+ */
 .meet__grid {
   height: 100%;
   display: grid;
   gap: 0.5rem;
   align-content: center;
   justify-content: center;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  grid-auto-rows: 1fr;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+  --cols: 2;
+  --rows: 2;
 }
-/* One person alone should not be a small square in a sea of grey. */
-.meet__grid[data-count='1'] { grid-template-columns: minmax(0, min(100%, 62rem)); }
-.meet__grid[data-count='2'] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); }
-.meet__grid[data-count='3'],
-.meet__grid[data-count='4'] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr)); }
+.meet__grid .tile { max-height: calc((100vh - 12rem) / var(--rows)); }
+
+/* Column and row counts per headcount — the arrangement people expect from
+   every other video product, rather than whatever auto-fit happens to pick. */
+.meet__grid[data-count='1'] { --cols: 1; --rows: 1; }
+.meet__grid[data-count='2'] { --cols: 2; --rows: 1; }
+.meet__grid[data-count='3'] { --cols: 3; --rows: 1; }
+.meet__grid[data-count='4'] { --cols: 2; --rows: 2; }
+.meet__grid[data-count='5'],
+.meet__grid[data-count='6'] { --cols: 3; --rows: 2; }
+.meet__grid[data-count='7'],
+.meet__grid[data-count='8'],
+.meet__grid[data-count='9'] { --cols: 3; --rows: 3; }
+.meet__grid[data-count='10'],
+.meet__grid[data-count='11'],
+.meet__grid[data-count='12'] { --cols: 4; --rows: 3; }
+/* Beyond twelve, stop growing the grid and let it scroll — tiles any smaller
+   than this show a face nobody can recognise. */
+.meet__grid[data-count='many'] {
+  --cols: 4;
+  grid-auto-rows: minmax(8rem, auto);
+  align-content: start;
+  overflow-y: auto;
+}
+
+/* Narrow screens: fewer columns, and never a single-file column of slivers. */
+@media (max-width: 60rem) {
+  .meet__grid[data-count='3'] { --cols: 2; --rows: 2; }
+  .meet__grid[data-count='5'],
+  .meet__grid[data-count='6'] { --cols: 2; --rows: 3; }
+  .meet__grid[data-count='7'],
+  .meet__grid[data-count='8'],
+  .meet__grid[data-count='9'] { --cols: 2; --rows: 4; }
+  .meet__grid[data-count='10'],
+  .meet__grid[data-count='11'],
+  .meet__grid[data-count='12'],
+  .meet__grid[data-count='many'] { --cols: 2; }
+}
+@media (max-width: 30rem) {
+  .meet__grid { --cols: 1 !important; }
+  .meet__grid .tile { max-height: 40vh; }
+}
 
 .tile {
   position: relative;
@@ -727,9 +776,43 @@ p { margin: 0; }
 @media (max-width: 52rem) {
   .meet { grid-template-columns: 1fr; grid-template-areas: 'stage' 'panel' 'bar'; }
   .meet__panel { width: auto; margin: 0 0.5rem; max-height: 45vh; }
-  .meet__bar { grid-template-columns: auto 1fr auto; }
-  .meet__bar-left { display: none; }
   .meet__strip .tile { flex-basis: 7rem; }
+}
+
+/**
+ * Phone width.
+ *
+ * Six 48px controls, a hangup and three panel toggles come to well over 400px,
+ * so at this width the bar stops being three columns with the controls centred
+ * and becomes two rows: controls on their own line, panel toggles under them.
+ * The clock and meeting code go — they are the least useful thing on a screen
+ * this size, and the code is in the details panel.
+ */
+@media (max-width: 34rem) {
+  .meet__bar {
+    grid-template-columns: 1fr;
+    grid-template-areas: 'controls' 'tools';
+    gap: 0.4rem;
+    padding: 0.5rem 0.6rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .meet__bar-left { display: none; }
+  .meet__controls { grid-area: controls; gap: 0.35rem; }
+  .meet__bar-right { grid-area: tools; justify-content: center; gap: 0.5rem; }
+
+  .meet__control { width: 2.75rem; height: 2.75rem; font-size: 1.2rem; }
+  .meet__hangup { width: 3.5rem; height: 2.75rem; font-size: 1.25rem; margin-left: 0.25rem; }
+  .meet__tool { width: 2.5rem; height: 2.5rem; }
+
+  /* Full width, and tall enough to be usable — a 45vh sheet on a phone is a
+     letterbox once the keyboard is up. */
+  .meet__panel { margin: 0; border-radius: 12px 12px 0 0; max-height: 60vh; }
+  .meet__picker { gap: 0; padding: 0.3rem; }
+  .meet__picker-btn { width: 2rem; height: 2rem; font-size: 1.05rem; }
+}
+
+/* Very narrow: let the reaction picker wrap rather than overflow the screen. */
+@media (max-width: 24rem) {
+  .meet__picker { flex-wrap: wrap; width: min(16rem, calc(100vw - 2rem)); border-radius: 12px; }
 }
 
 /* ── the green room ───────────────────────────────────────────────────────── */
@@ -834,3 +917,319 @@ p { margin: 0; }
 .meet__presenting-self svg { font-size: 2.5rem; color: var(--meet-blue, #8ab4f8); }
 .meet__presenting-self p { font-size: 1rem; color: #e8eaed; }
 .meet__presenting-self .meet__muted { max-width: 26rem; }
+
+/* ── tile badges, speaking, raised hands ──────────────────────────────────── */
+.tile__badges {
+  position: absolute;
+  top: 0.5rem; right: 0.5rem;
+  display: flex;
+  gap: 0.3rem;
+}
+.tile__badge {
+  position: static;
+  width: 1.75rem; height: 1.75rem;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: rgb(32 33 36 / 85%);
+  color: #fff;
+  font-size: 0.95rem;
+}
+.tile__badge--hand { background: #f9ab00; color: #202124; }
+.tile--compact .tile__badge { width: 1.4rem; height: 1.4rem; font-size: 0.75rem; }
+
+/* ── the green room ───────────────────────────────────────────────────────── */
+.greenroom__card { max-width: 34rem; }
+
+.greenroom__preview {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #202124;
+  display: grid;
+}
+.greenroom__video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  /* Mirrored, because a preview of yourself is a mirror — text will read
+     backwards, which is correct and what everyone expects here. */
+  transform: scaleX(-1);
+}
+.greenroom__off {
+  display: grid; place-content: center; justify-items: center; gap: 0.5rem;
+  color: #9aa0a6; font-size: 0.875rem;
+}
+.greenroom__off svg { font-size: 2rem; }
+
+.greenroom__controls {
+  position: absolute;
+  inset: auto 0 0.75rem 0;
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+}
+/* The call's control tokens are scoped to .meet, so the green room restates
+   the few it borrows rather than reaching into that scope. */
+.greenroom__preview .meet__control {
+  width: 2.75rem; height: 2.75rem;
+  border-radius: 50%;
+  border: 0;
+  display: grid; place-items: center;
+  cursor: pointer;
+  font-size: 1.2rem;
+  background: #3c4043;
+  color: #e8eaed;
+}
+.greenroom__preview .meet__control:hover { background: #4d5155; }
+.greenroom__preview .meet__control--off { background: #ea4335; color: #fff; }
+.greenroom__preview .meet__control--off:hover { background: #f05343; }
+
+.meet__connecting { gap: 0.4rem; }
+
+/* ── the app bar ──────────────────────────────────────────────────────────── */
+.console__bar-inner {
+  max-width: 62rem;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.console__logo { display: inline-flex; text-decoration: none; color: inherit; flex: none; }
+.console__logo:hover { text-decoration: none; }
+
+.console__nav {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+  /* Scrolls rather than wrapping or pushing the account control off-screen.
+     With three destinations it rarely needs to, but it degrades predictably. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.console__nav::-webkit-scrollbar { display: none; }
+.console__nav a {
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.console__nav a:hover { background: var(--surface-muted); color: var(--text); text-decoration: none; }
+.console__nav a[aria-current='page'] { background: var(--brand-050); color: var(--brand-700); }
+
+/* ── the account control ──────────────────────────────────────────────────── */
+.account { position: relative; display: flex; align-items: center; gap: 0.6rem; flex: none; }
+
+.account__trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: transparent;
+  border: 0;
+  padding: 0.2rem;
+  border-radius: 999px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  max-width: 14rem;
+}
+.account__trigger:hover { background: var(--surface-muted); }
+.account__who { display: grid; text-align: left; line-height: 1.2; min-width: 0; }
+.account__name {
+  font-size: 0.85rem;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account__name--full { white-space: normal; }
+.account__email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.account__menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 20;
+  min-width: 15rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0.35rem;
+  display: grid;
+  gap: 0.1rem;
+}
+.account__header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.25rem;
+}
+
+.account__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.6rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.account__item:hover { background: var(--surface-muted); text-decoration: none; }
+.account__item--danger { color: var(--danger); }
+.account__item--danger:hover { background: var(--danger-bg); }
+
+/* Menu items duplicate the nav, so they are only for the widths where the nav
+   has been collapsed. Above that the menu is identity and sign-out alone. */
+.account__menu .account__item:not(.account__item--danger) { display: none; }
+
+@media (max-width: 45rem) {
+  .console__bar { padding: 0.6rem 0.9rem; }
+  .console__body { padding: 1.25rem 0.9rem 3rem; }
+  /* The mark carries the brand; the word does not survive the width budget. */
+  .console__logo .logo__text { display: none; }
+  .account__who { display: none; }
+  .account__signout { display: none; }
+  .account__menu .account__item { display: block; }
+  .account__trigger { max-width: none; }
+}
+
+@media (max-width: 30rem) {
+  .console__nav a { padding: 0.4rem 0.6rem; font-size: 0.8125rem; }
+  .account__menu { min-width: min(17rem, calc(100vw - 1.8rem)); }
+}
+
+/* ── layout menu, pinning, host actions ───────────────────────────────────── */
+.meet__layout-wrap { position: relative; display: grid; place-items: center; }
+
+.meet__menu {
+  position: absolute;
+  bottom: calc(100% + 0.6rem);
+  right: 0;
+  z-index: 5;
+  min-width: 15rem;
+  padding: 0.3rem;
+  border-radius: 8px;
+  background: var(--meet-elevated, #2d2f31);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  display: grid;
+  gap: 0.1rem;
+}
+.meet__menu-item {
+  display: grid;
+  gap: 0.1rem;
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #e8eaed;
+  font: inherit;
+  cursor: pointer;
+}
+.meet__menu-item:hover { background: rgb(232 234 237 / 12%); }
+.meet__menu-item strong { font-size: 0.875rem; font-weight: 500; }
+.meet__menu-item span { font-size: 0.75rem; color: #9aa0a6; }
+.meet__menu-item--on { background: rgb(138 180 248 / 20%); }
+.meet__menu-item--on strong { color: var(--meet-blue, #8ab4f8); }
+
+/* Tile actions live in the corner, revealed on hover — always-on would clutter
+   a grid of twelve. Touch devices have no hover, so there they are always on. */
+.tile__actions {
+  position: absolute;
+  top: 0.5rem; left: 0.5rem;
+  display: flex;
+  gap: 0.3rem;
+  z-index: 2;
+}
+.tile__action {
+  width: 1.75rem; height: 1.75rem;
+  display: grid; place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(32 33 36 / 85%);
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+.tile:hover .tile__action,
+.tile__action:focus-visible { opacity: 1; }
+.tile__action:hover { background: rgb(32 33 36 / 95%); }
+.tile__action--on { opacity: 1; background: var(--meet-blue, #8ab4f8); color: #202124; }
+@media (hover: none) { .tile__action { opacity: 1; } }
+
+/* ── a tile in fullscreen ─────────────────────────────────────────────────── */
+.tile--fullscreen,
+.tile:fullscreen {
+  aspect-ratio: auto;
+  height: 100%;
+  width: 100%;
+  border-radius: 0;
+  background: #000;
+}
+/**
+ * Contain, not cover.
+ *
+ * Filling a tile by cropping is right in a grid, where the alternative is
+ * letterboxing every face. Someone who has asked for fullscreen wants the whole
+ * picture — and cropping a shared screen in fullscreen cuts off the edges of
+ * the very thing they enlarged it to read.
+ */
+.tile--fullscreen .tile__video,
+.tile:fullscreen .tile__video { object-fit: contain; }
+
+.tile--fullscreen .tile__action,
+.tile:fullscreen .tile__action { opacity: 1; width: 2.25rem; height: 2.25rem; font-size: 1.1rem; }
+.tile--fullscreen .tile__label,
+.tile:fullscreen .tile__label { font-size: 0.95rem; padding: 0.35rem 0.7rem; }
+.tile--fullscreen .tile__avatar,
+.tile:fullscreen .tile__avatar { width: 8rem; height: 8rem; font-size: 2.75rem; }
+
+.meet__unpin {
+  position: absolute;
+  top: 0.75rem; right: 0.75rem;
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(32 33 36 / 85%);
+  color: #fff;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.meet__unpin:hover { background: rgb(32 33 36 / 95%); }
+
+.meet__present-main { position: relative; }
+
+.meet__person-actions { display: flex; gap: 0.15rem; flex: none; }
+.meet__tool--danger:hover { background: rgb(234 67 53 / 20%); color: #f28b82; }
+.meet__tool:disabled { opacity: 0.35; cursor: not-allowed; }
+.meet__tool:disabled:hover { background: transparent; }
+
+@media (max-width: 34rem) {
+  .meet__menu { right: auto; left: 50%; transform: translateX(-50%); min-width: min(17rem, calc(100vw - 2rem)); }
+}
+
+/* Signing in is offered beside the guest form, not buried under it. */
+.greenroom__alt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}

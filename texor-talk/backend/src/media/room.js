@@ -38,6 +38,10 @@ class Peer {
     // to this peer before that, because we would not know what it understands.
     this.rtpCapabilities = null;
     this.joinedAt = new Date();
+
+    // Raising a hand is state, not a passing reaction: it stays up until it is
+    // lowered, and everyone arriving later needs to see it is still up.
+    this.handRaised = false;
   }
 
   close() {
@@ -59,6 +63,7 @@ class Peer {
       name: this.name,
       role: this.role,
       joinedAt: this.joinedAt,
+      handRaised: this.handRaised,
       producers: [...this.producers.values()].map((producer) => ({
         id: producer.id,
         kind: producer.kind,
@@ -70,10 +75,31 @@ class Peer {
 }
 
 class Room {
-  constructor(meetingCode, router) {
+  constructor(meetingCode, router, audioLevelObserver) {
     this.meetingCode = meetingCode;
     this.router = router;
     this.peers = new Map();
+
+    /**
+     * Who is talking, decided by the SFU rather than by each browser.
+     *
+     * Every client watching its own audio levels would give a different answer
+     * at a different moment, and none of them would agree about somebody they
+     * cannot hear. The router sees every stream, so it is the only place the
+     * question has one answer.
+     *
+     * An **audio level** observer rather than an active-speaker one, because
+     * only this kind reports silence. `ActiveSpeakerObserver` emits nothing at
+     * all when everybody stops talking, so the highlight it sets can never be
+     * taken back — it just sits on whoever spoke last for the rest of the call.
+     */
+    this.audioLevelObserver = audioLevelObserver;
+    this.activeSpeakerTexorId = null;
+  }
+
+  /** The peer that owns a producer, or null if they have since left. */
+  ownerOf(producerId) {
+    return [...this.peers.values()].find((peer) => peer.producers.has(producerId)) ?? null;
   }
 
   get rtpCapabilities() {
@@ -111,6 +137,7 @@ class Room {
   close() {
     for (const peer of this.peers.values()) peer.close();
     this.peers.clear();
+    // Closing the router takes its observers with it.
     this.router.close();
   }
 }
@@ -121,7 +148,23 @@ export async function getOrCreateRoom(meetingCode) {
 
   const worker = nextWorkerInPool();
   const router = await worker.createRouter({ mediaCodecs });
-  const room = new Room(meetingCode, router);
+
+  const audioLevelObserver = await router.createAudioLevelObserver({
+    // Only the loudest matters — this drives one highlight, not a leaderboard.
+    maxEntries: 1,
+    /**
+     * dBov, where 0 is the loudest a stream can be and -127 is silence.
+     * Speech from a laptop microphone sits around -35; a quiet room with noise
+     * suppression on sits below -60. -50 is the gap between them, and picking
+     * it too low means a fan or a keyboard holds the highlight.
+     */
+    threshold: -50,
+    // Short enough to track a conversation, long enough not to strobe between
+    // two people talking over each other.
+    interval: 300,
+  });
+
+  const room = new Room(meetingCode, router, audioLevelObserver);
 
   rooms.set(meetingCode, room);
   logger.info('media room opened', { meetingCode, workerPid: worker.pid });
