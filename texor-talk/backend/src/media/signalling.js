@@ -30,6 +30,15 @@ import { Peer, closeRoom, createWebRtcTransport, getOrCreateRoom, getRoom } from
 
 const ROOM_TICK_MS = 15_000;
 
+/**
+ * The reactions a client may send.
+ *
+ * Kept server-side as an allowlist, because whatever arrives here is broadcast
+ * verbatim to everyone in the call — an arbitrary string would be a way to put
+ * unvetted content on other people's screens.
+ */
+export const REACTIONS = ['👍', '👎', '❤️', '🎉', '👏', '😂', '😮', '😢', '🤔', '✋'];
+
 /** Cookies arrive as one header on the upgrade request; no parser is mounted. */
 function readCookie(header, name) {
   for (const part of (header ?? '').split(';')) {
@@ -439,6 +448,27 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
       });
 
       closeEveryone(room, code, 'The host ended the meeting.');
+      return {};
+    }
+
+    /**
+     * A reaction is ephemeral by design: broadcast and forgotten.
+     *
+     * Nothing is stored and nothing is replayed to someone who joins later —
+     * a reaction is a moment in the call, and a list of everything everyone
+     * ever clapped at would be a different feature with different privacy
+     * questions attached.
+     */
+    case 'reaction': {
+      const emoji = String(data.emoji ?? '');
+      // Allowlisted rather than sanitised. The value is broadcast to every
+      // participant, so it may only ever be one of ours.
+      if (!REACTIONS.includes(emoji)) throw fail('bad_reaction', 'Unknown reaction.');
+
+      broadcastAll(room, {
+        type: 'reaction',
+        data: { texorId: user.texorId, name: peer.name, emoji, at: Date.now() },
+      });
       return {};
     }
 

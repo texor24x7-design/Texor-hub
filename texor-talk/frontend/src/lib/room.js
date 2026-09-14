@@ -126,6 +126,16 @@ export class MeetingRoom {
 
         if (message.type === 'welcome') {
           try {
+            /**
+             * The roster is handed over *before* any track is consumed.
+             *
+             * `setup` consumes everything the people already here are sending,
+             * and each of those fires `track`. If the caller seeded its roster
+             * afterwards instead, that seed would overwrite the tracks that had
+             * just arrived and a new joiner would see nothing until somebody
+             * toggled their camera and produced again.
+             */
+            this.on.roster?.(message.data.peers);
             await this.setup(message.data);
             settled = true;
             resolve(message.data);
@@ -259,6 +269,10 @@ export class MeetingRoom {
         this.on.chat?.(data);
         break;
 
+      case 'reaction':
+        this.on.reaction?.(data);
+        break;
+
       // Our own role changed — a promotion to co-host takes effect now rather
       // than on a rejoin, because the role is a field on our peer at the SFU.
       case 'roleChanged':
@@ -371,8 +385,18 @@ export class MeetingRoom {
       appData: { source: 'screen' },
     });
 
-    // Chrome's own "Stop sharing" bar bypasses our UI entirely.
-    track.addEventListener('ended', () => this.stop('screen').catch(() => {}));
+    /**
+     * The browser's own "Stop sharing" bar bypasses our controls entirely.
+     *
+     * Tearing the producer down is not enough: without telling the caller, the
+     * UI keeps its button in the "presenting" state and keeps the dead track on
+     * the stage, so the call appears stuck on a frozen screen share that no
+     * longer exists.
+     */
+    track.addEventListener('ended', () => {
+      this.stop('screen').catch(() => {});
+      this.on.localTrackEnded?.('screen');
+    });
 
     this.producers.set('screen', producer);
     return track;
@@ -431,6 +455,10 @@ export class MeetingRoom {
 
   sendChat(body) {
     return this.request('chat', { body });
+  }
+
+  sendReaction(emoji) {
+    return this.request('reaction', { emoji });
   }
 
   // ── Teardown ───────────────────────────────────────────────────────────────

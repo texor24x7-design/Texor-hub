@@ -8,8 +8,11 @@ import { Alert, Avatar, Button, Loading } from '@/components/ui';
 import {
   CameraIcon, CameraOffIcon, ChatIcon, CheckIcon, CloseIcon, CopyIcon, HangUpIcon,
   InfoIcon, MicIcon, MicOffIcon, PeopleIcon, PresentIcon, PresentOffIcon,
-  RemovePersonIcon, SendIcon,
+  ReactionIcon, RemovePersonIcon, SendIcon,
 } from '@/components/icons';
+
+/** Must match the server's allowlist in media/signalling.js. */
+const REACTIONS = ['👍', '👎', '❤️', '🎉', '👏', '😂', '😮', '😢', '🤔', '✋'];
 import { meetings as meetingApi } from '@/lib/api';
 import { MeetingRoom } from '@/lib/room';
 
@@ -181,6 +184,8 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
   const [knocks, setKnocks] = useState([]);
   const [chat, setChat] = useState([]);
   const [unread, setUnread] = useState(0);
+  const [reactions, setReactions] = useState([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [role, setRole] = useState(grant.role);
   const [status, setStatus] = useState('connecting');
   const [error, setError] = useState(null);
@@ -202,6 +207,11 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
     let cancelled = false;
 
     const room = new MeetingRoom(code, {
+      // Arrives before any track is consumed, so the tracks that follow land on
+      // top of this rather than being wiped by it.
+      roster: (list) =>
+        setPeers(new Map(list.map((peer) => [peer.texorId, { ...peer, tracks: {} }]))),
+
       peerJoined: (peer) =>
         updatePeer(peer.texorId, () => ({ name: peer.name, role: peer.role, tracks: {} })),
 
@@ -240,6 +250,15 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
         });
       },
 
+      localTrackEnded: (source) => {
+        if (source !== 'screen') return;
+        setLocalScreen(null);
+        setScreenOn(false);
+      },
+
+      reaction: (entry) =>
+        setReactions((current) => [...current, { ...entry, key: `${entry.texorId}-${entry.at}-${Math.random()}` }]),
+
       roleChanged: ({ role: next }) => setRole(next),
       peerRoleChanged: ({ texorId, role: next }) => updatePeer(texorId, () => ({ role: next })),
       removed: (reason) => onClosed(reason),
@@ -252,10 +271,9 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
 
     room
       .connect()
-      .then(async ({ peers: existing }) => {
+      .then(async () => {
         if (cancelled) return;
 
-        setPeers(new Map(existing.map((peer) => [peer.texorId, { ...peer, tracks: {} }])));
         setStatus('live');
 
         // Microphone first: a call where people can hear but not see each other
@@ -281,6 +299,25 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
       room.close();
     };
   }, [code, grant, updatePeer, onClosed]);
+
+  // A picker left open behind a click elsewhere is a small thing that feels
+  // broken, and Escape is what people try first.
+  useEffect(() => {
+    if (!pickerOpen) return undefined;
+
+    const dismiss = (event) => {
+      if (event.type === 'keydown' && event.key !== 'Escape') return;
+      if (event.type === 'pointerdown' && event.target.closest?.('.meet__reaction-wrap')) return;
+      setPickerOpen(false);
+    };
+
+    window.addEventListener('pointerdown', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      window.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [pickerOpen]);
 
   // A host should not have to go looking for someone waiting at the door.
   useEffect(() => {
@@ -417,6 +454,9 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
           </div>
         )}
 
+        <ReactionLayer reactions={reactions} onDone={(key) =>
+          setReactions((current) => current.filter((entry) => entry.key !== key))} />
+
         {/* Remote audio is played, never shown. One element per peer so one
             failing track cannot silence everybody else. */}
         {everyone.map((peer) =>
@@ -460,6 +500,35 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
             label={cameraOn ? 'Turn off camera' : 'Turn on camera'}
             icon={cameraOn ? <CameraIcon /> : <CameraOffIcon />}
           />
+          <div className="meet__reaction-wrap">
+            {pickerOpen ? (
+              <div className="meet__picker" role="menu">
+                {REACTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    role="menuitem"
+                    className="meet__picker-btn"
+                    aria-label={`React with ${emoji}`}
+                    onClick={() => {
+                      roomRef.current?.sendReaction(emoji).catch(() => {});
+                      setPickerOpen(false);
+                    }}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <ControlButton
+              on
+              active={pickerOpen}
+              onClick={() => setPickerOpen((open) => !open)}
+              label="Send a reaction"
+              icon={<ReactionIcon />}
+            />
+          </div>
+
           {grant.canShareScreen || isHost ? (
             <ControlButton
               on
@@ -751,6 +820,40 @@ function InfoPanel({ meeting }) {
       <p className="meet__muted">{meeting?.host?.name}</p>
     </section>
   );
+}
+
+/**
+ * Reactions drifting up over the stage.
+ *
+ * Each one removes itself when its animation ends, so nothing accumulates in
+ * state during a long call. `animationend` rather than a timer, so the two
+ * cannot drift apart and leave an invisible element behind.
+ */
+function ReactionLayer({ reactions, onDone }) {
+  if (reactions.length === 0) return null;
+
+  return (
+    <div className="meet__reactions" aria-live="polite">
+      {reactions.map((entry) => (
+        <span
+          key={entry.key}
+          className="meet__reaction"
+          // Spread across the width so two at once do not overlap exactly.
+          style={{ left: `${8 + (Math.abs(hashOf(entry.key)) % 72)}%` }}
+          onAnimationEnd={() => onDone(entry.key)}
+        >
+          <span className="meet__reaction-emoji">{entry.emoji}</span>
+          <span className="meet__reaction-name">{entry.name}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function hashOf(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  return hash;
 }
 
 function RemoteAudio({ track }) {

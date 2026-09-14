@@ -125,6 +125,16 @@ export const RemovePersonIcon = (props) => (
   </Icon>
 );
 
+/** A smiley, matching the "send a reaction" affordance people expect. */
+export const ReactionIcon = (props) => (
+  <Icon {...props}>
+    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z" />
+    <circle cx="8.5" cy="9.5" r="1.5" />
+    <circle cx="15.5" cy="9.5" r="1.5" />
+    <path d="M12 17.5c2.03 0 3.8-1.11 4.75-2.75h-9.5A5.48 5.48 0 0 0 12 17.5Z" />
+  </Icon>
+);
+
 export const ShieldIcon = (props) => (
   <Icon {...props}>
     <path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4Zm-1.2 15L7 12.2l1.4-1.4 2.4 2.4 5-5 1.4 1.4-6.4 6.4Z" />
@@ -134,5 +144,5 @@ export const ShieldIcon = (props) => (
 export default {
   MicIcon, MicOffIcon, CameraIcon, CameraOffIcon, PresentIcon, PresentOffIcon,
   HangUpIcon, PeopleIcon, ChatIcon, InfoIcon, CloseIcon, SendIcon, CopyIcon,
-  CheckIcon, GridIcon, RemovePersonIcon, ShieldIcon,
+  CheckIcon, GridIcon, ReactionIcon, RemovePersonIcon, ShieldIcon,
 };

@@ -251,6 +251,8 @@ Deliberately, in this version:
   and consent handling — a real piece of work, but one that needs no third party
   either.
 - **Dial-in and breakout rooms.**
+- **Raised hands as state.** `✋` is in the reaction set, but it floats away like
+  the others rather than putting someone in a queue a host can work through.
 - **Per-occurrence exceptions.** Cancelling a recurring meeting cancels the
   series. Moving a single week means editing the meeting.
 - **Email delivery.** Invitees are recorded and the `.ics` is generated, but

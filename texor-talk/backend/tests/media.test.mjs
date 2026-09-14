@@ -283,6 +283,71 @@ check('a participant is refused a screen share when the meeting is hosts-only',
 const allowed = await hostPeer.produce('video', 'screen').catch((e) => e);
 check('the host may still share', typeof allowed?.id === 'string', allowed?.message);
 
+console.log('\n── a late joiner receives everything already being sent ──');
+// The bug this guards: a third peer arriving after camera, mic and a screen
+// share are already live must be told about all three in `welcome`, and must be
+// able to consume each one with the right source attribution. Getting only a
+// subset here is what left new arrivals staring at blank tiles.
+const latecomer = await seedUser({ texorId: 'tx-late', email: 'late@texor.app', displayName: 'Lee Late' });
+await rest(latecomer, `/api/meetings/${code}/join`, { method: 'POST' });
+
+const latePeer = new TestPeer(latecomer, code);
+await latePeer.connect();
+
+const advertised = latePeer.welcome.peers.flatMap((peer) =>
+  peer.producers.map((producer) => `${peer.texorId}:${producer.source}`));
+check('welcome advertises the host camera, mic and screen',
+  ['tx-host:mic', 'tx-host:camera', 'tx-host:screen'].every((want) => advertised.includes(want)),
+  advertised.join(', '));
+
+await latePeer.setupMedia();
+const consumedSources = [];
+for (const peer of latePeer.welcome.peers) {
+  for (const producer of peer.producers) {
+    const info = await latePeer.consume(producer.id);
+    consumedSources.push(`${info.peerTexorId}:${info.source}:${info.kind}`);
+  }
+}
+check('the latecomer consumes every existing track',
+  consumedSources.length === advertised.length, consumedSources.join(', '));
+check('each consumer keeps its source label',
+  consumedSources.some((x) => x.endsWith(':screen:video'))
+  && consumedSources.some((x) => x.endsWith(':camera:video'))
+  && consumedSources.some((x) => x.endsWith(':mic:audio')),
+  consumedSources.join(', '));
+// Everyone already in the room, not only the host — the member's microphone
+// is live by this point too, and a latecomer must get that as well.
+check('every consumed track is attributed to a peer in the room',
+  consumedSources.every((x) => latePeer.welcome.peers.some((p) => x.startsWith(`${p.texorId}:`))),
+  consumedSources.join(', '));
+
+console.log('\n── stopping a screen share tells everyone ──');
+const screenProducer = [...hostPeer.sendTransport._producers?.values?.() ?? []]
+  .find((p) => p.appData?.source === 'screen') ?? allowed;
+await hostPeer.request('closeProducer', { producerId: screenProducer.id });
+await wait(300);
+const closures = latePeer.seen('producerClosed');
+check('the latecomer is told the screen share ended', closures.length === 1,
+  JSON.stringify(closures.map((e) => e.data)));
+check('the closure names the producer that went away',
+  closures[0]?.data.producerId === screenProducer.id);
+
+console.log('\n── reactions ──');
+await latePeer.request('reaction', { emoji: '🎉' });
+await wait(300);
+const reactions = hostPeer.seen('reaction');
+check('a reaction reaches everyone else', reactions.length === 1, JSON.stringify(reactions.map((e) => e.data)));
+check('it carries who sent it', reactions[0]?.data.texorId === 'tx-late' && reactions[0]?.data.emoji === '🎉');
+check('the sender sees their own reaction too', latePeer.seen('reaction').length === 1);
+
+const badReaction = await latePeer.request('reaction', { emoji: '<img src=x onerror=alert(1)>' }).catch((e) => e);
+check('an arbitrary string is refused', badReaction instanceof Error && badReaction.code === 'bad_reaction',
+  badReaction?.message);
+await wait(200);
+check('and nothing was broadcast for it', hostPeer.seen('reaction').length === 1);
+
+latePeer.close();
+
 console.log('\n── hosting, applied live ──');
 const promoted = await rest(host, `/api/meetings/${code}/participants/tx-mem/role`, {
   method: 'POST', body: { role: 'cohost' },

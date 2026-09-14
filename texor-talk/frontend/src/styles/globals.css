@@ -751,3 +751,70 @@ p { margin: 0; }
   display: grid;
   gap: 1.25rem;
 }
+
+/* ── reactions ────────────────────────────────────────────────────────────── */
+.meet__reaction-wrap { position: relative; display: grid; place-items: center; }
+
+.meet__picker {
+  position: absolute;
+  bottom: calc(100% + 0.6rem);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.15rem;
+  padding: 0.4rem;
+  border-radius: 999px;
+  background: var(--meet-elevated, #2d2f31);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  z-index: 4;
+}
+.meet__picker-btn {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  width: 2.25rem; height: 2.25rem;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  line-height: 1;
+  display: grid; place-items: center;
+  transition: transform 120ms ease, background 120ms ease;
+}
+.meet__picker-btn:hover { background: rgb(232 234 237 / 12%); transform: scale(1.18); }
+
+/* The layer itself never takes pointer events — it sits over the video. */
+.meet__reactions { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; }
+
+.meet__reaction {
+  position: absolute;
+  bottom: 0;
+  display: grid;
+  justify-items: center;
+  gap: 0.15rem;
+  animation: reaction-rise 4s ease-out forwards;
+}
+.meet__reaction-emoji { font-size: 2rem; line-height: 1; filter: drop-shadow(0 2px 4px rgb(0 0 0 / 45%)); }
+.meet__reaction-name {
+  font-size: 0.7rem;
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+@keyframes reaction-rise {
+  0%   { transform: translateY(0) scale(0.6); opacity: 0; }
+  12%  { transform: translateY(-2rem) scale(1); opacity: 1; }
+  75%  { opacity: 1; }
+  100% { transform: translateY(-70vh) scale(0.9); opacity: 0; }
+}
+
+/* Still show the reaction, just without the flight across the screen. */
+@media (prefers-reduced-motion: reduce) {
+  .meet__reaction { animation: reaction-fade 2.5s ease-out forwards; }
+  @keyframes reaction-fade {
+    0% { opacity: 0; transform: translateY(-4rem); }
+    15%, 70% { opacity: 1; transform: translateY(-4rem); }
+    100% { opacity: 0; transform: translateY(-4rem); }
+  }
+}

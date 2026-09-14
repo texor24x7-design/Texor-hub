@@ -165,15 +165,25 @@ without one is a notification.
 | `consume`, `resumeConsumer` | Start receiving someone else's track |
 | `admitKnock`, `removePeer`, `endMeeting` | Host actions |
 | `chat` | In-call message |
+| `reaction` | One of a fixed set of emoji |
 
 **Server → client**
 
 `welcome` · `peerJoined` · `peerLeft` · `newProducer` · `producerClosed` ·
 `producerPaused` · `producerResumed` · `consumerClosed` · `knocks` ·
-`knockResolved` · `roleChanged` · `peerRoleChanged` · `chat` · `removed` ·
-`ended` · `refused`
+`knockResolved` · `roleChanged` · `peerRoleChanged` · `chat` · `reaction` ·
+`removed` · `ended` · `refused`
 
-### Two ordering details that matter
+**Reactions are allowlisted server-side.** Whatever arrives is broadcast
+verbatim to every participant, so the emoji must be one of the fixed set in
+`REACTIONS`; anything else is refused rather than sanitised. They are never
+stored and never replayed to someone who joins later — a reaction is a moment in
+the call, and a durable record of everything everyone clapped at would be a
+different feature with different privacy questions attached.
+
+---
+
+### Three ordering details that matter
 
 **Listeners before `welcome`.** mediasoup-client replies the instant it has the
 router's capabilities. If the server attaches its `message` handler even one
@@ -184,6 +194,15 @@ the client waits forever for an answer to a request nobody received.
 the client has attached the track to an element. Otherwise the first seconds of
 video arrive before there is anywhere to draw them, and the stream appears
 frozen until the next keyframe.
+
+**The roster is seeded before tracks are consumed.** `welcome` lists everyone
+already present and what they are sending, and the client must record that list
+*before* it starts consuming — because each consumed track arrives as a callback
+that attaches to a peer in that list. Seeding it afterwards overwrites the
+tracks that just arrived, and a new joiner sees blank tiles until somebody
+toggles their camera and produces again. This was a real bug; the late-joiner
+test in `tests/media.test.mjs` is what now holds the server's half of the
+contract in place.
 
 ---
 
