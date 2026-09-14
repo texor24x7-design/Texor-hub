@@ -7,7 +7,7 @@
  * another application has taken need three different things done about them,
  * and the reader cannot tell which they have.
  */
-const FE = '/Users/rajchavin/Projects/texor/texor-talk/frontend';
+const FE = new URL('../../frontend/', import.meta.url).pathname.replace(/\/$/, '');
 const { describeMediaError } = await import(`${FE}/src/lib/media-errors.js`);
 
 let pass = 0, fail = 0;

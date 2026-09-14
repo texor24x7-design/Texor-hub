@@ -84,6 +84,7 @@ const server = spawn(
       PORT: String(TEST_PORT),
       MEDIA_RTC_MIN_PORT: String(RTC_MIN),
       MEDIA_RTC_MAX_PORT: String(RTC_MAX),
+      MEDIA_ANNOUNCED_ADDRESS: '127.0.0.1',
       // Two is enough to exercise the pool without spawning one worker per core
       // on a machine that is already running the dev server's full set.
       MEDIA_WORKERS: '2',

@@ -6,7 +6,7 @@
  * that exists nowhere else. Stubbed rather than run in a browser, because what
  * is worth pinning down is which call is reached in which case.
  */
-const FE = '/Users/rajchavin/Projects/texor/texor-talk/frontend';
+const FE = new URL('../../frontend/', import.meta.url).pathname.replace(/\/$/, '');
 const { enterFullscreen, exitFullscreen, fullscreenSupported } =
   await import(`${FE}/src/lib/fullscreen.js`);
 
