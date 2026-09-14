@@ -384,12 +384,31 @@ export class MeetingRoom {
   async startScreen() {
     // A stale entry here used to make every later attempt a silent no-op.
     if (this.producers.has('screen')) await this.stop('screen');
+    if (this.producers.has('screenAudio')) await this.stop('screenAudio');
 
     let stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: { ideal: 15 } },
-        audio: false,
+        /**
+         * Every processing step off, deliberately.
+         *
+         * These exist to make a human voice picked up by a microphone
+         * intelligible. This is program audio taken straight from the source —
+         * music, a video, a demo — and running it through echo cancellation and
+         * automatic gain makes it pump, duck and sound underwater. Off is the
+         * only setting that reproduces what is actually playing.
+         *
+         * Whether anything arrives at all is the browser's call: Chrome offers
+         * tab audio when a tab is picked and system audio only on Windows,
+         * Firefox and Safari offer neither. `audio: true` asks; it never
+         * guarantees, so the track may simply not be there.
+         */
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
       });
     } catch (error) {
       // NotAllowedError is both "denied by policy" and "user hit Cancel"; the
@@ -420,6 +439,40 @@ export class MeetingRoom {
     }
 
     /**
+     * Tab or system audio, when the browser gave us any.
+     *
+     * A separate producer rather than a second track on the same one, so it can
+     * be routed and stopped independently — and so the people receiving it can
+     * tell program audio from a microphone, which is what stops it being mixed
+     * into voice handling on the far side.
+     */
+    const audioTrack = stream.getAudioTracks()[0];
+    if (audioTrack) {
+      try {
+        const audioProducer = await this.sendTransport.produce({
+          track: audioTrack,
+          appData: { source: 'screenAudio' },
+          codecOptions: {
+            // Stereo, and no discontinuous transmission: DTX saves bandwidth by
+            // going quiet during pauses, which is right for speech and wrong for
+            // music, where it clips the tails off everything.
+            opusStereo: true,
+            opusDtx: false,
+            opusFec: true,
+            opusMaxPlaybackRate: 48000,
+            opusMaxAverageBitrate: 128_000,
+          },
+        });
+        this.producers.set('screenAudio', audioProducer);
+      } catch {
+        // Sharing the picture without the sound is a far better outcome than
+        // failing the whole share, so this one is allowed to quietly not happen.
+        audioTrack.stop();
+        this.on.warning?.('Your screen is being shared, but its audio could not be sent.');
+      }
+    }
+
+    /**
      * The browser's own "Stop sharing" bar bypasses our controls entirely.
      *
      * Tearing the producer down is not enough: without telling the caller, the
@@ -429,6 +482,7 @@ export class MeetingRoom {
      */
     track.addEventListener('ended', () => {
       this.stop('screen').catch(() => {});
+      this.stop('screenAudio').catch(() => {});
       this.on.localTrackEnded?.('screen');
     });
 
@@ -477,6 +531,11 @@ export class MeetingRoom {
 
   admit(knockId, decision) {
     return this.request('admitKnock', { knockId, decision });
+  }
+
+  /** Pulls the waiting list, for when a pushed one was never received. */
+  refreshKnocks() {
+    return this.request('getKnocks');
   }
 
   removePeer(texorId) {

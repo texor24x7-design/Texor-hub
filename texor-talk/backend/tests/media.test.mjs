@@ -412,6 +412,47 @@ check('no consume response ever carried a null source',
   answers.every((info) => typeof info.source === 'string' && info.source.length > 0),
   JSON.stringify(answers.map((i) => i.source)));
 
+console.log('\n── screen audio ──');
+// Chrome only hands over tab/system audio in some situations, so the client may
+// or may not have a track to send. What must hold is that when it does, the
+// audio travels as its own producer, carries its own source label, and is
+// covered by the same permission as the picture.
+const screenAudio = await hostPeer.sendTransport.produce({
+  track: new FakeMediaStreamTrack({ kind: 'audio' }),
+  appData: { source: 'screenAudio' },
+  codecOptions: { opusStereo: true, opusDtx: false, opusFec: true },
+});
+check('screen audio is produced as its own track', typeof screenAudio.id === 'string');
+await wait(300);
+
+const audioNotice = hostPeer.seen('newProducer').filter((e) => e.data.source === 'screenAudio');
+check('it is announced separately from the picture', audioNotice.length === 0);
+const memberSaw = memberPeer.seen('newProducer').find((e) => e.data.source === 'screenAudio');
+check('other participants are told about it', Boolean(memberSaw), JSON.stringify(memberSaw?.data));
+check('it is audio, not video', memberSaw?.data.kind === 'audio');
+
+const audioInfo = await memberPeer.consume(screenAudio.id);
+check('a participant can consume it', audioInfo.kind === 'audio');
+check('it keeps the screenAudio label, distinct from a microphone',
+  audioInfo.source === 'screenAudio', audioInfo.source);
+check('it is attributed to the presenter', audioInfo.peerTexorId === 'tx-host');
+
+// The presenter must never receive their own producers back — that round trip
+// is what a presenter would hear as an echo of their own content.
+const ownedByHost = [...hostPeer.consumers].filter((c) => c.info.peerTexorId === 'tx-host');
+check('the presenter is never sent their own audio back', ownedByHost.length === 0,
+  JSON.stringify(ownedByHost.map((c) => c.info.source)));
+
+console.log('\n── screen audio obeys the screen-share rule ──');
+await rest(host, `/api/meetings/${code}`, { method: 'PATCH', body: { settings: { screenShare: 'hosts' } } });
+const refusedAudio = await memberPeer.sendTransport.produce({
+  track: new FakeMediaStreamTrack({ kind: 'audio' }),
+  appData: { source: 'screenAudio' },
+}).catch((e) => e);
+check('a participant cannot send screen audio when sharing is hosts-only',
+  refusedAudio instanceof Error, refusedAudio?.id ? 'it was allowed' : refusedAudio?.message);
+await rest(host, `/api/meetings/${code}`, { method: 'PATCH', body: { settings: { screenShare: 'everyone' } } });
+
 console.log('\n── a knock reaches the host immediately ──');
 // The room ticker runs every 15s. If the admit prompt only arrived on a tick,
 // this would time out — which is exactly what it used to do.
@@ -453,6 +494,52 @@ for (let i = 0; i < 20 && !cleared; i += 1) {
   cleared = (lobbyHost.seen('knocks').at(-1)?.data.knocks ?? []).length === 0;
 }
 check('withdrawing the request clears it from the host promptly', cleared);
+
+console.log('\n── the lobby asks once, not every time ──');
+const returner = await seedUser({ texorId: 'tx-return', email: 'return@texor.app', displayName: 'Rea Turner' });
+
+const firstTry = await rest(returner, `/api/meetings/${lobbyCode}/join`, { method: 'POST' });
+check('a stranger is held at the door', firstTry.body.status === 'waiting', JSON.stringify(firstTry.body).slice(0, 120));
+await rest(host, `/api/meetings/${lobbyCode}/knocks/${firstTry.body.knockId}`, { method: 'POST', body: { decision: 'admit' } });
+await rest(returner, `/api/meetings/${lobbyCode}/knocks/${firstTry.body.knockId}/status`);
+
+// Leave the way a browser does, then come back.
+await rest(returner, `/api/meetings/${lobbyCode}/leave`, { method: 'POST' });
+const secondTry = await rest(returner, `/api/meetings/${lobbyCode}/join`, { method: 'POST' });
+check('coming back does not knock again', secondTry.body.status === 'admitted',
+  JSON.stringify(secondTry.body).slice(0, 120));
+
+await rest(returner, `/api/meetings/${lobbyCode}/leave`, { method: 'POST' });
+const thirdTry = await rest(returner, `/api/meetings/${lobbyCode}/join`, { method: 'POST' });
+check('and still does not on the time after that', thirdTry.body.status === 'admitted');
+
+// Removal must still win over a standing pass.
+await rest(host, `/api/meetings/${lobbyCode}/participants/tx-return`, { method: 'DELETE' });
+const afterRemoval = await rest(returner, `/api/meetings/${lobbyCode}/join`, { method: 'POST' });
+check('but being removed still overrides it', afterRemoval.status === 403,
+  JSON.stringify(afterRemoval.body).slice(0, 120));
+
+console.log('\n── a host can pull the waiting list on demand ──');
+const puller = await seedUser({ texorId: 'tx-pull', email: 'pull@texor.app', displayName: 'Pia Puller' });
+const pullKnock = await rest(puller, `/api/meetings/${lobbyCode}/join`, { method: 'POST' });
+check('the newcomer is waiting', pullKnock.body.status === 'waiting');
+
+const pulled = await lobbyHost.request('getKnocks');
+check('getKnocks is accepted', typeof pulled === 'object');
+await wait(300);
+const latest = lobbyHost.seen('knocks').at(-1)?.data.knocks ?? [];
+check('it returns whoever is waiting', latest.some((k) => k.name === 'Pia Puller'),
+  JSON.stringify(latest.map((k) => k.name)));
+
+// Deciding the same knock twice must be a clean refusal, not a crash.
+await lobbyHost.request('admitKnock', { knockId: pullKnock.body.knockId, decision: 'admit' });
+const again = await lobbyHost.request('admitKnock', { knockId: pullKnock.body.knockId, decision: 'admit' }).catch((e) => e);
+check('deciding it a second time is refused with a code the UI can ignore',
+  again instanceof Error && again.code === 'gone', again?.message);
+
+const nonHostPull = await memberPeer.request?.('getKnocks').catch((e) => e);
+check('a participant cannot pull the waiting list',
+  nonHostPull instanceof Error, nonHostPull?.message ?? 'it was allowed');
 
 lobbyHost.close();
 await rest(host, `/api/meetings/${lobbyCode}/end`, { method: 'POST' }).catch(() => {});

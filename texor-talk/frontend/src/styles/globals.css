@@ -818,3 +818,19 @@ p { margin: 0; }
     100% { opacity: 0; transform: translateY(-4rem); }
   }
 }
+
+/* Shown to the presenter in place of their own feed — see `presenting`. */
+.meet__presenting-self {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.6rem;
+  text-align: center;
+  padding: 2rem;
+  background: var(--meet-surface, #3c4043);
+  border-radius: 8px;
+}
+.meet__presenting-self svg { font-size: 2.5rem; color: var(--meet-blue, #8ab4f8); }
+.meet__presenting-self p { font-size: 1rem; color: #e8eaed; }
+.meet__presenting-self .meet__muted { max-width: 26rem; }

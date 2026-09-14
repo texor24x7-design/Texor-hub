@@ -85,6 +85,7 @@ a hard delete makes that impossible.
 | `status` | `scheduled` · `live` · `ended` · `cancelled` |
 | `attendance[]` | One row per person, not per join |
 | `removedTexorIds[]` | Blocks a rejoin for the life of the meeting |
+| `admittedTexorIds[]` | Everyone let in at least once — they skip the lobby on return |
 | `channel` → `channels` | Set when the meeting was started from a channel |
 
 ### Why there is only one identifier

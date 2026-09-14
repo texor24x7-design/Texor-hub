@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { VideoTile } from '@/components/VideoTile';
@@ -43,6 +43,7 @@ function MeetingScreen({ code, user }) {
   const [grant, setGrant] = useState(null);
   const [knockId, setKnockId] = useState(null);
   const [error, setError] = useState(null);
+  const [errorCode, setErrorCode] = useState(null);
   const [notice, setNotice] = useState(null);
   const [joining, setJoining] = useState(false);
 
@@ -55,6 +56,7 @@ function MeetingScreen({ code, user }) {
       })
       .catch((loadError) => {
         setError(loadError.message);
+        setErrorCode(loadError.code ?? null);
         setPhase('over');
       });
   }, [code]);
@@ -147,7 +149,14 @@ function MeetingScreen({ code, user }) {
             }}
           />
         ) : phase === 'over' ? (
-          <OverCard meeting={meeting} error={error} notice={notice} onBack={() => router.push('/meetings')} />
+          <OverCard
+            meeting={meeting}
+            error={error}
+            errorCode={errorCode}
+            notice={notice}
+            code={code}
+            onBack={() => router.push('/meetings')}
+          />
         ) : (
           <GreenRoomCard
             meeting={meeting}
@@ -348,7 +357,30 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
   const openPanel = (which) => {
     setPanel((open) => (open === which ? null : which));
     if (which === 'chat') setUnread(0);
+    // A pushed list is a single delivery. Opening the panel is the moment a
+    // host actually wants the truth, so ask for it rather than trusting that
+    // every push since joining arrived.
+    if (which === 'people' && isHost) roomRef.current?.refreshKnocks().catch(() => {});
   };
+
+  /**
+   * Admit or deny, once.
+   *
+   * The entry is removed before the request goes out, so a second click cannot
+   * decide the same knock twice — the server refuses the duplicate with "that
+   * request is no longer waiting", and previously that refusal was an unhandled
+   * promise rejection because nothing was catching it.
+   */
+  async function decideKnock(knockId, decision) {
+    setKnocks((current) => current.filter((entry) => entry.id !== knockId));
+
+    try {
+      await roomRef.current?.admit(knockId, decision);
+    } catch (decideError) {
+      // Already handled by another host is not worth interrupting anyone over.
+      if (decideError.code !== 'gone') setError(decideError.message);
+    }
+  }
 
   async function toggleMic() {
     const room = roomRef.current;
@@ -415,8 +447,17 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
     onLeave();
   }
 
+  /**
+   * Who is presenting, and — for us — deliberately without the picture.
+   *
+   * Rendering our own share back to us is what produces the hall-of-mirrors:
+   * share the whole screen, and the screen contains a window showing the screen,
+   * which contains a window showing the screen. Every video product answers this
+   * the same way, by showing the presenter a card instead of their own feed.
+   * They can already see what they are sharing — it is on their screen.
+   */
   const presenting = useMemo(() => {
-    if (localScreen) return { track: localScreen, name: user.displayName, isYou: true };
+    if (localScreen) return { track: null, name: user.displayName, isYou: true };
     for (const peer of peers.values()) {
       if (peer.tracks.screen) return { track: peer.tracks.screen, name: peer.name };
     }
@@ -472,12 +513,20 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
         {presenting ? (
           <div className="meet__present">
             <div className="meet__present-main">
-              <VideoTile
-                track={presenting.track}
-                name={presenting.name}
-                label="screen"
-                isYou={presenting.isYou}
-              />
+              {presenting.isYou ? (
+                <div className="meet__presenting-self">
+                  <PresentIcon />
+                  <p>You are presenting to everyone</p>
+                  <span className="meet__muted">
+                    Your own screen is not shown back to you, so it cannot mirror itself.
+                  </span>
+                  <button type="button" className="meet__chip meet__chip--primary" onClick={toggleScreen}>
+                    Stop presenting
+                  </button>
+                </div>
+              ) : (
+                <VideoTile track={presenting.track} name={presenting.name} label="screen" />
+              )}
             </div>
             <div className="meet__strip">{[selfTile, ...peerTiles]}</div>
           </div>
@@ -492,9 +541,15 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
 
         {/* Remote audio is played, never shown. One element per peer so one
             failing track cannot silence everybody else. */}
-        {everyone.map((peer) =>
-          peer.tracks.mic ? <RemoteAudio key={`${peer.texorId}-audio`} track={peer.tracks.mic} /> : null,
-        )}
+        {everyone.map((peer) => (
+          <Fragment key={`${peer.texorId}-audio`}>
+            {peer.tracks.mic ? <RemoteAudio track={peer.tracks.mic} /> : null}
+            {/* Program audio from someone else's share. We never play back our
+                own — the SFU does not send us our own producers — which is what
+                stops a presenter hearing their content a round trip late. */}
+            {peer.tracks.screenAudio ? <RemoteAudio track={peer.tracks.screenAudio} /> : null}
+          </Fragment>
+        ))}
       </main>
 
       {panel ? (
@@ -510,6 +565,7 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
           chat={chat}
           room={roomRef}
           onError={setError}
+          onDecide={decideKnock}
         />
       ) : null}
 
@@ -662,7 +718,7 @@ function Clock() {
 
 // ── The side panel ───────────────────────────────────────────────────────────
 
-function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError }) {
+function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError, onDecide }) {
   const titles = { people: 'People', chat: 'In-call messages', info: 'Meeting details' };
 
   return (
@@ -678,7 +734,7 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
         {panel === 'people' ? (
           <PeoplePanel
             user={user} role={role} isHost={isHost} peers={peers} knocks={knocks}
-            room={room} onError={onError}
+            room={room} onError={onError} onDecide={onDecide}
           />
         ) : null}
         {panel === 'chat' ? <ChatPanel chat={chat} room={room} user={user} /> : null}
@@ -688,7 +744,7 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
   );
 }
 
-function PeoplePanel({ user, role, isHost, peers, knocks, room, onError }) {
+function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecide }) {
   return (
     <>
       {isHost && knocks.length > 0 ? (
@@ -707,13 +763,13 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError }) {
               </div>
               <button
                 type="button" className="meet__chip meet__chip--primary"
-                onClick={() => room.current?.admit(knock.id, 'admit')}
+                onClick={() => onDecide(knock.id, 'admit')}
               >
                 Admit
               </button>
               <button
                 type="button" className="meet__chip"
-                onClick={() => room.current?.admit(knock.id, 'deny')}
+                onClick={() => onDecide(knock.id, 'deny')}
               >
                 Deny
               </button>
@@ -975,17 +1031,40 @@ function WaitingCard({ meeting, onCancel }) {
   );
 }
 
-function OverCard({ meeting, error, notice, onBack }) {
+function OverCard({ meeting, error, errorCode, notice, code, onBack }) {
+  /**
+   * A code that does not resolve is almost always an old link, not a typo.
+   *
+   * Meetings are deleted, cancelled, or simply never existed, and the link
+   * outlives all three — in a calendar entry, a pinned tab, a chat message from
+   * last month. Saying so and offering the way forward is more use than an
+   * error and a dead end.
+   */
+  const missing = errorCode === 'not_found';
+
   return (
     <>
       <div>
-        <h1>{error ? 'Cannot join' : 'Meeting ended'}</h1>
+        <h1>{missing ? 'This meeting no longer exists' : error ? 'Cannot join' : 'Meeting ended'}</h1>
         {meeting?.title ? <p className="meta" style={{ marginTop: '0.35rem' }}>{meeting.title}</p> : null}
       </div>
 
-      <Alert kind={error ? 'error' : 'info'}>{error ?? notice ?? 'This meeting is over.'}</Alert>
-
-      <Button onClick={onBack}>Back to meetings</Button>
+      {missing ? (
+        <>
+          <p style={{ color: 'var(--text-muted)' }}>
+            Nothing is using the code <span className="code">{code}</span>. It may have been
+            cancelled, or the link may be an old one.
+          </p>
+          <div className="row" style={{ gap: '0.6rem' }}>
+            <Button onClick={onBack}>See your meetings</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <Alert kind={error ? 'error' : 'info'}>{error ?? notice ?? 'This meeting is over.'}</Alert>
+          <Button onClick={onBack}>Back to meetings</Button>
+        </>
+      )}
     </>
   );
 }

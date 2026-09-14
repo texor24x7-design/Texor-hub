@@ -44,6 +44,29 @@ function testUri(uri) {
   return url.toString();
 }
 
+/**
+ * Refuse to start if a previous run is still up.
+ *
+ * Two runners share a port and a database, and the second one fails somewhere
+ * deep in a suite with an assertion that looks like a real bug. Saying so here
+ * costs one request and saves that hunt.
+ */
+async function assertPortFree() {
+  try {
+    await fetch(`${TEST_API}/api/health`, { signal: AbortSignal.timeout(1500) });
+  } catch {
+    return; // Nothing listening, which is what we want.
+  }
+
+  console.error(
+    `\n  Something is already serving ${TEST_API}.\n` +
+    `  Another \`npm test\` is probably still running — wait for it, or stop it.\n`,
+  );
+  process.exit(1);
+}
+
+await assertPortFree();
+
 const uri = testUri(process.env.MONGODB_URI);
 const dbName = new URL(uri).pathname.replace(/^\//, '');
 

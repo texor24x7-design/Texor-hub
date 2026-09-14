@@ -220,15 +220,16 @@ export async function evaluateJoin({ meeting, user, policy, now = new Date() }) 
 
   // ── Lobby ──
   /**
-   * Someone already in the call has been let in once. A dropped connection, a
-   * refreshed tab or a second transport must not put them back at the door —
-   * they would be knocking while their own name is still on the participant
-   * list, and a host would have to admit the same person repeatedly.
+   * Anyone who has already been inside walks straight back in.
+   *
+   * This covers both a reconnect (still on the participant list) and a return
+   * (left and came back). The waiting room exists to vet strangers, and someone
+   * a host has already admitted is not one — making them knock again every time
+   * their wifi drops turns the lobby into a tax on the host.
    */
-  const alreadyInside = meeting.attendance.some(
-    (entry) => entry.texorId === user.texorId && !entry.leftAt,
-  );
-  if (alreadyInside) return { outcome: 'admit', role, isExternal, lobby: meeting.lobby };
+  if (meeting.hasBeenAdmitted(user.texorId)) {
+    return { outcome: 'admit', role, isExternal, lobby: meeting.lobby };
+  }
 
   const lobby = effectiveLobby(meeting, policy, { isExternal });
   const mustKnock =
@@ -256,6 +257,12 @@ export async function evaluateJoin({ meeting, user, policy, now = new Date() }) 
 export async function markJoined({ meeting, user, role, now = new Date() }) {
   const existing = meeting.attendance.find((entry) => entry.texorId === user.texorId);
   const wasPresent = Boolean(existing && !existing.leftAt);
+
+  // Getting in at all is what earns a standing pass for this meeting, whether
+  // it came from a host admitting them or from walking in with no lobby.
+  if (!meeting.admittedTexorIds.includes(user.texorId)) {
+    meeting.admittedTexorIds.push(user.texorId);
+  }
 
   if (existing) {
     existing.lastSeenAt = now;

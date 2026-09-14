@@ -77,6 +77,12 @@ Whether someone knocks is the meeting's `lobby` setting, tightened by policy:
 Org policy can only ever tighten this. `forceLobbyForExternal` means a host who
 switched the waiting room off still cannot wave an outside guest straight in.
 
+**The lobby asks once per meeting, not once per join.** Anyone who has been
+inside is recorded in `admittedTexorIds` and walks straight back in — stepping
+out for coffee, a browser crashing, or wifi dropping must not put someone back
+at the door and make a host admit the same person again. Removal is checked
+first, so ejecting somebody still overrides their standing pass.
+
 A knock is a row in `knocks` with a TTL, so an abandoned one disappears on its
 own. The person waiting polls their own knock; hosts are pushed the list down
 their media socket as it changes. If nobody is in the meeting at all, knocking is
@@ -150,8 +156,10 @@ next one due — and returns null once the series runs out, so a finished
 recurring meeting stops accepting joins without anyone having to cancel it.
 
 A knock is pushed to every host's call panel the moment it is created, not on
-the next tick of anything — waiting fifteen seconds to find out somebody is at
-the door is the difference between a lobby and a nuisance.
+the next tick of anything. A push is a single delivery, though, so there are two
+backstops: the panel pulls the list whenever a host opens it (`getKnocks`), and
+the room ticker re-pushes every few seconds. A host should never be looking at
+an empty panel while somebody waits.
 
 There is no scheduler process. The bookkeeping that a cron job would do —
 sweeping stale attendance, rolling a recurring meeting forward to its next

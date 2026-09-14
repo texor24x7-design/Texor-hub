@@ -28,7 +28,7 @@ import {
 } from '../services/meeting.service.js';
 import { Peer, closeRoom, createWebRtcTransport, getOrCreateRoom, getRoom } from './room.js';
 
-const ROOM_TICK_MS = 15_000;
+const ROOM_TICK_MS = 5_000;
 
 /**
  * The reactions a client may send.
@@ -250,10 +250,16 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
     case 'produce': {
       if (!peer.sendTransport) throw fail('no_transport', 'No sending transport.');
 
-      // Screen sharing is a meeting setting, and this is the only place it can
-      // actually be enforced — hiding the button is a hint, refusing the
-      // producer is the rule.
-      if (data.source === 'screen') {
+      /**
+       * Screen sharing is a meeting setting, and this is the only place it can
+       * actually be enforced — hiding the button is a hint, refusing the
+       * producer is the rule.
+       *
+       * `screenAudio` is covered by the same rule. It is a second producer from
+       * the same capture, so letting it through separately would let someone
+       * barred from sharing their screen still share what it is playing.
+       */
+      if (data.source === 'screen' || data.source === 'screenAudio') {
         const meeting = await Meeting.findOne({ code }).select('settings').exec();
         const hostsOnly = meeting?.settings?.screenShare === 'hosts';
         if (hostsOnly && peer.role !== 'host' && peer.role !== 'cohost') {
@@ -380,6 +386,21 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
     }
 
     // ── Hosting ──
+    /**
+     * The waiting list, on request.
+     *
+     * Knocks are pushed as they happen, but a push is a single delivery: if the
+     * socket was mid-reconnect, or the client dropped it, nothing ever comes
+     * again and a host is left looking at an empty panel while somebody waits.
+     * Asking is the backstop, and the panel asks whenever it is opened.
+     */
+    case 'getKnocks': {
+      requireHost(peer);
+      const meeting = await Meeting.findOne({ code }).select('_id').exec();
+      if (meeting) await pushKnocks(room, meeting, socket);
+      return {};
+    }
+
     case 'admitKnock': {
       requireHost(peer);
       const meeting = await Meeting.findOne({ code }).exec();

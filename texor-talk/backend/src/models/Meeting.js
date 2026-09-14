@@ -137,6 +137,16 @@ const meetingSchema = new Schema(
     // they still have open. Checked on every join for the life of the meeting.
     removedTexorIds: { type: [String], default: [] },
 
+    /**
+     * Everyone who has been inside this meeting at least once.
+     *
+     * The waiting room is a door, not a turnstile. Once a host has let somebody
+     * in, stepping out for coffee — or a browser crashing — must not put them
+     * back at the door and make a host admit the same person again. Removal is
+     * checked first, so ejecting someone still overrides this.
+     */
+    admittedTexorIds: { type: [String], default: [] },
+
     createdBy: { type: String, required: true },
   },
   { timestamps: true },
@@ -159,6 +169,10 @@ meetingSchema.methods.roleOf = function roleOf(texorId, email = '') {
   if (invited) return invited.role === 'cohost' ? 'cohost' : 'participant';
 
   return 'guest';
+};
+
+meetingSchema.methods.hasBeenAdmitted = function hasBeenAdmitted(texorId) {
+  return this.admittedTexorIds.includes(texorId);
 };
 
 meetingSchema.methods.isRemoved = function isRemoved(texorId) {

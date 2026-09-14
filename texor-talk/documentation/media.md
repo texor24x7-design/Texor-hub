@@ -48,6 +48,37 @@ single person on hotel wifi drags the whole call down to theirs.
 Screen shares deliberately do not use simulcast — one high-quality layer,
 because legible text matters more than adapting resolution.
 
+### Screen audio
+
+A share sends its audio as a **separate producer**, labelled `screenAudio`, so
+it can be stopped independently and so the far side can tell program audio from
+a microphone.
+
+Every browser processing step is switched **off** for it — echo cancellation,
+noise suppression, automatic gain. Those exist to make a voice picked up by a
+microphone intelligible; applied to music or a video they pump, duck and sound
+underwater. Opus is configured differently too: stereo, and `opusDtx: false`,
+because discontinuous transmission saves bandwidth by going quiet in pauses,
+which is right for speech and clips the tails off everything in music.
+
+**Whether there is any audio at all is the browser's decision, not ours.**
+Chrome offers tab audio when a tab is picked, and system audio only on Windows;
+Firefox and Safari offer neither. `audio: true` asks and never guarantees, so
+the track is often simply absent — the share proceeds without it and says so
+rather than failing.
+
+**Two things that would otherwise go wrong, and how they are avoided:**
+
+- *Echo.* A presenter never receives their own producers back — the SFU does not
+  forward a peer its own media — so there is no round trip to hear. The
+  remaining path is their microphone picking up their own speakers, which is
+  what echo cancellation on the **microphone** (left on, unlike the screen
+  track) is for.
+- *The hall of mirrors.* The presenter is never shown their own screen feed.
+  Sharing a whole screen that contains a window showing that screen is infinite
+  regress, so they get a "You are presenting" card instead. They can already see
+  what they are sharing; it is on their screen.
+
 **Do not put `scalabilityMode` on these encodings.** An earlier version set
 `S1T3` on every layer and Chrome refused the whole transceiver with *"Attempted
 to set RtpParameters scalabilityMode to an unsupported value for the current
