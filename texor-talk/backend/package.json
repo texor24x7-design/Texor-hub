@@ -1,0 +1,29 @@
+{
+  "name": "talk-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Texor Talk \u2014 team messaging for the Texor ecosystem",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file=.env src/server.js",
+    "start": "node src/server.js",
+    "check:texor": "node --env-file=.env scripts/check-texor.js",
+    "migrate:media": "node --env-file=.env scripts/drop-legacy-media-index.js",
+    "test": "node --env-file=.env tests/run.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "jose": "^6.2.12",
+    "mediasoup": "^3.26.0",
+    "mongoose": "^9.9.5",
+    "ws": "^8.21.3",
+    "zod": "^4.1.13"
+  }
+}

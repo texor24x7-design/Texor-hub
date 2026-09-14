@@ -1,0 +1,142 @@
+/**
+ * Runs the end-to-end suites against a throwaway server and a throwaway
+ * database.
+ *
+ * The suites wipe collections, so they must never see the database you develop
+ * against. This runner is what makes that structurally true rather than a rule
+ * someone has to remember:
+ *
+ *   · the Mongo URI is rewritten to `<yourdb>_test`, and the suites refuse to
+ *     start unless the name ends that way
+ *   · a second API process is started on its own port, with its own RTC port
+ *     range, so the dev server you already have running is untouched
+ *   · the test database is dropped afterwards, whether the run passed or failed
+ *
+ *   npm test
+ */
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import mongoose from 'mongoose';
+
+const TEST_PORT = 4102;
+const TEST_API = `http://localhost:${TEST_PORT}`;
+// Clear of the dev server's 40000–40100, so both can run at once.
+const RTC_MIN = 40200;
+const RTC_MAX = 40260;
+
+function testUri(uri) {
+  if (!uri) {
+    console.error('MONGODB_URI is not set. Run with --env-file=.env');
+    process.exit(1);
+  }
+
+  const url = new URL(uri);
+  const name = url.pathname.replace(/^\//, '');
+
+  if (!name) {
+    console.error('MONGODB_URI has no database name, so a test one cannot be derived from it.');
+    process.exit(1);
+  }
+  // Re-running the runner against its own output must not give `talk_test_test`.
+  if (name.endsWith('_test')) return url.toString();
+
+  url.pathname = `/${name}_test`;
+  return url.toString();
+}
+
+const uri = testUri(process.env.MONGODB_URI);
+const dbName = new URL(uri).pathname.replace(/^\//, '');
+
+console.log(`\n  test database : ${dbName}`);
+console.log(`  test api      : ${TEST_API}`);
+console.log(`  rtc ports     : ${RTC_MIN}-${RTC_MAX}\n`);
+
+const server = spawn(
+  process.execPath,
+  ['src/server.js'],
+  {
+    env: {
+      ...process.env,
+      MONGODB_URI: uri,
+      PORT: String(TEST_PORT),
+      MEDIA_RTC_MIN_PORT: String(RTC_MIN),
+      MEDIA_RTC_MAX_PORT: String(RTC_MAX),
+      // Two is enough to exercise the pool without spawning one worker per core
+      // on a machine that is already running the dev server's full set.
+      MEDIA_WORKERS: '2',
+      MEDIA_LOG_LEVEL: 'error',
+      LOG_LEVEL: 'error',
+      APP_ORIGIN: TEST_API,
+      CORS_ORIGINS: TEST_API,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  },
+);
+
+let serverOutput = '';
+server.stdout.on('data', (chunk) => { serverOutput += chunk; });
+server.stderr.on('data', (chunk) => { serverOutput += chunk; });
+
+async function waitForHealth(attempts = 40) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (server.exitCode !== null) {
+      console.error('The test server exited before it was ready:\n', serverOutput);
+      process.exit(1);
+    }
+    try {
+      const response = await fetch(`${TEST_API}/api/health`);
+      if (response.ok) return;
+    } catch {
+      // Not listening yet.
+    }
+    await new Promise((resolve) => { setTimeout(resolve, 500); });
+  }
+
+  console.error('The test server never became healthy:\n', serverOutput);
+  server.kill('SIGKILL');
+  process.exit(1);
+}
+
+function runSuite(file) {
+  return new Promise((resolve) => {
+    const child = spawn(
+      process.execPath,
+      [`tests/${file}`],
+      { env: { ...process.env, MONGODB_URI: uri, TEST_API }, stdio: 'inherit' },
+    );
+    child.on('exit', (exitCode) => resolve(exitCode ?? 1));
+  });
+}
+
+async function teardown() {
+  server.kill('SIGTERM');
+  // Give the workers a moment to go with it, then insist.
+  await Promise.race([once(server, 'exit'), new Promise((r) => { setTimeout(r, 4000); })]);
+  if (server.exitCode === null) server.kill('SIGKILL');
+
+  try {
+    await mongoose.connect(uri);
+    await mongoose.connection.dropDatabase();
+    await mongoose.disconnect();
+    console.log(`  dropped ${dbName}\n`);
+  } catch (error) {
+    console.error(`  could not drop ${dbName}: ${error.message}\n`);
+  }
+}
+
+await waitForHealth();
+
+let failures = 0;
+for (const file of ['meetings.test.mjs', 'media.test.mjs']) {
+  failures += (await runSuite(file)) === 0 ? 0 : 1;
+}
+
+await teardown();
+
+if (failures > 0) {
+  console.error(`  ${failures} suite${failures === 1 ? '' : 's'} failed\n`);
+  process.exit(1);
+}
+
+console.log('  all suites passed\n');
+process.exit(0);
