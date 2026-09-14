@@ -322,6 +322,22 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
       if (!peer.recvTransport) throw fail('no_transport', 'No receiving transport.');
       if (!peer.rtpCapabilities) throw fail('no_capabilities', 'Capabilities not sent yet.');
 
+      /**
+       * Who owns this producer — resolved first, and for two reasons.
+       *
+       * A producer can be advertised and then its owner leave before the
+       * consume request lands. Answering with a null owner pushed that hole
+       * onto the client, which had nothing to attach the track to and invented
+       * a nameless phantom participant for it.
+       *
+       * This check also has to come *before* `canConsume`, because a departed
+       * peer's producer is closed and `canConsume` reports false for it — which
+       * would blame the viewer's browser for a stream that simply no longer
+       * exists. Order the checks and the error tells the truth.
+       */
+      const owner = [...room.peers.values()].find((other) => other.producers.has(data.producerId));
+      if (!owner) throw fail('gone', 'That participant has left the meeting.');
+
       if (!room.canConsume(data.producerId, peer.rtpCapabilities)) {
         throw fail('cannot_consume', 'Your browser cannot decode that stream.');
       }
@@ -346,17 +362,15 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
         send(peer.socket, { type: 'consumerClosed', data: { consumerId: consumer.id } });
       });
 
-      const owner = [...room.peers.values()].find((other) =>
-        other.producers.has(data.producerId),
-      );
-
       return {
         id: consumer.id,
         producerId: data.producerId,
         kind: consumer.kind,
         rtpParameters: consumer.rtpParameters,
-        source: consumer.appData?.source ?? owner?.producers.get(data.producerId)?.appData?.source,
-        peerTexorId: owner?.texorId ?? null,
+        // `consume()` does not inherit the producer's appData, so the source
+        // label has to come from the producer we just resolved.
+        source: owner.producers.get(data.producerId)?.appData?.source,
+        peerTexorId: owner.texorId,
       };
     }
 
@@ -628,6 +642,31 @@ function startRoomTicker(wss) {
  * these reach straight into the room rather than waiting for the target's
  * client to poll and cooperate.
  */
+/**
+ * Pushes the waiting list to every host in a room, now.
+ *
+ * Knocks are created by the REST join endpoint, which has no socket of its own.
+ * Without this the only things that told a host somebody was at the door were
+ * their own connect and the room ticker — so an admit prompt could sit unseen
+ * for up to fifteen seconds while the person waited. Called the moment a knock
+ * is created or withdrawn.
+ */
+export async function refreshKnocks(code) {
+  const room = getRoom(code);
+  if (!room) return false;
+
+  const hosts = [...room.peers.values()].filter(
+    (peer) => peer.role === 'host' || peer.role === 'cohost',
+  );
+  if (hosts.length === 0) return false;
+
+  const meeting = await Meeting.findOne({ code }).select('_id').exec();
+  if (!meeting) return false;
+
+  for (const host of hosts) await pushKnocks(room, meeting, host.socket);
+  return true;
+}
+
 export function updatePeerRole(code, texorId, role) {
   const peer = getRoom(code)?.peers.get(texorId);
   if (!peer) return false;
@@ -658,4 +697,4 @@ export function endRoom(code, reason) {
   return true;
 }
 
-export default { attachSignalling, updatePeerRole, ejectPeer, endRoom };
+export default { attachSignalling, updatePeerRole, ejectPeer, endRoom, refreshKnocks };

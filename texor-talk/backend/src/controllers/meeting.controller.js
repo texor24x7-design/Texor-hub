@@ -13,7 +13,7 @@ import Message from '../models/Message.js';
 import env from '../config/env.js';
 import ApiError from '../utils/ApiError.js';
 import { meetingInvite } from '../utils/ics.js';
-import { ejectPeer, endRoom, updatePeerRole } from '../media/signalling.js';
+import { ejectPeer, endRoom, refreshKnocks, updatePeerRole } from '../media/signalling.js';
 import { ACTIONS, record } from '../services/audit.service.js';
 import {
   assertCanCreateMeeting,
@@ -469,6 +469,9 @@ export async function joinMeeting(req, res) {
       { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
+    // Straight to every host's call panel, rather than on the next tick.
+    await refreshKnocks(meeting.code);
+
     await record({
       action: ACTIONS.LOBBY_KNOCKED,
       actor: req.user,
@@ -558,6 +561,9 @@ export async function cancelKnock(req, res) {
     meeting: meeting._id,
     texorId: req.user.texorId,
   });
+
+  // Somebody who gave up waiting should stop being offered for admission.
+  await refreshKnocks(meeting.code);
 
   res.json({ ok: true });
 }

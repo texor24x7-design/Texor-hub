@@ -149,6 +149,10 @@ computes the occurrence that matters right now — the one in progress, or the
 next one due — and returns null once the series runs out, so a finished
 recurring meeting stops accepting joins without anyone having to cancel it.
 
+A knock is pushed to every host's call panel the moment it is created, not on
+the next tick of anything — waiting fifteen seconds to find out somebody is at
+the door is the difference between a lobby and a nuisance.
+
 There is no scheduler process. The bookkeeping that a cron job would do —
 sweeping stale attendance, rolling a recurring meeting forward to its next
 occurrence, ending a meeting everyone left — happens when a request loads the

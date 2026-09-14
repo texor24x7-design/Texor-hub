@@ -36,8 +36,12 @@ function MeetingsHome({ user }) {
     setBusy(true);
     setError(null);
     try {
+      // Same assumption that crashed the call grid: a display name comes from
+      // an identity provider and may not be a string at all.
+      const firstName = (typeof user.displayName === 'string' ? user.displayName : '').split(' ')[0];
+
       const { meeting } = await meetingApi.create({
-        title: `${user.displayName.split(' ')[0]}'s meeting`,
+        title: firstName ? `${firstName}'s meeting` : 'New meeting',
         access: 'texor',
       });
       router.push(`/meetings/${meeting.code}`);

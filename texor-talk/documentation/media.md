@@ -48,6 +48,19 @@ single person on hotel wifi drags the whole call down to theirs.
 Screen shares deliberately do not use simulcast — one high-quality layer,
 because legible text matters more than adapting resolution.
 
+**Do not put `scalabilityMode` on these encodings.** An earlier version set
+`S1T3` on every layer and Chrome refused the whole transceiver with *"Attempted
+to set RtpParameters scalabilityMode to an unsupported value for the current
+codecs"* — which surfaced as screen sharing simply not working. `S1T3` is not a
+real value: the registry spells temporal-only layering `L1T3`, and the
+`S`-prefixed modes are VP9/AV1 spatial modes. Even the correct `L1T3` is only
+accepted by codecs that implement it, and which codec gets negotiated is not
+known when the encodings are written. Simulcast does not need it.
+
+The values live in `frontend/src/lib/encodings.js` so the test suite imports the
+same ones the browser uses, and `produceVideo` retries once without encodings if
+a browser refuses them — losing the layering rather than the track.
+
 ---
 
 ## Configuration

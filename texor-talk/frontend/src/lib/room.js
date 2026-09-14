@@ -21,6 +21,7 @@
  */
 import { Device } from 'mediasoup-client';
 import { API_ORIGIN } from '@/lib/api';
+import { CAMERA_ENCODINGS, SCREEN_ENCODINGS } from '@/lib/encodings';
 
 const WS_ORIGIN = API_ORIGIN.replace(/^http/, 'ws');
 
@@ -30,20 +31,6 @@ const VIDEO_CONSTRAINTS = {
   height: { ideal: 720 },
   frameRate: { ideal: 30 },
 };
-
-/**
- * Three spatial layers, smallest first.
- *
- * Simulcast is what makes a grid of twelve people work: everyone uploads three
- * resolutions once, and the SFU forwards whichever each viewer's connection can
- * carry. Without it the sender would have to choose one quality for all, and a
- * single participant on hotel wifi would drag the whole call down to it.
- */
-const SIMULCAST_ENCODINGS = [
-  { scaleResolutionDownBy: 4, maxBitrate: 150_000, scalabilityMode: 'S1T3' },
-  { scaleResolutionDownBy: 2, maxBitrate: 500_000, scalabilityMode: 'S1T3' },
-  { scaleResolutionDownBy: 1, maxBitrate: 1_500_000, scalabilityMode: 'S1T3' },
-];
 
 export class MeetingRoom {
   constructor(code, handlers = {}) {
@@ -330,6 +317,26 @@ export class MeetingRoom {
 
   // ── Sending ────────────────────────────────────────────────────────────────
 
+  /**
+   * Sends a video track, degrading rather than failing.
+   *
+   * Which codec gets negotiated is decided by the browser, and encoding
+   * parameters that one codec accepts another rejects — a mismatch throws from
+   * `addTransceiver` and takes the whole track with it. Retrying once with no
+   * encodings costs the layering and keeps the video, which is the right way
+   * round: a single-layer camera is worth far more than an error message.
+   */
+  async produceVideo(track, encodings, source) {
+    try {
+      return await this.sendTransport.produce({ track, encodings, appData: { source } });
+    } catch (error) {
+      this.on.warning?.(
+        `Your browser refused the preferred video settings for your ${source}, so it is being sent at a single quality.`,
+      );
+      return this.sendTransport.produce({ track, appData: { source } });
+    }
+  }
+
   async startMic() {
     if (this.producers.has('mic')) return null;
 
@@ -358,32 +365,59 @@ export class MeetingRoom {
     });
     const track = stream.getVideoTracks()[0];
 
-    const producer = await this.sendTransport.produce({
-      track,
-      encodings: SIMULCAST_ENCODINGS,
-      appData: { source: 'camera' },
-    });
+    const producer = await this.produceVideo(track, CAMERA_ENCODINGS, 'camera');
 
     this.producers.set('camera', producer);
     return track;
   }
 
+  /**
+   * Starts a screen share.
+   *
+   * Two failure modes, and they need different treatment. The picker being
+   * dismissed is not an error — it is somebody changing their mind, and is
+   * flagged with `cancelled` so the caller can stay quiet. Anything after that
+   * is a real failure, and the capture has to be stopped on the way out or the
+   * browser keeps showing its "sharing your screen" indicator for a share that
+   * never started.
+   */
   async startScreen() {
-    if (this.producers.has('screen')) return null;
+    // A stale entry here used to make every later attempt a silent no-op.
+    if (this.producers.has('screen')) await this.stop('screen');
 
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 15 } },
-      audio: false,
-    });
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 15 } },
+        audio: false,
+      });
+    } catch (error) {
+      // NotAllowedError is both "denied by policy" and "user hit Cancel"; the
+      // browser does not distinguish, and treating it as a cancel is kinder
+      // than accusing someone of a permissions problem they do not have.
+      if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
+        throw Object.assign(new Error('Screen sharing was cancelled.'), { cancelled: true });
+      }
+      throw Object.assign(new Error(`Could not capture your screen: ${error.message}`), {
+        cause: error,
+      });
+    }
+
     const track = stream.getVideoTracks()[0];
+    if (!track) {
+      stream.getTracks().forEach((each) => each.stop());
+      throw new Error('Your browser did not return a screen to share.');
+    }
 
-    const producer = await this.sendTransport.produce({
-      track,
-      // No simulcast for a screen: legibility of text matters more than
-      // adapting resolution, so one high-quality layer is the right trade.
-      encodings: [{ maxBitrate: 2_500_000, scalabilityMode: 'S1T3' }],
-      appData: { source: 'screen' },
-    });
+    let producer;
+    try {
+      producer = await this.produceVideo(track, SCREEN_ENCODINGS, 'screen');
+    } catch (error) {
+      // Leaving the capture running would keep the browser claiming the screen
+      // is being shared when nothing is being sent anywhere.
+      stream.getTracks().forEach((each) => each.stop());
+      throw error;
+    }
 
     /**
      * The browser's own "Stop sharing" bar bypasses our controls entirely.

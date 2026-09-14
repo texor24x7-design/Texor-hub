@@ -14,6 +14,10 @@ const { Device } = await import(`${FE}/mediasoup-client/lib/Device.js`);
 const { FakeHandler } = await import(`${FE}/mediasoup-client/lib/handlers/FakeHandler.js`);
 const fakeParameters = await import(`${FE}/mediasoup-client/lib/test/fakeParameters.js`);
 const { FakeMediaStreamTrack } = await import(`${FE}/fake-mediastreamtrack/lib/index.js`);
+// The very encodings the browser client sends, imported rather than retyped.
+const { CAMERA_ENCODINGS, SCREEN_ENCODINGS } = await import(
+  new URL('../../frontend/src/lib/encodings.js', import.meta.url).href
+);
 
 const API = process.env.TEST_API ?? 'http://localhost:4102';
 /**
@@ -145,11 +149,16 @@ class TestPeer {
     return { sendParams, recvParams };
   }
 
+  /** Exactly what `frontend/src/lib/room.js` sends. */
   produce(kind, source) {
+    const encodings =
+      kind !== 'video' ? undefined : source === 'screen' ? SCREEN_ENCODINGS : CAMERA_ENCODINGS;
+
     return this.sendTransport.produce({
       track: new FakeMediaStreamTrack({ kind }),
       appData: { source },
-      ...(kind === 'video' ? { encodings: [{ maxBitrate: 500000 }] } : {}),
+      ...(encodings ? { encodings } : {}),
+      ...(kind === 'audio' ? { codecOptions: { opusStereo: false, opusDtx: true, opusFec: true } } : {}),
     });
   }
 
@@ -199,6 +208,26 @@ check('a socket with no session is refused', anonResult.type === 'refused' && an
 const badCode = new TestPeer(host, 'zzz-zzzz-zzz');
 const badResult = await badCode.connect().catch((e) => e);
 check('an unknown meeting code is refused', badResult?.code === 'not_found', badResult?.message);
+
+console.log('\n── the encodings the browser is asked for ──');
+/**
+ * FakeHandler does not validate encodings against a negotiated codec, so this
+ * class of bug cannot be caught by producing through it — Chrome threw
+ * "Attempted to set RtpParameters scalabilityMode to an unsupported value for
+ * the current codecs" on a config that passed every test here. These assert the
+ * shape directly instead.
+ */
+const allEncodings = [...CAMERA_ENCODINGS, ...SCREEN_ENCODINGS];
+check('no encoding declares a scalabilityMode',
+  allEncodings.every((e) => e.scalabilityMode === undefined),
+  JSON.stringify(allEncodings.filter((e) => e.scalabilityMode)));
+check('the camera sends three simulcast layers', CAMERA_ENCODINGS.length === 3);
+check('its layers are ordered smallest first',
+  CAMERA_ENCODINGS.every((e, i, a) => i === 0 || e.scaleResolutionDownBy < a[i - 1].scaleResolutionDownBy),
+  JSON.stringify(CAMERA_ENCODINGS.map((e) => e.scaleResolutionDownBy)));
+check('the screen sends a single layer', SCREEN_ENCODINGS.length === 1);
+check('the screen layer has the higher ceiling',
+  SCREEN_ENCODINGS[0].maxBitrate > Math.max(...CAMERA_ENCODINGS.map((e) => e.maxBitrate)));
 
 console.log('\n── negotiation ──');
 const hostPeer = new TestPeer(host, code);
@@ -302,9 +331,11 @@ check('welcome advertises the host camera, mic and screen',
 
 await latePeer.setupMedia();
 const consumedSources = [];
+const latePeerAnswers = [];
 for (const peer of latePeer.welcome.peers) {
   for (const producer of peer.producers) {
     const info = await latePeer.consume(producer.id);
+    latePeerAnswers.push(info);
     consumedSources.push(`${info.peerTexorId}:${info.source}:${info.kind}`);
   }
 }
@@ -347,6 +378,84 @@ await wait(200);
 check('and nothing was broadcast for it', hostPeer.seen('reaction').length === 1);
 
 latePeer.close();
+
+console.log('\n── consuming a producer whose owner has gone ──');
+// The crash this guards: the server used to answer with peerTexorId null when
+// the producing peer had already left, and the client turned that into a
+// nameless phantom participant that took the whole grid down on render.
+const ghost = await seedUser({ texorId: 'tx-ghost', email: 'ghost@texor.app', displayName: 'Gil Ghost' });
+await rest(ghost, `/api/meetings/${code}/join`, { method: 'POST' });
+
+const ghostPeer = new TestPeer(ghost, code);
+await ghostPeer.connect();
+await ghostPeer.setupMedia();
+const ghostProducer = await ghostPeer.produce('video', 'camera');
+await wait(300);
+
+const sawGhost = hostPeer.seen('newProducer').some((e) => e.data.producerId === ghostProducer.id);
+check('the host is told about the new track', sawGhost);
+
+// Leave before anyone gets round to consuming it.
+ghostPeer.close();
+await wait(500);
+
+const orphaned = await hostPeer.request('consume', { producerId: ghostProducer.id }).catch((e) => e);
+check('consuming an orphaned producer is refused, not answered with a null peer',
+  orphaned instanceof Error && orphaned.code === 'gone', JSON.stringify(orphaned?.peerTexorId ?? orphaned?.message));
+
+console.log('\n── every consume answer names a real peer ──');
+const answers = [...latePeerAnswers, ...[micInfo, camInfo]];
+check('no consume response ever carried a null peer id',
+  answers.every((info) => typeof info.peerTexorId === 'string' && info.peerTexorId.length > 0),
+  JSON.stringify(answers.map((i) => i.peerTexorId)));
+check('no consume response ever carried a null source',
+  answers.every((info) => typeof info.source === 'string' && info.source.length > 0),
+  JSON.stringify(answers.map((i) => i.source)));
+
+console.log('\n── a knock reaches the host immediately ──');
+// The room ticker runs every 15s. If the admit prompt only arrived on a tick,
+// this would time out — which is exactly what it used to do.
+const lobbyMeeting = await rest(host, '/api/meetings', {
+  method: 'POST', body: { title: 'Gated room', lobby: 'everyone', access: 'texor' },
+});
+const lobbyCode = lobbyMeeting.body.meeting.code;
+await rest(host, `/api/meetings/${lobbyCode}/join`, { method: 'POST' });
+
+const lobbyHost = new TestPeer(host, lobbyCode);
+await lobbyHost.connect();
+const knocksAtJoin = lobbyHost.seen('knocks').at(-1)?.data.knocks ?? [];
+check('the host starts with an empty waiting list', knocksAtJoin.length === 0);
+
+const waiting = await seedUser({ texorId: 'tx-wait', email: 'wait@texor.app', displayName: 'Winn Waiting' });
+const started = Date.now();
+const knockResult = await rest(waiting, `/api/meetings/${lobbyCode}/join`, { method: 'POST' });
+check('the newcomer is put in the lobby', knockResult.body.status === 'waiting', JSON.stringify(knockResult.body).slice(0, 160));
+
+// Poll the socket's own inbox briefly. Anything under a second means it was
+// pushed on the knock, not on the ticker.
+let pushed = null;
+for (let i = 0; i < 20 && !pushed; i += 1) {
+  await wait(50);
+  pushed = lobbyHost.seen('knocks').map((e) => e.data.knocks).reverse().find((k) => k.length > 0);
+}
+const elapsed = Date.now() - started;
+
+check('the host is told about the knock', Boolean(pushed), `waited ${elapsed}ms`);
+check('it arrives in well under a ticker interval', elapsed < 2000, `took ${elapsed}ms`);
+check('the pushed entry names who is waiting',
+  pushed?.[0]?.name === 'Winn Waiting', JSON.stringify(pushed?.[0]));
+
+// Withdrawing should clear it just as promptly.
+await rest(waiting, `/api/meetings/${lobbyCode}/knocks/${knockResult.body.knockId}`, { method: 'DELETE' });
+let cleared = false;
+for (let i = 0; i < 20 && !cleared; i += 1) {
+  await wait(50);
+  cleared = (lobbyHost.seen('knocks').at(-1)?.data.knocks ?? []).length === 0;
+}
+check('withdrawing the request clears it from the host promptly', cleared);
+
+lobbyHost.close();
+await rest(host, `/api/meetings/${lobbyCode}/end`, { method: 'POST' }).catch(() => {});
 
 console.log('\n── hosting, applied live ──');
 const promoted = await rest(host, `/api/meetings/${code}/participants/tx-mem/role`, {

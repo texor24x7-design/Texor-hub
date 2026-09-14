@@ -193,12 +193,33 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
 
   const isHost = role === 'host' || role === 'cohost';
 
-  /** Peers live in a Map; every update replaces it so React sees the change. */
+  /**
+   * Peers live in a Map; every update replaces it so React sees the change.
+   *
+   * An update for a peer we have never heard of is dropped rather than
+   * conjuring one. A missing id used to become a participant whose name was the
+   * id — and when that id was null, a nameless phantom tile that crashed the
+   * grid. If the server has told us about somebody, they are in this map.
+   */
   const updatePeer = useCallback((texorId, change) => {
+    if (!texorId) return;
+
+    setPeers((current) => {
+      const existing = current.get(texorId);
+      if (!existing) return current;
+
+      const next = new Map(current);
+      next.set(texorId, { ...existing, ...change(existing) });
+      return next;
+    });
+  }, []);
+
+  /** Adding someone is explicit, and is the only way into the map. */
+  const addPeer = useCallback((peer) => {
+    if (!peer?.texorId) return;
     setPeers((current) => {
       const next = new Map(current);
-      const existing = next.get(texorId) ?? { texorId, name: texorId, tracks: {} };
-      next.set(texorId, { ...existing, ...change(existing) });
+      next.set(peer.texorId, { ...current.get(peer.texorId), ...peer, tracks: {} });
       return next;
     });
   }, []);
@@ -212,8 +233,7 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
       roster: (list) =>
         setPeers(new Map(list.map((peer) => [peer.texorId, { ...peer, tracks: {} }]))),
 
-      peerJoined: (peer) =>
-        updatePeer(peer.texorId, () => ({ name: peer.name, role: peer.role, tracks: {} })),
+      peerJoined: (peer) => addPeer(peer),
 
       peerLeft: (texorId) =>
         setPeers((current) => {
@@ -265,6 +285,7 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
       ended: (reason) => onClosed(reason),
       closed: (reason) => { if (!cancelled) onClosed(reason || 'You left the meeting.'); },
       error: (message) => setError(message),
+      warning: (message) => setError(message),
     });
 
     roomRef.current = room;
@@ -298,7 +319,7 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
       cancelled = true;
       room.close();
     };
-  }, [code, grant, updatePeer, onClosed]);
+  }, [code, grant, updatePeer, addPeer, onClosed]);
 
   // A picker left open behind a click elsewhere is a small thing that feels
   // broken, and Escape is what people try first.
@@ -366,12 +387,24 @@ function CallView({ code, meeting, grant, user, onLeave, onClosed }) {
 
     try {
       const track = await room.startScreen();
+      // Only claim to be presenting once there is something to present. This
+      // used to be set unconditionally, so a share that never started still
+      // flipped the button to "Stop presenting".
+      if (!track) throw new Error('Screen sharing did not start.');
       setLocalScreen(track);
       setScreenOn(true);
     } catch (shareError) {
-      // A refusal from the server and the user closing the picker arrive the
-      // same way; only the first is worth showing.
-      if (shareError.code === 'forbidden') setError(shareError.message);
+      setLocalScreen(null);
+      setScreenOn(false);
+      /**
+       * Everything except a deliberate cancel is shown.
+       *
+       * This previously surfaced only `forbidden`, so every other failure —
+       * a codec the browser would not encode, a transport that had gone away,
+       * a refusal with any other code — looked like the button doing nothing
+       * at all. A silent control is worse than an error message.
+       */
+      if (!shareError.cancelled) setError(shareError.message);
     }
     return undefined;
   }

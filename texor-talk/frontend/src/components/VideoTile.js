@@ -22,16 +22,27 @@ import { MicOffIcon } from '@/components/icons';
  */
 const AVATAR_COLOURS = ['#5b8def', '#7b61c9', '#c9557f', '#c97f2e', '#2e9e83', '#4a7fb5'];
 
-function colourFor(name = '') {
+/**
+ * Coerced, not defaulted.
+ *
+ * A display name arrives from an identity provider by way of the server, so it
+ * is not ours to assume anything about. A default parameter only covers
+ * `undefined` — a literal `null` sails straight past it and takes the whole
+ * grid down on `.length`.
+ */
+const nameOf = (value) => (typeof value === 'string' ? value : '');
+
+function colourFor(name) {
+  const text = nameOf(name);
   let hash = 0;
-  for (let index = 0; index < name.length; index += 1) {
-    hash = (hash * 31 + name.charCodeAt(index)) | 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) | 0;
   }
   return AVATAR_COLOURS[Math.abs(hash) % AVATAR_COLOURS.length];
 }
 
-const initialsOf = (name = '?') =>
-  name
+const initialsOf = (name) =>
+  nameOf(name)
     .split(/[\s@.]+/)
     .filter(Boolean)
     .slice(0, 2)
@@ -95,7 +106,7 @@ export function VideoTile({
       )}
 
       {muted ? (
-        <span className="tile__badge" title={`${name} is muted`}>
+        <span className="tile__badge" title={`${nameOf(name) || 'This participant'} is muted`}>
           <MicOffIcon />
         </span>
       ) : null}
@@ -103,7 +114,7 @@ export function VideoTile({
       <div className="tile__label">
         {role === 'host' || role === 'cohost' ? <span className="tile__pip" title={role} /> : null}
         <span className="tile__name">
-          {isYou ? 'You' : name}
+          {isYou ? 'You' : nameOf(name) || 'Participant'}
           {label ? <span className="tile__sub"> · {label}</span> : null}
         </span>
       </div>
