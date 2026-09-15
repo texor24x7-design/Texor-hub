@@ -9,6 +9,10 @@ on:
       - ".github/workflows/deploy-accounts.yml"
 
 jobs:
+  concurrency:
+    group: texor-ec2-deployment
+    cancel-in-progress: false
+
   deploy:
     name: Deploy Accounts to EC2
     runs-on: ubuntu-latest

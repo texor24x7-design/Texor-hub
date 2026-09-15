@@ -9,6 +9,10 @@ on:
       - ".github/workflows/deploy-talk.yml"
 
 jobs:
+  concurrency:
+    group: texor-ec2-deployment
+    cancel-in-progress: false
+    
   deploy:
     name: Deploy Talk to EC2
     runs-on: ubuntu-latest
