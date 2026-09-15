@@ -14,6 +14,7 @@
  */
 import User from '../models/User.js';
 import env from '../config/env.js';
+import { GUEST_COOKIE, guestCookieOptions, revokeGuest } from '../services/guest.service.js';
 import { isAdmin } from '../services/policy.service.js';
 import logger from '../utils/logger.js';
 import {
@@ -91,13 +92,30 @@ export async function handleCallback(req, res) {
 }
 
 export async function logout(req, res) {
+  /**
+   * A guest is not signed in to anything, so there is nothing to sign out of.
+   *
+   * This used to fall through to the code below and build an OIDC end-session
+   * URL for somebody who has no OIDC session and no `id_token` — sending a
+   * guest to an identity provider that has never heard of them, which fails
+   * there rather than here and looks like the account system is broken.
+   *
+   * All a guest pass is, is a cookie. Revoking it and clearing it *is* the
+   * logout.
+   */
+  if (req.user?.isGuest) {
+    await revokeGuest(req.guestToken);
+    res.clearCookie(GUEST_COOKIE, { ...guestCookieOptions(), maxAge: undefined });
+    return res.json({ ok: true, redirectTo: env.appOrigin });
+  }
+
   const idToken = await revokeSession(req.sessionToken);
   res.clearCookie(SESSION_COOKIE, { ...sessionCookieOptions(), maxAge: undefined });
 
   // Ending the Texor session too, otherwise the next visit signs straight
   // back in and the user thinks logout is broken.
   const redirectTo = await texor.endSessionUrl({ idToken }).catch(() => env.appOrigin);
-  res.json({ ok: true, redirectTo });
+  return res.json({ ok: true, redirectTo });
 }
 
 export async function me(req, res) {

@@ -131,6 +131,40 @@ They cannot list meetings, read the full meeting record, download the calendar
 invite, see the waiting list, read channels, or reach the admin console. The
 guest test suite asserts all of it.
 
+### Signing out as a guest
+
+A guest has no Texor Account, so there is nothing to sign out *of*. `logout`
+checks for a guest first and revokes the pass — a cookie — then hands back this
+product's own origin.
+
+Without that check it fell through to the ordinary path, which builds an OIDC
+end-session URL. A guest has no OIDC session and no `id_token`, so that sent
+them to an identity provider that had never heard of them, and the failure
+surfaced over there rather than here.
+
+The account menu is guest-aware for the same reason: no "Manage your Texor
+Account" for somebody who has none, and the button says *Leave as guest*.
+
+### Origins are not guessed in production
+
+`lib/ecosystem.js` holds the sibling products' origins, and its dev fallbacks
+apply **only** when `NODE_ENV !== 'production'`.
+
+They used to apply everywhere, which meant a deployment that had not set
+`NEXT_PUBLIC_ACCOUNTS_ORIGIN` shipped links to `http://localhost:3000` — working
+on the machine of whoever wrote it and nowhere else.
+
+In production an unset origin means the product is not offered and the link is
+not drawn. A missing link gets noticed and fixed; a link to localhost gets
+reported as a mystery months later.
+
+Set on the frontend deployment:
+
+```
+NEXT_PUBLIC_ACCOUNTS_ORIGIN=https://accounts.texor.app
+NEXT_PUBLIC_TALK_ORIGIN=https://talk.texor.app
+```
+
 ### Guests are always external
 
 A guest has no email and therefore no domain to match, so they are external **by

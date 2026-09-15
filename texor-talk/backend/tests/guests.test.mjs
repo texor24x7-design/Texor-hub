@@ -224,6 +224,40 @@ const other = (await call(host.cookie, '/api/meetings', {
 const crossed = await call(guestCookie, `/api/meetings/${other.code}/join`, { method: 'POST' });
 check('the pass does not open a different meeting', crossed.status === 403, JSON.stringify(crossed.body));
 
+console.log('\n── a guest signing out ──');
+{
+  /**
+   * The bug: this fell through to the ordinary logout, which builds an OIDC
+   * end-session URL. A guest has no OIDC session and no id_token, so it sent
+   * them to an identity provider that had never heard of them — and in
+   * production, to whatever origin was configured there, which is not a place
+   * a guest has any business being sent.
+   *
+   * A guest pass is a cookie. Revoking it is the whole of logging out.
+   */
+  const leaver = await call(null, `/api/meetings/${open.code}/guest`, {
+    method: 'POST', body: { name: 'Gwen Going' },
+  });
+  const leaverCookie = (leaver.setCookie ?? '').split(';')[0];
+  check('a guest pass is issued to sign out of', leaver.status === 201 || leaver.status === 200,
+    String(leaver.status));
+
+  const out = await call(leaverCookie, '/api/auth/logout', { method: 'POST' });
+  check('logging out works for a guest', out.status === 200, JSON.stringify(out.body));
+  check('it does not send them to an identity provider',
+    !/end_session|id_token_hint|openid/i.test(out.body.redirectTo ?? ''), out.body.redirectTo);
+  check('it sends them back to this product, not somewhere else',
+    out.body.redirectTo === API, `${out.body.redirectTo} vs ${API}`);
+  check('the guest cookie is cleared', /talk_guest=;|talk_guest=\s*;/.test(out.setCookie ?? ''),
+    out.setCookie);
+
+  // And the pass is genuinely dead, not merely forgotten by the browser.
+  const after = await call(leaverCookie, '/api/auth/me');
+  check('the pass no longer identifies anyone', after.body.user === null, JSON.stringify(after.body));
+  const reuse = await call(leaverCookie, `/api/meetings/${open.code}`);
+  check('and cannot be used to reach the meeting again', reuse.status === 401, String(reuse.status));
+}
+
 console.log('\n── policy closes the door ──');
 const admin = await seedUser({ texorId: 'tx-admin', email: 'isuryakarthikvarma@gmail.com', displayName: 'Admin' });
 await call(admin.cookie, '/api/admin/policy', { method: 'PUT', body: { allowExternalGuests: false } });

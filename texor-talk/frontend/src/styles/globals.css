@@ -2368,3 +2368,12 @@ p { margin: 0; }
 .conn__value { color: #e8eaed; text-align: right; font-variant-numeric: tabular-nums; }
 .conn__value--warn { color: #f28b82; font-weight: 500; }
 .conn__note { color: #9aa0a6; line-height: 1.5; margin-top: 0.25rem; }
+
+/* A guest's account menu says what being a guest means, rather than offering
+   them an account page they do not have. */
+.account__note {
+  padding: 0.5rem 0.85rem 0.6rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-subtle);
+}

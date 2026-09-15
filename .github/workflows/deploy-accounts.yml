@@ -1,0 +1,79 @@
+name: Deploy Texor Accounts
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "texor-accounts/**"
+      - ".github/workflows/deploy-accounts.yml"
+
+jobs:
+  deploy:
+    name: Deploy Accounts to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          passphrase: ${{ secrets.EC2_SSH_PASSPHRASE }}
+          script: |
+            set -e
+
+            echo "==> Starting Texor Accounts deployment"
+
+            cd ~/Texor-hub
+
+            echo "==> Fetching latest code"
+            git fetch origin main
+
+            echo "==> Checking out deployed commit"
+            git checkout --detach ${{ github.sha }}
+
+            echo "==> Loading Node.js environment"
+            export NVM_DIR="$HOME/.nvm"
+            source "$NVM_DIR/nvm.sh"
+            nvm use 24.21.0
+
+            echo "==> Node version"
+            node --version
+
+            echo "==> npm version"
+            npm --version
+
+            echo "==> Installing backend dependencies"
+            cd texor-accounts/backend
+            npm ci
+
+            echo "==> Running Accounts smoke test"
+            npm run test:smoke
+
+            echo "==> Running Accounts federation test"
+            npm run test:federation
+
+            echo "==> Running Accounts console test"
+            npm run test:console
+
+            echo "==> Running Accounts account test"
+            npm run test:account
+
+            echo "==> Restarting Accounts"
+            pm2 restart texor-accounts
+
+            echo "==> Waiting for Accounts to start"
+            sleep 5
+
+            echo "==> Checking PM2 status"
+            pm2 status
+
+            echo "==> Checking Accounts OIDC discovery"
+            curl --fail --silent --show-error \
+              http://127.0.0.1:4000/oidc/.well-known/openid-configuration
+
+            echo ""
+
+            echo "==> Texor Accounts deployment successful"

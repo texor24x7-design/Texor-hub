@@ -277,15 +277,33 @@ function AccountMenu({ user }) {
               <div className="meta account__email">{user.email || 'Guest'}</div>
             </div>
           </div>
-          <a
-            className="account__item"
-            role="menuitem"
-            href={ACCOUNTS_ORIGIN}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Manage your Texor Account
-          </a>
+          {/*
+            * A guest has no Texor Account, so neither of these means what it
+            * says for them: there is nothing to manage, and nothing to sign out
+            * of. Offering them anyway sent guests to an identity provider that
+            * had never heard of them.
+            *
+            * `ACCOUNTS_ORIGIN` is empty when a deployment has not configured
+            * it, and an empty href is a link to the current page — so the link
+            * is drawn only when there is somewhere for it to go.
+            */}
+          {!user.isGuest && ACCOUNTS_ORIGIN ? (
+            <a
+              className="account__item"
+              role="menuitem"
+              href={ACCOUNTS_ORIGIN}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Manage your Texor Account
+            </a>
+          ) : null}
+
+          {user.isGuest ? (
+            <p className="account__note">
+              You joined as a guest. Nothing here is saved to an account.
+            </p>
+          ) : null}
 
           <button
             type="button"
@@ -293,7 +311,7 @@ function AccountMenu({ user }) {
             role="menuitem"
             onClick={() => auth.logout()}
           >
-            Sign out
+            {user.isGuest ? 'Leave as guest' : 'Sign out'}
           </button>
         </div>
       ) : null}

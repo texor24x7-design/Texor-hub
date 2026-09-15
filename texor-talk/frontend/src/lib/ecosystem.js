@@ -10,7 +10,23 @@
  * A product with no origin configured is simply not offered, so a deployment
  * that only runs two of them shows two.
  */
-const origin = (value, fallback) => (value ?? fallback ?? '').replace(/\/$/, '');
+/**
+ * The dev fallbacks apply **only** in development.
+ *
+ * They used to apply everywhere, so a deployment that forgot to set one of
+ * these shipped a link to `http://localhost:3000` — which works on the machine
+ * of the person who wrote it and nowhere else. A guest clicking "Manage your
+ * Texor Account" in production was sent to their own laptop.
+ *
+ * In production an unset origin means the product is simply not offered, which
+ * the filter at the bottom of this file already handles. A missing link is a
+ * thing somebody notices and fixes; a link to localhost is one they report as a
+ * mysterious failure months later.
+ */
+const DEV = process.env.NODE_ENV !== 'production';
+
+const origin = (value, devFallback) =>
+  (value ?? (DEV ? devFallback : '') ?? '').replace(/\/$/, '');
 
 export const ACCOUNTS_ORIGIN = origin(
   process.env.NEXT_PUBLIC_ACCOUNTS_ORIGIN,
