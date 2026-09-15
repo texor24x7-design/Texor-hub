@@ -159,6 +159,50 @@ export const FullscreenExitIcon = (props) => (
   </Icon>
 );
 
+export const MenuIcon = (props) => (
+  <Icon {...props}>
+    <path d="M3 18h18v-2H3v2Zm0-5h18v-2H3v2Zm0-7v2h18V6H3Z" />
+  </Icon>
+);
+
+export const CalendarIcon = (props) => (
+  <Icon {...props}>
+    <path d="M17 3V1h-2v2H9V1H7v2H6a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-1ZM6 20V9h12v11H6Z" />
+  </Icon>
+);
+
+export const SettingsIcon = (props) => (
+  <Icon {...props}>
+    <path d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.62l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.24-1.12.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 8.86a.5.5 0 0 0 .12.62l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.62l1.92 3.32c.13.22.38.3.6.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.54c.58-.24 1.12-.56 1.62-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.62l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z" />
+  </Icon>
+);
+
+export const VideoPlusIcon = (props) => (
+  <Icon {...props}>
+    <path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4ZM11 15H9v-2H7v-2h2V9h2v2h2v2h-2v2Z" />
+  </Icon>
+);
+
+export const ChevronIcon = (props) => (
+  <Icon {...props}>
+    <path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6 1.4-1.4Z" />
+  </Icon>
+);
+
+export const MoreIcon = (props) => (
+  <Icon {...props}>
+    <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+  </Icon>
+);
+
+export const GridDotsIcon = (props) => (
+  <Icon {...props}>
+    <circle cx="6" cy="6" r="1.7" /><circle cx="12" cy="6" r="1.7" /><circle cx="18" cy="6" r="1.7" />
+    <circle cx="6" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="18" cy="12" r="1.7" />
+    <circle cx="6" cy="18" r="1.7" /><circle cx="12" cy="18" r="1.7" /><circle cx="18" cy="18" r="1.7" />
+  </Icon>
+);
+
 export const ShieldIcon = (props) => (
   <Icon {...props}>
     <path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4Zm-1.2 15L7 12.2l1.4-1.4 2.4 2.4 5-5 1.4 1.4-6.4 6.4Z" />
@@ -168,6 +212,7 @@ export const ShieldIcon = (props) => (
 export default {
   MicIcon, MicOffIcon, CameraIcon, CameraOffIcon, PresentIcon, PresentOffIcon,
   HangUpIcon, PeopleIcon, ChatIcon, InfoIcon, CloseIcon, SendIcon, CopyIcon,
-  CheckIcon, FullscreenIcon, FullscreenExitIcon, GridIcon, HandIcon, PinIcon,
+  CalendarIcon, CheckIcon, ChevronIcon, FullscreenIcon, FullscreenExitIcon, GridIcon,
+  GridDotsIcon, HandIcon, MenuIcon, MoreIcon, PinIcon, SettingsIcon, VideoPlusIcon,
   ReactionIcon, RemovePersonIcon, ShieldIcon,
 };

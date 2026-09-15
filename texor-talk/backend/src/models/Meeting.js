@@ -43,6 +43,7 @@ const attendanceSchema = new Schema(
   {
     texorId: { type: String, required: true },
     name: { type: String, default: '' },
+    picture: { type: String, default: '' },
     email: { type: String, default: '' },
     role: { type: String, enum: ['host', 'cohost', 'participant', 'guest'], default: 'participant' },
     firstJoinedAt: { type: Date, required: true },

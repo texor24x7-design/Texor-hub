@@ -156,7 +156,7 @@ let failures = 0;
  * These need no database and no HTTP, so running them up front means a broken
  * rule fails in a second rather than after a full media negotiation.
  */
-for (const file of ['speaker.test.mjs', 'fullscreen.test.mjs', 'media-errors.test.mjs']) {
+for (const file of ['speaker.test.mjs', 'fullscreen.test.mjs', 'media-errors.test.mjs', 'tile-layout.test.mjs']) {
   failures += (await runSuite(file)) === 0 ? 0 : 1;
 }
 

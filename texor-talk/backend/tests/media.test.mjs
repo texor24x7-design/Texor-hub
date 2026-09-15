@@ -564,6 +564,164 @@ check('the host is not muted by their own mute-all',
 
 muteePeer.close();
 
+console.log('\n── a meeting does not end under people who are still in it ──');
+/**
+ * The bug: presence moved onto the socket but nothing refreshed `lastSeenAt`,
+ * so everyone looked departed after the timeout and the next request to touch
+ * the meeting reaped them and ended it.
+ *
+ * Simulated by ageing `lastSeenAt` directly rather than waiting 90 seconds —
+ * the ticker should have written over it before anything reads it.
+ */
+const survivor = await seedUser({ texorId: 'tx-stay', email: 'stay@texor.app', displayName: 'Stan Stay' });
+const stayMeeting = await rest(survivor, '/api/meetings', {
+  method: 'POST', body: { title: 'Long one', lobby: 'off', access: 'texor' },
+});
+const stayCode = stayMeeting.body.meeting.code;
+
+await rest(survivor, `/api/meetings/${stayCode}/join`, { method: 'POST' });
+const stayPeer = new TestPeer(survivor, stayCode);
+await stayPeer.connect();
+
+const meetings = mongoose.connection.db.collection('meetings');
+const ageBy = async (ms) => {
+  const doc = await meetings.findOne({ code: stayCode });
+  const old = new Date(Date.now() - ms);
+  await meetings.updateOne(
+    { _id: doc._id },
+    { $set: { 'attendance.$[].lastSeenAt': old, startedAt: old } },
+  );
+};
+
+// Older than MEETING_HEARTBEAT_TIMEOUT_SECONDS (90s), as it would be after a
+// couple of quiet minutes on a call.
+await ageBy(5 * 60_000);
+
+// Read it immediately, with no tick in between — the open socket alone must
+// be enough to keep them counted as present.
+const stillLive = await rest(survivor, `/api/meetings/${stayCode}`);
+check('a stale timestamp does not end a meeting somebody is connected to',
+  stillLive.body.meeting.status === 'live', stillLive.body.meeting.status);
+check('and they are still counted as in the call',
+  stillLive.body.meeting.participantCount === 1, String(stillLive.body.meeting.participantCount));
+
+// Somebody joining is the most common trigger — it calls loadMeeting, which
+// reaps. With presence refreshed, it must not take the meeting down.
+const joiner = await seedUser({ texorId: 'tx-joiner', email: 'joiner@texor.app', displayName: 'Jo Joiner' });
+await ageBy(5 * 60_000);
+const joined = await rest(joiner, `/api/meetings/${stayCode}/join`, { method: 'POST' });
+check('a newcomer joining does not end the meeting',
+  joined.body.status === 'admitted', JSON.stringify(joined.body).slice(0, 140));
+check('the original participant is still there',
+  (await rest(survivor, `/api/meetings/${stayCode}`)).body.meeting.status === 'live');
+
+// And the sweep must still work when somebody genuinely goes.
+stayPeer.close();
+await wait(500);
+const left = await rest(survivor, `/api/meetings/${stayCode}`);
+check('a socket that closes still removes them',
+  !left.body.meeting.participants.some((p) => p.texorId === 'tx-stay'),
+  JSON.stringify(left.body.meeting.participants.map((p) => p.texorId)));
+
+console.log('\n── the roster converges even when a delta is missed ──');
+/**
+ * The bug: `peerJoined` is a single delivery and `send` drops it silently if
+ * that socket is not open at the instant it fires. One participant then had a
+ * permanently wrong roster — two people saw three participants and the third
+ * saw two, for the rest of the call.
+ */
+const a = await seedUser({ texorId: 'tx-ra', email: 'ra@texor.app', displayName: 'Ana Roster' });
+const b = await seedUser({ texorId: 'tx-rb', email: 'rb@texor.app', displayName: 'Ben Roster' });
+const c = await seedUser({ texorId: 'tx-rc', email: 'rc@texor.app', displayName: 'Cal Roster' });
+
+const rosterMeeting = await rest(a, '/api/meetings', {
+  method: 'POST', body: { title: 'Roster', lobby: 'off', access: 'texor' },
+});
+const rCode = rosterMeeting.body.meeting.code;
+for (const u of [a, b, c]) await rest(u, `/api/meetings/${rCode}/join`, { method: 'POST' });
+
+const peerA = new TestPeer(a, rCode);
+await peerA.connect();
+const peerB = new TestPeer(b, rCode);
+await peerB.connect();
+
+check('everyone present at connect time is in the welcome',
+  peerB.welcome.peers.some((p) => p.texorId === 'tx-ra'),
+  JSON.stringify(peerB.welcome.peers.map((p) => p.texorId)));
+
+// Drop B's incoming messages, so it misses the delta the way a socket mid
+// reconnect would, then let a third person arrive.
+const swallowed = [];
+const realPush = peerB.events.push.bind(peerB.events);
+peerB.events.push = (event) => {
+  if (event?.type === 'peerJoined') { swallowed.push(event); return peerB.events.length; }
+  return realPush(event);
+};
+
+const peerC = new TestPeer(c, rCode);
+await peerC.connect();
+await wait(500);
+
+check('B did indeed miss the join notification', swallowed.length >= 1,
+  `swallowed ${swallowed.length}`);
+check('A, which did not miss it, sees three',
+  peerA.seen('peerJoined').length >= 1);
+
+// The reconciliation pass runs on the room ticker.
+peerB.events.push = realPush;
+await wait(6500);
+
+const reconciled = peerB.seen('roster').at(-1)?.data.peers ?? [];
+const ids = reconciled.map((p) => p.texorId);
+check('B is sent an authoritative roster', reconciled.length > 0, JSON.stringify(ids));
+check('and it contains the participant whose delta was lost', ids.includes('tx-rc'), JSON.stringify(ids));
+check('along with everyone else, and not itself',
+  ids.includes('tx-ra') && !ids.includes('tx-rb'), JSON.stringify(ids));
+
+// Leaving must converge too, not just joining.
+peerC.close();
+await wait(6500);
+const afterLeave = peerB.seen('roster').at(-1)?.data.peers ?? [];
+check('someone who leaves drops out of the roster',
+  !afterLeave.some((p) => p.texorId === 'tx-rc'), JSON.stringify(afterLeave.map((p) => p.texorId)));
+
+peerA.close();
+peerB.close();
+
+console.log('\n── a profile photo travels with the peer ──');
+// A tile with the camera off shows a face rather than two letters, so the photo
+// has to reach the client the same way the name does.
+const withPhoto = await seedUser({ texorId: 'tx-pic', email: 'pic@texor.app', displayName: 'Pia Picture' });
+await mongoose.connection.db.collection('users').updateOne(
+  { texorId: 'tx-pic' },
+  { $set: { picture: 'https://example.test/pia.jpg' } },
+);
+await rest(withPhoto, `/api/meetings/${code}/join`, { method: 'POST' });
+const picPeer = new TestPeer(withPhoto, code);
+await picPeer.connect();
+await wait(400);
+
+const asSeen = hostPeer.seen('peerJoined').map((e) => e.data.peer).find((p) => p.texorId === 'tx-pic')
+  ?? (hostPeer.seen('roster').at(-1)?.data.peers ?? []).find((p) => p.texorId === 'tx-pic');
+check('the photo reaches other participants', asSeen?.picture === 'https://example.test/pia.jpg',
+  JSON.stringify(asSeen?.picture));
+
+const rosterCopy = (picPeer.welcome.peers ?? [])[0];
+check('and is present on everyone in the welcome', 'picture' in (rosterCopy ?? {}),
+  JSON.stringify(Object.keys(rosterCopy ?? {})));
+
+const attendance = (await rest(host, `/api/meetings/${code}`)).body.meeting.participants
+  .find((p) => p.texorId === 'tx-pic');
+check('the REST roster carries it too', attendance?.picture === 'https://example.test/pia.jpg',
+  JSON.stringify(attendance));
+
+// Guests have none, and the client falls back to initials.
+check('somebody without one gets an empty string rather than undefined',
+  (picPeer.welcome.peers ?? []).every((p) => typeof p.picture === 'string'),
+  JSON.stringify((picPeer.welcome.peers ?? []).map((p) => p.picture)));
+
+picPeer.close();
+
 console.log('\n── a knock reaches the host immediately ──');
 // The room ticker runs every 15s. If the admit prompt only arrived on a tick,
 // this would time out — which is exactly what it used to do.

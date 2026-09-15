@@ -53,7 +53,7 @@ const initialsOf = (name) =>
     .join('') || '?';
 
 export function VideoTile({
-  track, name, role, muted, speaking, handRaised, mirrored, isYou, label, compact,
+  track, name, picture, role, muted, speaking, handRaised, mirrored, isYou, label, compact,
   onPin, pinned, allowFullscreen = true,
 }) {
   const video = useRef(null);
@@ -111,6 +111,21 @@ export function VideoTile({
         />
       ) : (
         <div className="tile__placeholder">
+          {/**
+            * A face beats two letters. The photo is only a fallback for a
+            * switched-off camera, so a broken or expired URL must degrade to
+            * the initials rather than leaving a blank circle — hence `onError`
+            * rather than trusting the link.
+            */}
+          {picture ? (
+            <img
+              className="tile__photo"
+              src={picture}
+              alt=""
+              referrerPolicy="no-referrer"
+              onError={(event) => { event.currentTarget.style.display = 'none'; }}
+            />
+          ) : null}
           <span className="tile__avatar" style={{ background: colourFor(name) }}>
             {initialsOf(name)}
           </span>

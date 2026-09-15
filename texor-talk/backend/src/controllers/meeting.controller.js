@@ -14,6 +14,7 @@ import env from '../config/env.js';
 import ApiError from '../utils/ApiError.js';
 import { meetingInvite } from '../utils/ics.js';
 import { ejectPeer, endRoom, refreshKnocks, updatePeerRole } from '../media/signalling.js';
+import { connectedTexorIds } from '../media/room.js';
 import {
   GUEST_COOKIE,
   assertGuestScope,
@@ -40,6 +41,7 @@ import {
   joinWindow,
   markJoined,
   markLeft,
+  markPresent,
   reapStaleAttendance,
   rollForward,
 } from '../services/meeting.service.js';
@@ -137,12 +139,22 @@ async function loadMeeting(code) {
   const meeting = await Meeting.findOne({ code: String(code).toLowerCase().trim() }).exec();
   if (!meeting) throw ApiError.notFound('No meeting with that code.');
 
+  /**
+   * Anyone holding an open socket is present, whatever the timestamps say.
+   *
+   * This has to happen *before* the sweep, and it is the difference between a
+   * meeting that survives and one that ends under everybody. `lastSeenAt` is
+   * written periodically; a socket is a fact. Reaping on the timestamp alone
+   * meant that any request touching the meeting — most often somebody new
+   * joining — could declare a room full of connected people empty and end it.
+   */
+  const present = markPresent(meeting, connectedTexorIds(meeting.code));
   const stale = reapStaleAttendance(meeting);
   const rolled = rollForward(meeting);
 
   if (isAbandoned(meeting)) {
     await endMeeting({ meeting, reason: 'everyone left' });
-  } else if (stale || rolled) {
+  } else if (present || stale || rolled) {
     await meeting.save();
   }
 
@@ -219,6 +231,7 @@ function present(meeting, user, { policy } = {}) {
     participants: meeting.liveAttendance().map((entry) => ({
       texorId: entry.texorId,
       name: entry.name,
+      picture: entry.picture,
       role: entry.role,
       joinedAt: entry.firstJoinedAt,
     })),

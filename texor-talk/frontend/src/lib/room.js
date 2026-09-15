@@ -382,6 +382,19 @@ export class MeetingRoom {
         this.on.reaction?.(data);
         break;
 
+      /**
+       * The authoritative list of who else is here.
+       *
+       * Arrives periodically alongside the join/leave deltas. Handing it to the
+       * caller repairs a roster that lost a delta, and `reconcile` picks up any
+       * track we never started consuming because the notification that would
+       * have told us about it went missing.
+       */
+      case 'roster':
+        this.on.roster?.(data.peers);
+        await this.reconcile(data.peers);
+        break;
+
       case 'activeSpeaker':
         this.on.activeSpeaker?.(data.texorId);
         break;
@@ -428,6 +441,28 @@ export class MeetingRoom {
   }
 
   // ── Receiving ──────────────────────────────────────────────────────────────
+
+  /**
+   * Starts consuming anything in the roster we are not already receiving.
+   *
+   * Consumers are the other half of the same problem: a missed `newProducer`
+   * means a participant who is present but permanently silent and blank, with
+   * nothing to prompt a retry. Comparing against the authoritative list closes
+   * that gap without re-consuming what we already have.
+   */
+  async reconcile(peers) {
+    const already = new Set(
+      [...this.consumers.values()].map((entry) => entry.consumer.producerId),
+    );
+
+    for (const peer of peers ?? []) {
+      for (const producer of peer.producers ?? []) {
+        if (already.has(producer.id)) continue;
+        // One failure must not stop the rest of the room from arriving.
+        await this.consume(producer.id).catch(() => {});
+      }
+    }
+  }
 
   async consume(producerId) {
     const info = await this.request('consume', { producerId });

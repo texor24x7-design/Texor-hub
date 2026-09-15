@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { Alert, Button, Field, Loading, formatTimestamp } from '@/components/ui';
+import { CalendarIcon, ChevronIcon, VideoPlusIcon } from '@/components/icons';
 import { meetings as meetingApi } from '@/lib/api';
 
 /** Start one, join one, or look at what is coming. */
@@ -51,69 +52,182 @@ function MeetingsHome({ user }) {
     }
   }
 
+  const live = (list ?? []).filter((m) => m.status === 'live');
+
+  /**
+   * Which day the list is showing.
+   *
+   * Meetings are a calendar-shaped thing, and a week strip is how people expect
+   * to move through one — far quicker than reading a flat list and working out
+   * which entries are today's.
+   */
+  const [day, setDay] = useState(() => startOfDay(new Date()));
+  const week = weekAround(day);
+
+  const forDay = (list ?? []).filter((meeting) => {
+    const when = meeting.nextOccurrence?.start ?? meeting.startedAt ?? meeting.endedAt;
+    // An instant meeting has no scheduled time and belongs to today.
+    if (!when) return isSameDay(day, new Date());
+    return isSameDay(new Date(when), day);
+  });
+
   return (
-    <div className="stack stack--loose">
-      <section className="meeting-hero">
-        <div className="panel">
-          <div className="panel__header">
-            <h1>Meetings</h1>
-            <p>Start a call now, or put one in the calendar.</p>
+    <div className="dash">
+      <Alert kind="error">{error}</Alert>
+
+      <header className="daybar">
+        <div className="daybar__title">
+          <CalendarIcon />
+          <h1>{longDay(day)}</h1>
+        </div>
+
+        <div className="daybar__week">
+          <button
+            type="button" className="daybar__arrow" aria-label="Previous week"
+            onClick={() => setDay(addDays(day, -7))}
+          >
+            <ChevronIcon style={{ transform: 'rotate(90deg)' }} />
+          </button>
+
+          {week.map((date) => {
+            const selected = isSameDay(date, day);
+            return (
+              <button
+                key={date.toISOString()}
+                type="button"
+                className={`daybar__day ${selected ? 'daybar__day--on' : ''}`}
+                aria-current={selected ? 'date' : undefined}
+                onClick={() => setDay(date)}
+              >
+                <span className="daybar__dow">{shortDow(date)}</span>
+                <span className="daybar__num">{date.getDate()}</span>
+              </button>
+            );
+          })}
+
+          <button
+            type="button" className="daybar__arrow" aria-label="Next week"
+            onClick={() => setDay(addDays(day, 7))}
+          >
+            <ChevronIcon style={{ transform: 'rotate(-90deg)' }} />
+          </button>
+        </div>
+      </header>
+
+      {live.length > 0 ? (
+        <section className="dash__live">
+          <h2>
+            <span className="status-dot status-dot--live" aria-hidden="true" />
+            Happening now
+          </h2>
+          <div className="dash__cards">
+            {live.map((meeting) => (
+              <button
+                key={meeting.code}
+                type="button"
+                className="dash__card"
+                onClick={() => router.push(`/meetings/${meeting.code}`)}
+              >
+                <strong>{meeting.title}</strong>
+                <span className="meta">
+                  {meeting.participantCount || 0} in the call
+                  {meeting.viewer.isHost ? ' · you host' : ` · ${meeting.host.name}`}
+                </span>
+                <span className="dash__card-join">Join</span>
+              </button>
+            ))}
           </div>
+        </section>
+      ) : null}
 
-          <Alert kind="error">{error}</Alert>
+      {scheduling ? (
+        <section className="panel">
+          <div className="panel__header"><h2>Schedule a meeting</h2></div>
+          <ScheduleForm
+            onCancel={() => setScheduling(false)}
+            onCreated={(meeting) => router.push(`/meetings/${meeting.code}/details`)}
+          />
+        </section>
+      ) : null}
 
-          <div className="row row--wrap" style={{ gap: '0.6rem', marginTop: '0.5rem' }}>
-            <Button onClick={startInstant} loading={busy}>New meeting</Button>
+      {list === null ? (
+        <Loading label="Loading meetings" />
+      ) : forDay.length === 0 ? (
+        <div className="empty-day">
+          <EmptyDayArt />
+          <h2>{isSameDay(day, new Date()) ? 'No meetings scheduled for today' : 'Nothing on this day'}</h2>
+          <p>Start one now, or put it in the calendar.</p>
+          <div className="empty-day__actions">
+            <button type="button" className="shell__new" onClick={startInstant} disabled={busy}>
+              <VideoPlusIcon />
+              <span>{busy ? 'Starting…' : 'New meeting'}</span>
+            </button>
             <Button variant="secondary" onClick={() => setScheduling((open) => !open)}>
-              {scheduling ? 'Cancel' : 'Schedule for later'}
+              {scheduling ? 'Cancel' : 'Schedule'}
             </Button>
           </div>
-
-          {scheduling ? (
-            <ScheduleForm
-              onCancel={() => setScheduling(false)}
-              onCreated={(meeting) => router.push(`/meetings/${meeting.code}/details`)}
-            />
-          ) : null}
         </div>
-
-        <JoinByCode onJoin={(code) => router.push(`/meetings/${code}`)} />
-      </section>
-
-      <section className="panel">
-        <div className="row row--between row--wrap panel__header">
-          <h2>Your meetings</h2>
-          <nav className="row" style={{ gap: '0.25rem' }}>
-            {['upcoming', 'live', 'past'].map((value) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={scope === value ? 'secondary' : 'ghost'}
-                onClick={() => setScope(value)}
-              >
-                {value[0].toUpperCase() + value.slice(1)}
+      ) : (
+        <section className="panel">
+          <div className="row row--between row--wrap panel__header">
+            <h2>{isSameDay(day, new Date()) ? 'Today' : longDay(day)}</h2>
+            <div className="row" style={{ gap: '0.5rem' }}>
+              <Button variant="secondary" size="sm" onClick={() => setScheduling((open) => !open)}>
+                {scheduling ? 'Cancel' : 'Schedule'}
               </Button>
-            ))}
-          </nav>
-        </div>
+              <button type="button" className="shell__new" onClick={startInstant} disabled={busy}>
+                <VideoPlusIcon />
+                <span>New</span>
+              </button>
+            </div>
+          </div>
 
-        {list === null ? (
-          <Loading label="Loading meetings" />
-        ) : list.length === 0 ? (
-          <p className="meta">
-            {scope === 'past' ? 'No meetings behind you yet.' : 'Nothing scheduled.'}
-          </p>
-        ) : (
           <div className="list">
-            {list.map((meeting) => (
+            {forDay.map((meeting) => (
               <MeetingRow key={meeting.code} meeting={meeting} router={router} />
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
     </div>
   );
 }
+
+// ── dates ────────────────────────────────────────────────────────────────────
+
+const startOfDay = (date) => {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+};
+const addDays = (date, days) => startOfDay(new Date(date.getTime() + days * 86400000));
+const isSameDay = (a, b) => startOfDay(a).getTime() === startOfDay(b).getTime();
+const shortDow = (date) => date.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase();
+const longDay = (date) =>
+  date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+
+/** Monday-first week containing `day`. */
+function weekAround(day) {
+  const monday = addDays(day, -((day.getDay() + 6) % 7));
+  return Array.from({ length: 7 }, (_, index) => addDays(monday, index));
+}
+
+/** A small piece of warmth on a page that would otherwise be an empty box. */
+const EmptyDayArt = () => (
+  <svg viewBox="0 0 220 140" width="220" height="140" aria-hidden="true" className="empty-day__art">
+    <ellipse cx="110" cy="128" rx="74" ry="5" fill="currentColor" opacity=".10" />
+    <rect x="118" y="58" width="62" height="62" rx="8" fill="currentColor" opacity=".13" />
+    <rect x="126" y="70" width="46" height="38" rx="5" fill="currentColor" opacity=".18" />
+    <path d="M92 66h34v54H92z" fill="currentColor" opacity=".08" />
+    <path d="M62 78c0-9 7-16 16-16h6v46a12 12 0 0 1-12 12h0a10 10 0 0 1-10-10V78Z" fill="currentColor" opacity=".16" />
+    <path d="M84 70h10a8 8 0 0 1 0 16h-10" fill="none" stroke="currentColor" strokeWidth="3" opacity=".22" />
+    <path d="M74 40c0-6 6-6 6-12s-6-6-6-12" fill="none" stroke="currentColor" strokeWidth="3"
+      strokeLinecap="round" opacity=".2" />
+    <path d="M88 44c0-5 5-5 5-10s-5-5-5-10" fill="none" stroke="currentColor" strokeWidth="3"
+      strokeLinecap="round" opacity=".14" />
+    <circle cx="168" cy="40" r="9" fill="currentColor" opacity=".25" />
+  </svg>
+);
 
 function MeetingRow({ meeting, router }) {
   const when = meeting.nextOccurrence?.start ?? meeting.startedAt ?? meeting.endedAt;

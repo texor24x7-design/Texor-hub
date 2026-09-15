@@ -26,6 +26,7 @@ import {
   isAbandoned,
   markJoined,
   markLeft,
+  markPresent,
 } from '../services/meeting.service.js';
 import { Peer, closeRoom, createWebRtcTransport, getOrCreateRoom, getRoom } from './room.js';
 import { attachSpeakingDetection } from './speaking.js';
@@ -148,7 +149,13 @@ async function handleConnection(socket, request) {
   room.removePeer(user.texorId);
 
   const peer = room.addPeer(
-    new Peer({ texorId: user.texorId, name: user.displayName || user.email, role, socket }),
+    new Peer({
+      texorId: user.texorId,
+      name: user.displayName || user.email,
+      picture: user.picture,
+      role,
+      socket,
+    }),
   );
 
   await markJoined({ meeting, user, role });
@@ -196,6 +203,7 @@ async function handleConnection(socket, request) {
   });
 
   broadcast(room, user.texorId, { type: 'peerJoined', data: { peer: peer.summary() } });
+  broadcastRoster(room);
 
   attachSpeakingDetection(room, broadcastAll);
 
@@ -209,6 +217,7 @@ async function onDisconnect({ room, peer, user, code }) {
 
   room.removePeer(user.texorId);
   broadcast(room, user.texorId, { type: 'peerLeft', data: { texorId: user.texorId } });
+  broadcastRoster(room);
 
   const meeting = await Meeting.findOne({ code }).exec();
   if (meeting) {
@@ -552,6 +561,7 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
         target.socket.close(4003, 'removed');
         room.removePeer(data.texorId);
         broadcastAll(room, { type: 'peerLeft', data: { texorId: data.texorId } });
+        broadcastRoster(room);
       }
 
       return {};
@@ -673,6 +683,28 @@ function broadcastAll(room, message) {
   for (const other of room.peers.values()) send(other.socket, message);
 }
 
+/**
+ * Sends everybody the authoritative list of who else is here.
+ *
+ * `peerJoined` and `peerLeft` are deltas, and a delta is a single delivery:
+ * `send` drops the message if that socket is not open at that instant — mid
+ * reconnect, say — and nothing ever corrects it. One participant then has a
+ * permanently wrong roster for the rest of the call, which is exactly what
+ * happened: two people saw three participants and the third saw two.
+ *
+ * So the deltas stay, because they are immediate, and this runs alongside them
+ * to make the state converge. The payload differs per recipient, since everyone
+ * wants the list of *others*.
+ */
+function broadcastRoster(room) {
+  for (const peer of room.peers.values()) {
+    send(peer.socket, {
+      type: 'roster',
+      data: { peers: room.others(peer.texorId).map((other) => other.summary()) },
+    });
+  }
+}
+
 async function pushKnocks(room, meeting, socket) {
   const knocks = await Knock.find({ meeting: meeting._id, status: 'waiting' })
     .sort({ createdAt: 1 })
@@ -739,6 +771,16 @@ function startRoomTicker(wss) {
           continue;
         }
 
+        /**
+         * Presence first, before anything reads it.
+         *
+         * An open socket is the definition of being in the meeting, so this is
+         * where that fact reaches the database. Doing it before the abandonment
+         * check below is what stops a room full of connected people being
+         * declared empty.
+         */
+        if (markPresent(meeting, [...room.peers.keys()])) await meeting.save();
+
         if (meeting.maxDurationMinutes > 0 && meeting.startedAt) {
           const elapsed = (Date.now() - meeting.startedAt.getTime()) / 60_000;
           if (elapsed > meeting.maxDurationMinutes) {
@@ -755,6 +797,15 @@ function startRoomTicker(wss) {
             continue;
           }
         }
+
+        /**
+         * The reconciliation pass.
+         *
+         * Cheap — a handful of small JSON messages — and it is what turns a
+         * roster built from deltas into one that is eventually correct however
+         * many of those deltas went missing.
+         */
+        broadcastRoster(room);
 
         // New lobby requests reach hosts without them polling for them.
         for (const other of room.peers.values()) {
@@ -827,6 +878,7 @@ export function ejectPeer(code, texorId, reason) {
   peer.socket.close(4003, 'removed');
   room.removePeer(texorId);
   broadcastAll(room, { type: 'peerLeft', data: { texorId } });
+  broadcastRoster(room);
   return true;
 }
 

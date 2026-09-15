@@ -278,6 +278,7 @@ export async function markJoined({ meeting, user, role, now = new Date() }) {
     meeting.attendance.push({
       texorId: user.texorId,
       name: user.displayName || user.email,
+      picture: user.picture ?? '',
       email: user.email,
       role,
       firstJoinedAt: now,
@@ -304,6 +305,37 @@ export async function markLeft({ meeting, texorId, now = new Date() }) {
   entry.lastSeenAt = now;
   await meeting.save();
   return true;
+}
+
+/**
+ * Marks everyone with an open socket as still here.
+ *
+ * This is the write that keeps `reapStaleAttendance` honest, and its absence
+ * was a real bug: presence moved onto the WebSocket, but nothing then refreshed
+ * `lastSeenAt`, so after `MEETING_HEARTBEAT_TIMEOUT_SECONDS` every participant
+ * looked departed. The next request to touch the meeting — somebody new
+ * joining, a knock being polled, a host admitting — reaped the lot of them,
+ * decided the meeting was abandoned and ended it under everyone.
+ *
+ * Called from the room ticker, which already knows precisely who is connected.
+ */
+export function markPresent(meeting, texorIds, now = new Date()) {
+  const present = new Set(texorIds);
+  let changed = false;
+
+  for (const entry of meeting.attendance) {
+    if (!present.has(entry.texorId)) continue;
+
+    entry.lastSeenAt = now;
+    // A reconnect inside the timeout window puts them back without a rejoin.
+    if (entry.leftAt) {
+      entry.leftAt = null;
+      changed = true;
+    }
+    changed = true;
+  }
+
+  return changed;
 }
 
 /**
@@ -400,6 +432,7 @@ export default {
   evaluateJoin,
   markJoined,
   markLeft,
+  markPresent,
   reapStaleAttendance,
   endMeeting,
   rollForward,

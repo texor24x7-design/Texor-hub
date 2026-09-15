@@ -23,9 +23,12 @@ const rooms = new Map();
  * direction does not take the other down with it.
  */
 class Peer {
-  constructor({ texorId, name, role, socket }) {
+  constructor({ texorId, name, picture, role, socket }) {
     this.texorId = texorId;
     this.name = name;
+    // Carried from the Texor profile so a tile with the camera off can show the
+    // person rather than two letters. Guests have none, and fall back.
+    this.picture = picture ?? '';
     this.role = role;
     this.socket = socket;
 
@@ -61,6 +64,7 @@ class Peer {
     return {
       texorId: this.texorId,
       name: this.name,
+      picture: this.picture,
       role: this.role,
       joinedAt: this.joinedAt,
       handRaised: this.handRaised,
@@ -174,6 +178,16 @@ export async function getOrCreateRoom(meetingCode) {
 
 export const getRoom = (meetingCode) => rooms.get(meetingCode) ?? null;
 
+/**
+ * Who has an open socket for this meeting, right now.
+ *
+ * The live answer, straight from memory, with no database round trip. An open
+ * socket *is* being in the meeting, so this is the ground truth that anything
+ * reasoning about presence should consult first — including code paths that
+ * have nothing to do with media.
+ */
+export const connectedTexorIds = (meetingCode) => [...(rooms.get(meetingCode)?.peers.keys() ?? [])];
+
 export function closeRoom(meetingCode) {
   const room = rooms.get(meetingCode);
   if (!room) return;
@@ -238,4 +252,4 @@ export async function createWebRtcTransport(room) {
 }
 
 export { Peer, Room };
-export default { getOrCreateRoom, getRoom, closeRoom, createWebRtcTransport, Peer };
+export default { getOrCreateRoom, getRoom, closeRoom, createWebRtcTransport, connectedTexorIds, Peer };

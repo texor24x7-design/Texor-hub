@@ -17,6 +17,12 @@ const bad = (label, detail = '') => console.log(`  FAIL  ${label}${detail ? `  $
 
 console.log(`\nChecking Finvoice → Texor Account wiring\n  issuer: ${env.TEXOR_ISSUER}\n`);
 
+/** True when the refusal is about the grant, not about who is asking. */
+const isGrantNotAllowed = (payload) =>
+  payload.error === 'unauthorized_client'
+  || payload.error === 'unsupported_grant_type'
+  || /grant type is not allowed|unsupported grant/i.test(payload.error_description ?? '');
+
 let failures = 0;
 
 // 1. Discovery
@@ -55,9 +61,16 @@ try {
   } else if (payload.error === 'invalid_client') {
     failures += 1;
     bad('client credentials rejected', 'TEXOR_CLIENT_SECRET does not match the registered client.');
-  } else if (payload.error === 'unauthorized_client') {
-    // The product is registered but not allowed this grant — the id/secret pair
-    // still authenticated, which is all we were testing.
+  } else if (isGrantNotAllowed(payload)) {
+    /**
+     * The product is registered but not allowed this grant. The id/secret pair
+     * still authenticated, which is the only thing this step tests.
+     *
+     * Matched on the description as well as the code, because the provider
+     * answers this with `invalid_request` rather than the `unauthorized_client`
+     * you would expect — and reporting a failure here sends people hunting for
+     * a credential problem that does not exist.
+     */
     ok('client credentials accepted', '(client_credentials grant not enabled for this client)');
   } else {
     failures += 1;

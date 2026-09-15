@@ -251,6 +251,24 @@ without one is a notification.
 `knockResolved` · `roleChanged` · `peerRoleChanged` · `chat` · `reaction` ·
 `removed` · `ended` · `refused` · `activeSpeaker` · `handChanged` · `forceMuted`
 
+### Deltas converge, they do not merely fire
+
+`peerJoined`, `peerLeft` and `newProducer` are *deltas*, and a delta is a single
+delivery: `send` drops it silently when that socket is not open at the instant
+it fires — mid-reconnect, for example. Nothing then corrects it, so one
+participant carries a wrong roster for the rest of the call. That happened: two
+people saw three participants and the third saw two.
+
+So every membership change now sends the delta **and** an authoritative `roster`
+message, and the room ticker re-sends that roster every few seconds. The deltas
+give immediacy; the roster gives correctness. On receipt the client replaces its
+membership list — anyone absent has genuinely gone — while keeping the
+`MediaStreamTrack`s it already holds, and consumes any producer in the roster it
+is not yet receiving, which repairs a missed `newProducer` the same way.
+
+This is the same lesson as the lobby: **a push is a single delivery, so anything
+built only from pushes needs a reconciliation pass behind it.**
+
 **Reactions are allowlisted server-side.** Whatever arrives is broadcast
 verbatim to every participant, so the emoji must be one of the fixed set in
 `REACTIONS`; anything else is refused rather than sanitised. They are never

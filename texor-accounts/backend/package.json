@@ -18,7 +18,9 @@
     "test:smoke": "node scripts/smoke-test.js",
     "test:federation": "node scripts/federation-test.js",
     "test:console": "node scripts/console-test.js",
-    "test:account": "node scripts/account-test.js"
+    "test:account": "node scripts/account-test.js",
+    "client:secret": "node --env-file=.env scripts/show-client-secret.js",
+    "client:redirects": "node --env-file=.env scripts/redirect-uris.js"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

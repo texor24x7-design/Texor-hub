@@ -235,6 +235,19 @@ present**, which is both simpler and more truthful than a timer: a browser that
 crashes drops its connection, the server sees the close, and they leave the
 roster at once rather than lingering as a ghost until a timeout expires.
 
+That principle has to be applied everywhere, and not applying it caused a real
+bug. `attendance.lastSeenAt` is a periodic write, and the sweep that closes out
+absent people reads it — so for a while the sweep could decide that a room full
+of connected people had all left, and end the meeting under them. The trigger
+was usually somebody *new joining*, because that is a request which loads the
+meeting and therefore runs the sweep.
+
+Two things now hold it together:
+
+- The room ticker writes `lastSeenAt` for everyone with an open socket.
+- **Anything that loads a meeting consults the live room first.** A timestamp is
+  a record of a write; a socket is a fact, and the fact wins.
+
 The roster, the waiting list, mute state, role changes, removals and the end of
 the meeting are all pushed down the same socket, so a client learns about them
 when they happen rather than on its next poll.

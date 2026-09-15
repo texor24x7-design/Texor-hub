@@ -8,14 +8,17 @@ import { Alert, Avatar, Button, Field, Loading, Logo } from '@/components/ui';
 import {
   CameraIcon, CameraOffIcon, ChatIcon, CheckIcon, CloseIcon, CopyIcon, HangUpIcon,
   InfoIcon, MicIcon, MicOffIcon, PeopleIcon, PresentIcon, PresentOffIcon,
-  GridIcon, HandIcon, PinIcon, ReactionIcon, RemovePersonIcon, SendIcon, ShieldIcon,
+  ChevronIcon, GridIcon, HandIcon, PinIcon, ReactionIcon, RemovePersonIcon, SendIcon,
+  ShieldIcon,
 } from '@/components/icons';
+import { SettingsDialog } from '@/components/SettingsDialog';
 
 /** Must match the server's allowlist in media/signalling.js. */
 const REACTIONS = ['👍', '👎', '❤️', '🎉', '👏', '😂', '😮', '😢', '🤔', '✋'];
 import { auth, meetings as meetingApi, signInWithTexor } from '@/lib/api';
 import { MeetingRoom } from '@/lib/room';
 import { describeMediaError } from '@/lib/media-errors';
+import { bestTileLayout } from '@/lib/tile-layout';
 
 /**
  * One meeting, in four states.
@@ -57,6 +60,8 @@ function hydrate(peer, existing = {}) {
   return {
     ...existing,
     ...peer,
+    // Kept explicitly: a roster entry that omitted it would blank the face.
+    picture: peer.picture ?? existing.picture ?? '',
     producers,
     tracks: existing.tracks ?? {},
     // No microphone producer at all is also muted: they have not started one.
@@ -447,6 +452,7 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   useEffect(() => () => clearTimeout(clearSpeaking.current), []);
   const [myHand, setMyHand] = useState(false);
   const [connection, setConnection] = useState({ state: 'live' });
+  const [settingsTab, setSettingsTab] = useState(null);
 
   /**
    * How the stage is arranged.
@@ -505,7 +511,20 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     const room = new MeetingRoom(code, {
       // Arrives before any track is consumed, so the tracks that follow land on
       // top of this rather than being wiped by it.
-      roster: (list) => setPeers(new Map(list.map((peer) => [peer.texorId, hydrate(peer)]))),
+      /**
+       * Replace, but keep what we already have.
+       *
+       * This is the authoritative membership list, so anyone absent from it has
+       * genuinely gone — but the live `MediaStreamTrack`s belong to us, not to
+       * the server, and rebuilding the map from scratch would throw away every
+       * video in the call several times a minute.
+       */
+      roster: (list) =>
+        setPeers((current) => {
+          const next = new Map();
+          for (const peer of list) next.set(peer.texorId, hydrate(peer, current.get(peer.texorId)));
+          return next;
+        }),
 
       peerJoined: (peer) => addPeer(peer),
 
@@ -842,7 +861,7 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
    */
   const stage = useMemo(() => {
     const pinnedPeer = pinned === user.texorId
-      ? { texorId: user.texorId, name: user.displayName, isYou: true, track: localCamera }
+      ? { texorId: user.texorId, name: user.displayName, picture: user.picture, isYou: true, track: localCamera }
       : pinned
         ? (() => {
             const peer = peers.get(pinned);
@@ -861,7 +880,7 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
       if (layout === 'auto' && peers.size < 3) return { mode: 'grid' };
 
       const feature = id === user.texorId
-        ? { texorId: user.texorId, name: user.displayName, isYou: true, track: localCamera }
+        ? { texorId: user.texorId, name: user.displayName, picture: user.picture, isYou: true, track: localCamera }
         : (() => {
             const peer = peers.get(id);
             return peer ? { ...peer, track: peer.tracks.camera } : null;
@@ -876,11 +895,44 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   const everyone = [...peers.values()];
   const tileCount = everyone.length + 1;
 
+  /**
+   * Tile size is computed, not guessed.
+   *
+   * The grid is measured and the largest arrangement that fits is worked out
+   * from the real box — CSS on its own left tiles smaller than their cells and
+   * pinned to a corner. Re-measured on resize, and when the headcount changes,
+   * which is what makes the grid grow and shrink as people come and go.
+   */
+  const gridRef = useRef(null);
+  const [box, setBox] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const element = gridRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return undefined;
+
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setBox((current) =>
+        Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1
+          ? current
+          : { width, height });
+    });
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [stage.mode]);
+
+  const tiles = useMemo(
+    () => bestTileLayout({ count: tileCount, width: box.width, height: box.height, gap: 8 }),
+    [tileCount, box.width, box.height],
+  );
+
   const selfTile = (
     <VideoTile
       key="self"
       track={localCamera}
       name={user.displayName}
+      picture={user.picture}
       role={role}
       isYou
       mirrored
@@ -896,6 +948,7 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
       key={peer.texorId}
       track={peer.tracks.camera}
       name={peer.name}
+      picture={peer.picture}
       role={peer.role}
       muted={peer.muted}
       handRaised={peer.handRaised}
@@ -935,7 +988,11 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         ) : null}
 
         {stage.mode === 'grid' ? (
-          <div className="meet__grid" data-count={tileCount > 12 ? 'many' : tileCount}>
+          <div
+            className={`meet__grid ${tiles.scrolls ? 'meet__grid--scrolls' : ''}`}
+            ref={gridRef}
+            style={{ '--tile-w': `${tiles.tileWidth}px`, '--tile-h': `${tiles.tileHeight}px` }}
+          >
             {[selfTile, ...peerTiles]}
           </div>
         ) : (
@@ -956,6 +1013,7 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
                 <VideoTile
                   track={stage.feature.track}
                   name={stage.feature.name}
+                  picture={stage.feature.isYou ? user.picture : stage.feature.picture}
                   role={stage.feature.role}
                   muted={stage.feature.isYou ? !micOn : stage.feature.muted}
                   handRaised={stage.feature.isYou ? myHand : stage.feature.handRaised}
@@ -973,7 +1031,10 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
               ) : null}
             </div>
 
-            <div className="meet__strip">{[selfTile, ...peerTiles]}</div>
+            {/* Centred while they fit; left-aligned once the row must scroll. */}
+            <div className={`meet__strip ${tileCount > 6 ? 'meet__strip--full' : ''}`}>
+              {[selfTile, ...peerTiles]}
+            </div>
           </div>
         )}
 
@@ -989,6 +1050,8 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           </Fragment>
         ))}
       </main>
+
+      {settingsTab ? <SettingsDialog inCall onClose={() => setSettingsTab(null)} /> : null}
 
       {panel ? (
         <SidePanel
@@ -1016,18 +1079,43 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         </div>
 
         <div className="meet__controls">
-          <ControlButton
-            on={micOn}
-            onClick={toggleMic}
-            label={micOn ? 'Turn off microphone' : 'Turn on microphone'}
-            icon={micOn ? <MicIcon /> : <MicOffIcon />}
-          />
-          <ControlButton
-            on={cameraOn}
-            onClick={toggleCamera}
-            label={cameraOn ? 'Turn off camera' : 'Turn on camera'}
-            icon={cameraOn ? <CameraIcon /> : <CameraOffIcon />}
-          />
+          {/* The caret is how people expect to reach device choice, rather
+              than hunting for it in a menu while everyone waits. */}
+          <div className="meet__combo">
+            <ControlButton
+              on={micOn}
+              onClick={toggleMic}
+              label={micOn ? 'Turn off microphone' : 'Turn on microphone'}
+              icon={micOn ? <MicIcon /> : <MicOffIcon />}
+            />
+            <button
+              type="button"
+              className="meet__caret"
+              aria-label="Audio settings"
+              title="Audio settings"
+              onClick={() => setSettingsTab('audio')}
+            >
+              <ChevronIcon />
+            </button>
+          </div>
+
+          <div className="meet__combo">
+            <ControlButton
+              on={cameraOn}
+              onClick={toggleCamera}
+              label={cameraOn ? 'Turn off camera' : 'Turn on camera'}
+              icon={cameraOn ? <CameraIcon /> : <CameraOffIcon />}
+            />
+            <button
+              type="button"
+              className="meet__caret"
+              aria-label="Video settings"
+              title="Video settings"
+              onClick={() => setSettingsTab('video')}
+            >
+              <ChevronIcon />
+            </button>
+          </div>
           <div className="meet__reaction-wrap">
             {pickerOpen ? (
               <div className="meet__picker" role="menu">
@@ -1279,9 +1367,7 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecid
         </div>
 
         <div className="meet__person">
-          <span className="meet__knock-avatar">
-            {(user.displayName ?? '?').slice(0, 1).toUpperCase()}
-          </span>
+          <Avatar user={user} />
           <div className="grow">
             <strong>{user.displayName} (You)</strong>
             {role !== 'guest' ? <div className="meet__muted">{role}</div> : null}
@@ -1290,7 +1376,7 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecid
 
         {peers.map((peer) => (
           <div className="meet__person" key={peer.texorId}>
-            <span className="meet__knock-avatar">{(peer.name ?? '?').slice(0, 1).toUpperCase()}</span>
+            <Avatar user={{ displayName: peer.name, picture: peer.picture }} />
             <div className="grow">
               <strong>{peer.name}</strong>
               {peer.role === 'host' || peer.role === 'cohost' ? (
