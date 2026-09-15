@@ -34,6 +34,16 @@ jobs:
             echo "==> Checking out deployed commit"
             git checkout --detach ${{ github.sha }}
 
+            echo "==> Loading Node.js environment"
+            export NVM_DIR="$HOME/.nvm"
+            source "$NVM_DIR/nvm.sh"
+            nvm use 24.21.0
+
+            echo "==> Node version"
+            node --version
+            echo "==> npm version"
+            npm --version
+
             echo "==> Installing backend dependencies"
             cd texor-talk/backend
             npm ci
