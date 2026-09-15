@@ -7,12 +7,13 @@ on:
     paths:
       - "texor-talk/**"
       - ".github/workflows/deploy-talk.yml"
-
-jobs:
-  concurrency:
+      
+concurrency:
     group: texor-ec2-deployment
     cancel-in-progress: false
     
+jobs:
+  
   deploy:
     name: Deploy Talk to EC2
     runs-on: ubuntu-latest
