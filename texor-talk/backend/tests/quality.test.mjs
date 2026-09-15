@@ -77,6 +77,41 @@ for (const id of TIER_ORDER) {
 check('a dearer tier gets a higher cap', maxSendBitrate('high') > maxSendBitrate('saver'));
 check('an unknown tier gets the standard cap', maxSendBitrate('nope') === maxSendBitrate('standard'));
 
+console.log('\n── a share is captured at a size its bitrate can carry ──');
+{
+  const { screenConstraints, cameraBudget, PRESENTING_CAMERA_BITRATE } =
+    await import(`${FE}/src/lib/encodings.js`);
+
+  for (const id of TIER_ORDER) {
+    const tier = TIERS[id];
+    check(`${id} states a capture ceiling`, tier.screenMaxHeight > 0, String(tier.screenMaxHeight));
+
+    const c = screenConstraints({ frameRate: tier.screenFrameRate, maxHeight: tier.screenMaxHeight });
+    check(`${id} caps the captured height`, c.height.max === tier.screenMaxHeight);
+    check(`${id} caps the width to match, 16:9`, c.width.max === Math.round((tier.screenMaxHeight * 16) / 9));
+    check(`${id} caps the frame rate too`, c.frameRate.max === tier.screenFrameRate);
+  }
+
+  // `max`, never `ideal` — a small screen must not be scaled *up* to meet it.
+  const c = screenConstraints({ maxHeight: 1080 });
+  check('the size is a ceiling, not a target', c.height.ideal === undefined, JSON.stringify(c.height));
+  check('a cheaper tier captures fewer pixels than a dearer one',
+    TIERS.saver.screenMaxHeight < TIERS.high.screenMaxHeight);
+
+  console.log('\n── the camera stands down while a screen is up ──');
+  check('presenting cuts the camera budget',
+    cameraBudget(TIERS.high.cameraBitrate, { presenting: true }) === PRESENTING_CAMERA_BITRATE,
+    String(cameraBudget(TIERS.high.cameraBitrate, { presenting: true })));
+  check('and leaves it alone otherwise',
+    cameraBudget(TIERS.high.cameraBitrate) === TIERS.high.cameraBitrate);
+  // It must never *raise* one: Data saver presenting stays under its own tier.
+  check('it never raises a budget above the tier',
+    cameraBudget(200_000, { presenting: true }) === 200_000,
+    String(cameraBudget(200_000, { presenting: true })));
+  check('the yielded budget is well under every tier\u2019s screen bitrate',
+    TIER_ORDER.every((id) => PRESENTING_CAMERA_BITRATE < TIERS[id].screenBitrate));
+}
+
 console.log('\n── the client builds its ladder from the grant ──');
 for (const id of TIER_ORDER) {
   const { cameraBitrate, screenBitrate } = TIERS[id];

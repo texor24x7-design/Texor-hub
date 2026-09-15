@@ -11,6 +11,7 @@ import {
   ChevronIcon, GridIcon, HandIcon, PinIcon, ReactionIcon, RemovePersonIcon, SendIcon,
   ShieldIcon,
   TuneIcon,
+  NotesIcon,
 } from '@/components/icons';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { loadPreferences } from '@/lib/preferences';
@@ -18,6 +19,10 @@ import { loadPreferences } from '@/lib/preferences';
 /** Must match the server's allowlist in media/signalling.js. */
 const REACTIONS = ['👍', '👎', '❤️', '🎉', '👏', '😂', '😮', '😢', '🤔', '✋'];
 import { auth, meetings as meetingApi, signInWithTexor } from '@/lib/api';
+import { MeetingNotes } from '@/components/MeetingNotes';
+import { MeetingTimer } from '@/components/MeetingTimer';
+import { ConnectionInfo } from '@/components/ConnectionInfo';
+import { createChimes } from '@/lib/sounds';
 import { MeetingRoom } from '@/lib/room';
 import { describeMediaError } from '@/lib/media-errors';
 import { bestTileLayout } from '@/lib/tile-layout';
@@ -418,6 +423,16 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     devices: prefs?.devices ?? {},
   };
 
+  /**
+   * The call's chimes.
+   *
+   * Built once per call rather than per render, and armed only when the call
+   * actually goes live — the gate refuses everything before that, so opening a
+   * meeting already full of people does not announce every one of them.
+   */
+  const chimes = useRef(null);
+  if (!chimes.current) chimes.current = createChimes({ enabled: prefs?.sounds !== false });
+
   const roomRef = useRef(null);
 
   const [peers, setPeers] = useState(() => new Map());
@@ -548,14 +563,22 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           return next;
         }),
 
-      peerJoined: (peer) => addPeer(peer),
+      peerJoined: (peer) => {
+        addPeer(peer);
+        // Hooked to the delta, not to the roster: reconciliation replays
+        // everybody who is already here, and chiming for each of them is
+        // exactly the noise this is meant to avoid.
+        chimes.current?.play('join');
+      },
 
-      peerLeft: (texorId) =>
+      peerLeft: (texorId) => {
+        chimes.current?.play('leave');
         setPeers((current) => {
           const next = new Map(current);
           next.delete(texorId);
           return next;
-        }),
+        });
+      },
 
       track: ({ peerTexorId, source, track }) =>
         updatePeer(peerTexorId, (existing) => ({
@@ -629,8 +652,8 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
 
       roleChanged: ({ role: next }) => setRole(next),
       peerRoleChanged: ({ texorId, role: next }) => updatePeer(texorId, () => ({ role: next })),
-      removed: (reason) => onClosed(reason),
-      ended: (reason) => onClosed(reason),
+      removed: (reason) => { chimes.current?.play('ended'); onClosed(reason); },
+      ended: (reason) => { chimes.current?.play('ended'); onClosed(reason); },
       closed: (reason) => { if (!cancelled) onClosed(reason || 'You left the meeting.'); },
       /**
        * The host moved the meeting's bandwidth budget.
@@ -656,6 +679,9 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         if (cancelled) return;
 
         setStatus('live');
+        // Arming here rather than at construction: joining was a click, which
+        // is what an AudioContext needs to start unsuspended.
+        chimes.current?.arm();
 
         /**
          * The microphone is always opened, even when joining muted.
@@ -701,6 +727,9 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     return () => {
       cancelled = true;
       room.close();
+      // Not immediately: the meeting-ended chime is playing as this runs, and
+      // closing the context underneath it would cut it off halfway.
+      chimes.current?.close();
     };
   }, [code, grant, updatePeer, addPeer, onClosed]);
 
@@ -1271,7 +1300,11 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         <SettingsDialog
           inCall
           onClose={() => {
-            setSettings(loadPreferences());
+            const saved = loadPreferences();
+            setSettings(saved);
+            // The dialog writes to localStorage; nothing else would tell the
+            // player it had been turned off until the next call.
+            chimes.current?.setEnabled(saved.sounds !== false);
             setSettingsTab(null);
           }}
         />
@@ -1299,6 +1332,11 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         <div className="meet__bar-left">
           <Clock />
           <span className="meet__divider" aria-hidden="true" />
+          <MeetingTimer
+            startedAt={meeting?.startedAt}
+            maxDurationMinutes={meeting?.maxDurationMinutes}
+          />
+          <span className="meet__divider meet__divider--wide" aria-hidden="true" />
           <span className="meet__code">{meeting?.code}</span>
         </div>
 
@@ -1495,6 +1533,17 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
             count={tileCount}
             alert={isHost && knocks.length > 0}
           />
+          {/*
+            * Notes are for the person taking them, so this is never gated on a
+            * meeting setting the way chat is — there is nobody else to protect
+            * from a private note.
+            */}
+          <PanelButton
+            active={panel === 'notes'}
+            onClick={() => openPanel('notes')}
+            label="Notes"
+            icon={<NotesIcon />}
+          />
           {meeting?.settings?.allowChat ? (
             <PanelButton
               active={panel === 'chat'}
@@ -1566,7 +1615,9 @@ function Clock() {
 // ── The side panel ───────────────────────────────────────────────────────────
 
 function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError, onDecide, onSetRole }) {
-  const titles = { people: 'People', chat: 'In-call messages', info: 'Meeting details' };
+  const titles = {
+    people: 'People', chat: 'In-call messages', info: 'Meeting details', notes: 'Notes',
+  };
 
   return (
     <aside className="meet__panel">
@@ -1585,7 +1636,10 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
           />
         ) : null}
         {panel === 'chat' ? <ChatPanel chat={chat} room={room} user={user} /> : null}
-        {panel === 'info' ? <InfoPanel meeting={meeting} /> : null}
+        {panel === 'notes' ? (
+          <MeetingNotes code={meeting.code} livePeople={peers} onError={onError} />
+        ) : null}
+        {panel === 'info' ? <InfoPanel meeting={meeting} room={room} /> : null}
       </div>
     </aside>
   );
@@ -1761,7 +1815,7 @@ function ChatPanel({ chat, room, user }) {
   );
 }
 
-function InfoPanel({ meeting }) {
+function InfoPanel({ meeting, room }) {
   const [copied, setCopied] = useState(false);
 
   return (
@@ -1791,6 +1845,14 @@ function InfoPanel({ meeting }) {
 
       <h3 style={{ marginTop: '1.5rem' }}>Host</h3>
       <p className="meet__muted">{meeting?.host?.name}</p>
+
+      {/*
+        * What the connection is actually doing. Here rather than behind a
+        * developer flag, because the person who notices bad video is the one
+        * who can say what their network is doing about it.
+        */}
+      <h3 style={{ marginTop: '1.5rem' }}>Connection</h3>
+      <ConnectionInfo room={room} />
     </section>
   );
 }

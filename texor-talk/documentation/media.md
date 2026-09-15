@@ -54,13 +54,31 @@ one. The ceiling comes from the meeting's quality tier (see
 camera's — a 1080p desktop at 30fps with text and scrolling will use all of it,
 and starving it shows up as **dropped frames rather than softness**.
 
-Three settings decide whether a share is smooth, and all three have to agree:
+Four settings decide what a share looks like, and all four have to agree:
 
 | | Effect |
 |---|---|
-| `getDisplayMedia({ video: { frameRate } })` | What is captured at all |
+| `getDisplayMedia({ video: { width, height } })` | **How many pixels are captured** |
+| `getDisplayMedia({ video: { frameRate } })` | How many frames are captured |
 | `track.contentHint` | What the **encoder** protects |
 | `degradationPreference` | What the **sender** protects |
+
+### Capture size is the one that was missing
+
+For a long time only `frameRate` was asked for, so the browser handed back the
+display's native resolution. On a retina panel or a 4K monitor that is three or
+four times 1080p, and encoding it into a few Mbps is a fraction of a bit per
+pixel. The encoder's only move is to discard detail until it fits — so the share
+arrives soft and blocky **while the bitrate graph looks perfectly healthy**.
+
+None of it shows on a developer's machine, because a localhost transport has no
+ceiling to press against. It is a production-only failure by construction.
+
+Capture is now capped by the tier's `screenMaxHeight` (1080p, or 720p on Data
+saver), as `max` rather than `ideal` so a small screen is never scaled *up*.
+Downscaling at capture beats letting the encoder do it: the scaler is cleanly
+resizing a sharp source, where the encoder is throwing away high-frequency
+detail it cannot afford — which is precisely what turns text to mush.
 
 Getting any one of them wrong wastes the other two. This product previously
 capped capture at 15fps and set neither hint, so browsers — which treat captured
@@ -72,6 +90,23 @@ the content: **Keep it smooth** (motion, 30fps, `maintain-framerate`) for demos
 and video, **Keep it sharp** (detail, `maintain-resolution`) for code and
 spreadsheets. Smooth is the default — a softer picture still reads, whereas a
 slideshow is unusable for anything you are actively doing.
+
+### The camera competes with the share
+
+Both are senders on one transport with one bandwidth estimate. A camera at its
+full ceiling plus a screen at its own is asking for the sum of the two, and a
+real uplink often cannot cover it. The browser's allocator then divides what
+there is, and the screen share — the thing everybody in the meeting is actually
+looking at — is starved along with everything else.
+
+So the camera stands down while a screen is up: `PRESENTING_CAMERA_BITRATE`
+(300 kbps) instead of its tier ceiling, restored the moment the share stops.
+Nobody studies a presenter's face at full resolution while a screen is up, and
+the tile it is drawn in is small. The screen producer also carries
+`networkPriority: 'high'`, so it wins the split rather than sharing it evenly.
+
+This is the usual cause of "the share bitrate is low *sometimes*" — the sometimes
+being whenever the presenter also has their camera on.
 
 **More than one person can share at once.** Each share is an ordinary producer
 attributed to its owner, so they all coexist; the stage shows the most recent

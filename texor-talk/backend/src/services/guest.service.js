@@ -109,9 +109,21 @@ export function guestsAllowed(meeting, policy) {
   return { allowed: true };
 }
 
+/**
+ * The prefix that makes a guest id recognisable without a database lookup.
+ *
+ * Needed because `Meeting.roleOf` returns `'guest'` for any signed-in colleague
+ * who was not explicitly invited — that is a *meeting* role, not a statement
+ * about whether they have an account. Anywhere the question is really "is there
+ * a Texor Account behind this person", ask `isGuestId`, never the role.
+ */
+const GUEST_ID_PREFIX = 'guest:';
+
+export const isGuestId = (texorId) => String(texorId ?? '').startsWith(GUEST_ID_PREFIX);
+
 export async function createGuestSession({ meeting, name, ip = '', userAgent = '' }) {
   const token = randomToken(32);
-  const guestId = `guest:${randomToken(16)}`;
+  const guestId = `${GUEST_ID_PREFIX}${randomToken(16)}`;
 
   await GuestSession.create({
     tokenHash: sha256(token),
@@ -171,6 +183,7 @@ export function assertGuestScope(user, meeting) {
 }
 
 export default {
+  isGuestId,
   GUEST_COOKIE,
   guestCookieOptions,
   cleanGuestName,

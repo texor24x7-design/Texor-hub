@@ -966,8 +966,10 @@ async function applyRoomQuality(room, tier, changedBy) {
       tier,
       name: limits.name,
       cameraBitrate: limits.cameraBitrate,
+      cameraDegradation: limits.cameraDegradation,
       screenBitrate: limits.screenBitrate,
       screenFrameRate: limits.screenFrameRate,
+      screenMaxHeight: limits.screenMaxHeight,
       changedBy,
     },
   });

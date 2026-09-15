@@ -55,6 +55,43 @@ export function cameraEncodings(maxBitrate = 1_500_000) {
 export const CAMERA_ENCODINGS = cameraEncodings();
 
 /**
+ * What the camera gets while a screen is being shared.
+ *
+ * Both senders share one transport and one bandwidth estimate, so a camera at
+ * its full ceiling and a screen at its own are asking for the sum — and on a
+ * real uplink there is rarely enough for both. The allocator then splits what
+ * there is, and the screen share, which is the thing everybody is actually
+ * looking at, gets starved along with the camera.
+ *
+ * So the camera yields. Nobody is studying a presenter's face at full
+ * resolution while a screen is up, and the tile it is drawn in is small.
+ */
+export const PRESENTING_CAMERA_BITRATE = 300_000;
+
+export function cameraBudget(ceiling = 1_500_000, { presenting = false } = {}) {
+  // Never raise a budget: Data saver presenting must not end up above its tier.
+  return presenting ? Math.min(ceiling, PRESENTING_CAMERA_BITRATE) : ceiling;
+}
+
+/**
+ * Capture constraints for a screen share.
+ *
+ * `frameRate` alone was not enough. Without a size cap the browser hands back
+ * the display's native resolution, and a 4K desktop encoded into a few Mbps is
+ * the soft, blocky share this is fixing. Capped as `max` rather than `ideal` so
+ * a small screen is never scaled *up* to meet it.
+ */
+export function screenConstraints({ frameRate = 30, maxHeight = 1080 } = {}) {
+  return {
+    frameRate: { ideal: frameRate, max: frameRate },
+    // 16:9 at the given height, which is the shape of most displays. A taller
+    // or wider screen is fitted inside it rather than stretched.
+    width: { max: Math.round((maxHeight * 16) / 9) },
+    height: { max: maxHeight },
+  };
+}
+
+/**
  * Screen: one layer, at a much higher ceiling than a camera gets.
  *
  * No simulcast, deliberately — everybody watching a shared screen should see

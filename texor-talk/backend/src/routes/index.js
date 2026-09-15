@@ -49,6 +49,17 @@ import {
   updateMeetingSchema,
 } from '../controllers/meeting.controller.js';
 import {
+  createNote,
+  createNoteSchema,
+  deleteNote,
+  getMeetingPeople,
+  getNote,
+  listNotes,
+  listNotesSchema,
+  updateNote,
+  updateNoteSchema,
+} from '../controllers/note.controller.js';
+import {
   adminMeetingsSchema,
   auditQuerySchema,
   listAllMeetings,
@@ -158,6 +169,26 @@ export function createApiRouter() {
   router.post('/meetings/:code/invitees', validate(inviteeSchema), addInvitees);
   router.delete('/meetings/:code/invitees/:email', removeInvitee);
   router.post('/meetings/:code/rsvp', validate(rsvpSchema), respondToInvite);
+
+  // Who can be tagged in a note about this meeting. Not in GUEST_ROUTES, so a
+  // guest cannot enumerate the people in a meeting they were let into.
+  router.get('/meetings/:code/people', getMeetingPeople);
+
+  // ── Notes ───────────────────────────────────────────────────────────────────
+  /**
+   * `requireUser`, so a guest cannot reach any of this.
+   *
+   * A guest is a name typed into a box, with no account behind it and a pass
+   * that expires in hours. A note they wrote would belong to nobody the moment
+   * that pass lapsed, and could never appear in a Notes section they have no
+   * way to sign back in to.
+   */
+  router.use('/notes', requireUser);
+  router.get('/notes', validate(listNotesSchema, 'query'), listNotes);
+  router.post('/notes', validate(createNoteSchema), createNote);
+  router.get('/notes/:id', getNote);
+  router.patch('/notes/:id', validate(updateNoteSchema), updateNote);
+  router.delete('/notes/:id', deleteNote);
 
   // ── Administration ──────────────────────────────────────────────────────────
   router.use('/admin', requireUser, requireAdmin);

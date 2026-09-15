@@ -16,32 +16,78 @@
  * can make well, and named tiers survive the numbers behind them being tuned.
  */
 
+/**
+ * ── On `cameraDegradation` ──
+ *
+ * When there is not enough bandwidth, something has to give: resolution or
+ * frame rate. Left unset, a browser decides for itself, and for a camera track
+ * Chrome holds the frame rate and throws away resolution — which is why a call
+ * can look smooth and soft at the same time. That was this product's behaviour
+ * for every tier, because `degradationPreference` was only ever set on screen
+ * shares.
+ *
+ * So each tier now says which one it is buying:
+ *
+ *   saver     keep it moving — on a weak link, a sharp slideshow is worse
+ *   standard  let the browser balance the two
+ *   high      hold the resolution; a tier called High that goes soft under load
+ *             is not delivering the thing its name promises
+ */
 export const TIERS = {
   saver: {
     id: 'saver',
     name: 'Data saver',
     blurb: 'Lowest bandwidth. Best on mobile data or a weak connection.',
     cameraBitrate: 400_000,
+    cameraDegradation: 'maintain-framerate',
     screenBitrate: 1_000_000,
     screenFrameRate: 15,
+    screenMaxHeight: 720,
   },
   standard: {
     id: 'standard',
     name: 'Standard',
     blurb: 'Clear video and a readable screen share. Good for most meetings.',
-    cameraBitrate: 1_000_000,
+    cameraBitrate: 1_200_000,
+    cameraDegradation: 'balanced',
     screenBitrate: 2_500_000,
     screenFrameRate: 30,
+    screenMaxHeight: 1080,
   },
   high: {
     id: 'high',
     name: 'High',
     blurb: 'Sharpest picture and the smoothest screen sharing. Uses the most bandwidth.',
-    cameraBitrate: 1_500_000,
+    // 720p30 needs more than the 1.5 Mbps this used to allow. At that ceiling
+    // the top simulcast layer is starved and the encoder answers by sending a
+    // smaller picture — the soft-but-smooth failure this tier exists to avoid.
+    cameraBitrate: 2_500_000,
+    cameraDegradation: 'maintain-resolution',
     screenBitrate: 5_000_000,
     screenFrameRate: 30,
+    screenMaxHeight: 1080,
   },
 };
+
+/**
+ * ── On `screenMaxHeight` ──
+ *
+ * Capture resolution has to be chosen together with bitrate, and this was the
+ * one that was missing: `getDisplayMedia` was asked for a frame rate and
+ * nothing else, so it handed back whatever the display happened to be. A 4K or
+ * retina screen captured at native size and encoded at 5 Mbps is a fraction of
+ * a bit per pixel, and the encoder answers the only way it can — by throwing
+ * detail away until it fits. The share looks soft and blocky while the bitrate
+ * graph looks healthy.
+ *
+ * On a developer's machine none of this shows, because a localhost transport
+ * has no ceiling to press against.
+ *
+ * Downscaling at capture is strictly better than letting the encoder do it: the
+ * scaler is doing a clean resize of a sharp source, where the encoder is
+ * discarding high-frequency detail from a picture it cannot afford — which is
+ * what turns text to mush.
+ */
 
 /** Cheapest first. Order is what makes "at or below the ceiling" meaningful. */
 export const TIER_ORDER = ['saver', 'standard', 'high'];

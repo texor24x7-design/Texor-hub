@@ -21,8 +21,9 @@
  */
 import { Device } from 'mediasoup-client';
 import { API_ORIGIN } from '@/lib/api';
+import { readConnection } from '@/lib/stats';
 import {
-  CAMERA_ENCODINGS, SCREEN_MODES, cameraEncodings, screenEncodings,
+  CAMERA_ENCODINGS, SCREEN_MODES, cameraBudget, cameraEncodings, screenConstraints, screenEncodings,
 } from '@/lib/encodings';
 
 const WS_ORIGIN = API_ORIGIN.replace(/^http/, 'ws');
@@ -526,6 +527,25 @@ export class MeetingRoom {
    * encodings costs the layering and keeps the video, which is the right way
    * round: a single-layer camera is worth far more than an error message.
    */
+  /**
+   * What the connection is actually doing, right now.
+   *
+   * Both directions, because they answer different questions: the send side
+   * says whether *we* are sending a full picture, and the receive side says
+   * whether the SFU is forwarding one. A complaint about quality is almost
+   * always one or the other, and without this there is no way to tell which.
+   */
+  async connectionStats() {
+    const [send, recv] = await Promise.all([
+      this.sendTransport?.getStats().catch(() => null) ?? null,
+      this.recvTransport?.getStats().catch(() => null) ?? null,
+    ]);
+
+    const snapshot = readConnection({ send, recv, previous: this.lastStats ?? {} });
+    this.lastStats = { send, recv };
+    return snapshot;
+  }
+
   async produceVideo(track, encodings, source) {
     try {
       return await this.sendTransport.produce({ track, encodings, appData: { source } });
@@ -577,6 +597,17 @@ export class MeetingRoom {
       cameraEncodings(this.limits?.cameraBitrate),
       'camera',
     );
+
+    /**
+     * Which way the camera gives when bandwidth runs short.
+     *
+     * This was missing, and the browser's own default for a camera track is to
+     * hold the frame rate and shrink the picture. That is invisible on a
+     * developer's machine, where nothing is ever constrained, and on a real
+     * connection it is the difference between "High" looking high and looking
+     * smooth but soft.
+     */
+    await this.applyDegradation(producer, this.limits?.cameraDegradation ?? 'balanced');
 
     this.producers.set('camera', producer);
     return track;
@@ -647,7 +678,7 @@ export class MeetingRoom {
         // Rebuild the same ladder against the new top, so the small layers stay
         // proportionally small instead of all collapsing onto the ceiling.
         const ladder = source === 'camera'
-          ? cameraEncodings(ceiling)
+          ? cameraEncodings(cameraBudget(ceiling, { presenting: this.presenting }))
           : screenEncodings(ceiling);
 
         encodings.forEach((encoding, index) => {
@@ -661,6 +692,12 @@ export class MeetingRoom {
         // A sender that refuses keeps the bitrate it already had, which is a
         // worse picture or a dearer one — never a broken call.
       }
+    }
+
+    // The trade-off moves with the tier, not just the number.
+    const camera = this.producers.get('camera');
+    if (camera && this.limits.cameraDegradation) {
+      await this.applyDegradation(camera, this.limits.cameraDegradation);
     }
 
     // Frame rate is a constraint on the track rather than on the sender, and
@@ -681,6 +718,35 @@ export class MeetingRoom {
     return this.request('setQuality', { tier });
   }
 
+  /**
+   * How this stream is ranked when the browser divides up the uplink.
+   *
+   * Separate from bitrate: a ceiling says what a sender *may* use, priority
+   * decides who gets it first when the estimate cannot cover everyone. Applied
+   * through `setParameters` and wrapped, for the same reason as degradation —
+   * an unsupported field must not take the whole transceiver down with it.
+   */
+  async applyPriority(producer, priority) {
+    const sender = producer?.rtpSender;
+    if (!sender?.getParameters) return;
+
+    try {
+      const parameters = sender.getParameters();
+      for (const encoding of parameters.encodings ?? []) {
+        encoding.networkPriority = priority;
+        encoding.priority = priority;
+      }
+      await sender.setParameters(parameters);
+    } catch {
+      // Not every engine accepts it; the bitrate ceilings still apply.
+    }
+  }
+
+  /** Whether a screen of ours is currently being sent. */
+  get presenting() {
+    return this.producers.has('screen');
+  }
+
   async startScreen(mode = 'motion') {
     // A stale entry here used to make every later attempt a silent no-op.
     if (this.producers.has('screen')) await this.stop('screen');
@@ -689,19 +755,24 @@ export class MeetingRoom {
     let stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        // 30 unless the sharer has said they care more about sharpness. The old
-        // hard cap of 15 was the single biggest cause of a share that "sticks".
-        video: {
-          frameRate: {
-            // The tier caps the frame rate as well as the bitrate: Data saver
-            // has no use for 30fps it cannot afford to encode.
-            ideal: Math.min(
-              SCREEN_MODES[mode]?.frameRate?.ideal ?? 30,
-              this.limits?.screenFrameRate ?? 30,
-            ),
-            max: this.limits?.screenFrameRate ?? 30,
-          },
-        },
+        /**
+         * Frame rate *and* size.
+         *
+         * Only frame rate used to be asked for, so the browser returned the
+         * display's native resolution — 4K, or a retina panel — and the encoder
+         * had to force that into a few Mbps. That is the soft, blocky share
+         * that looks nothing like what the sharer sees, and it never appears on
+         * localhost because nothing there is ever short of bandwidth.
+         */
+        video: screenConstraints({
+          // The tier caps the frame rate as well as the bitrate: Data saver has
+          // no use for 30fps it cannot afford to encode.
+          frameRate: Math.min(
+            SCREEN_MODES[mode]?.frameRate?.ideal ?? 30,
+            this.limits?.screenFrameRate ?? 30,
+          ),
+          maxHeight: this.limits?.screenMaxHeight ?? 1080,
+        }),
         /**
          * Every processing step off, deliberately.
          *
@@ -760,6 +831,9 @@ export class MeetingRoom {
         producer,
         SCREEN_MODES[mode]?.degradationPreference ?? 'maintain-framerate',
       );
+      // When there is not enough for both, the shared screen wins. It is what
+      // everyone in the meeting is actually looking at.
+      await this.applyPriority(producer, 'high');
     } catch (error) {
       // Leaving the capture running would keep the browser claiming the screen
       // is being shared when nothing is being sent anywhere.
@@ -816,6 +890,11 @@ export class MeetingRoom {
     });
 
     this.producers.set('screen', producer);
+
+    // Set last, so `presenting` is already true: this is what actually stands
+    // the camera down and hands its share of the uplink to the screen.
+    await this.applyLimits();
+
     return track;
   }
 
@@ -829,6 +908,9 @@ export class MeetingRoom {
     this.producers.delete(source);
 
     await this.request('closeProducer', { producerId: producer.id }).catch(() => {});
+
+    // The screen is gone, so the camera can have its full budget back.
+    if (source === 'screen') await this.applyLimits();
   }
 
   /**

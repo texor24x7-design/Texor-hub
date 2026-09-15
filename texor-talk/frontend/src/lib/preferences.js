@@ -24,6 +24,8 @@ export const DEFAULT_PREFERENCES = {
   mirror: true,
   leaveEmpty: true,
   showReactions: true,
+  // Short chimes when somebody joins or leaves, and when the meeting ends.
+  sounds: true,
   // Whether a shared screen sacrifices sharpness or frames under pressure.
   screenOptimise: 'motion',
 };

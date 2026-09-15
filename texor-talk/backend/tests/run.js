@@ -121,16 +121,23 @@ async function waitForHealth(attempts = 40) {
   process.exit(1);
 }
 
-function runSuite(file) {
+function runSuite(file, cwd = process.cwd()) {
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
       [`tests/${file}`],
-      { env: { ...process.env, MONGODB_URI: uri, TEST_API }, stdio: 'inherit' },
+      { cwd, env: { ...process.env, MONGODB_URI: uri, TEST_API }, stdio: 'inherit' },
     );
     child.on('exit', (exitCode) => resolve(exitCode ?? 1));
   });
 }
+
+/**
+ * The frontend's own suites, run from its directory so they can reach its
+ * `node_modules` — React, and the swc that turns JSX into something Node will
+ * load.
+ */
+const FRONTEND = new URL('../../frontend/', import.meta.url).pathname.replace(/\/$/, '');
 
 async function teardown() {
   server.kill('SIGTERM');
@@ -156,13 +163,28 @@ let failures = 0;
  * These need no database and no HTTP, so running them up front means a broken
  * rule fails in a second rather than after a full media negotiation.
  */
-for (const file of ['speaker.test.mjs', 'fullscreen.test.mjs', 'media-errors.test.mjs', 'tile-layout.test.mjs', 'quality.test.mjs']) {
+for (const file of ['speaker.test.mjs', 'fullscreen.test.mjs', 'media-errors.test.mjs', 'tile-layout.test.mjs', 'quality.test.mjs',
+  'notes-doc.test.mjs']) {
   failures += (await runSuite(file)) === 0 ? 0 : 1;
+}
+
+/**
+ * Does every component still render?
+ *
+ * `next build` accepts a component that throws the moment it is rendered — a
+ * dependency array is valid syntax whatever is inside it — so the build alone
+ * is not evidence the app works. One render each, no browser needed.
+ */
+for (const file of [
+  'render.test.mjs', 'autosave.test.mjs', 'duration.test.mjs', 'stats.test.mjs',
+  'sounds.test.mjs',
+]) {
+  failures += (await runSuite(file, FRONTEND)) === 0 ? 0 : 1;
 }
 
 await waitForHealth();
 
-for (const file of ['meetings.test.mjs', 'media.test.mjs', 'guests.test.mjs']) {
+for (const file of ['meetings.test.mjs', 'media.test.mjs', 'guests.test.mjs', 'notes.test.mjs']) {
   failures += (await runSuite(file)) === 0 ? 0 : 1;
 }
 

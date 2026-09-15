@@ -126,6 +126,92 @@ export const TuneIcon = (props) => (
   </Icon>
 );
 
+/** Notes — a page with lines on it. */
+export const NotesIcon = (props) => (
+  <Icon {...props}>
+    <path d="M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm8 1.5V9h4.5L13 4.5ZM7 12h10v1.6H7V12Zm0 4h7v1.6H7V16Zm0-8h4v1.6H7V8Z" />
+  </Icon>
+);
+
+export const BoldIcon = (props) => (
+  <Icon {...props}>
+    <path d="M7 4h6.2a4.3 4.3 0 0 1 2.9 7.5A4.6 4.6 0 0 1 14.2 20H7V4Zm3 2.6v4h3a2 2 0 0 0 0-4h-3Zm0 6.5v4.3h3.9a2.15 2.15 0 0 0 0-4.3H10Z" />
+  </Icon>
+);
+
+export const ItalicIcon = (props) => (
+  <Icon {...props}>
+    <path d="M10 4h8v2.4h-2.9l-3 11.2H15V20H7v-2.4h2.9l3-11.2H10V4Z" />
+  </Icon>
+);
+
+export const CodeIcon = (props) => (
+  <Icon {...props}>
+    <path d="m8.5 16.6-1.7 1.7L1.5 13l5.3-5.3 1.7 1.7L4.9 13l3.6 3.6Zm7 0 3.6-3.6-3.6-3.6 1.7-1.7L22.5 13l-5.3 5.3-1.7-1.7Z" />
+  </Icon>
+);
+
+/** Highlighter — a marker pen with a nib. */
+export const HighlightIcon = (props) => (
+  <Icon {...props}>
+    <path d="M15.6 2.7 21.3 8.4l-8 8-1.4-1.4-3.6 3.6H4.5l-1.8 2H2v-2.6l2-1.8v-3.8l3.6-3.6-1.4-1.4 9.4-4.7ZM6.6 17.4h1.9l2.6-2.6-1.9-1.9-2.6 2.6v1.9Z" />
+  </Icon>
+);
+
+export const HeadingIcon = (props) => (
+  <Icon {...props}>
+    <path d="M6 4h2.6v6.5h6.8V4H18v16h-2.6v-6.9H8.6V20H6V4Z" />
+  </Icon>
+);
+
+export const BulletIcon = (props) => (
+  <Icon {...props}>
+    <path d="M4.5 5.2a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4Zm0 6.1a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4Zm0 6.1a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4ZM9 6h11v1.8H9V6Zm0 6.1h11v1.8H9v-1.8ZM9 18.2h11V20H9v-1.8Z" />
+  </Icon>
+);
+
+export const TodoIcon = (props) => (
+  <Icon {...props}>
+    <path d="M4 4h9v2H6v12h12v-7h2v9H4V4Zm14.6.3L20 5.7l-7.3 7.3-3.4-3.4 1.4-1.4 2 2 5.9-5.9Z" />
+  </Icon>
+);
+
+export const QuoteIcon = (props) => (
+  <Icon {...props}>
+    <path d="M7.4 6C4.9 6 3 8 3 10.5c0 2.3 1.7 4.1 3.9 4.1.3 0 .6 0 .9-.1-.5 1.7-2 3-3.8 3.4V20c3.9-.5 6.8-3.9 6.8-8.1C10.8 8.2 9.4 6 7.4 6Zm9.2 0c-2.5 0-4.4 2-4.4 4.5 0 2.3 1.7 4.1 3.9 4.1.3 0 .6 0 .9-.1-.5 1.7-2 3-3.8 3.4V20c3.9-.5 6.8-3.9 6.8-8.1C20 8.2 18.6 6 16.6 6Z" />
+  </Icon>
+);
+
+export const TrashIcon = (props) => (
+  <Icon {...props}>
+    <path d="M9 3h6l1 1.5h4V7H4V4.5h4L9 3ZM5.5 8.5h13L17.6 21H6.4L5.5 8.5ZM10 11v7h1.6v-7H10Zm2.4 0v7H14v-7h-1.6Z" />
+  </Icon>
+);
+
+export const LockIcon = (props) => (
+  <Icon {...props}>
+    <path d="M12 2a5 5 0 0 1 5 5v2h1.5A1.5 1.5 0 0 1 20 10.5v9A1.5 1.5 0 0 1 18.5 21h-13A1.5 1.5 0 0 1 4 19.5v-9A1.5 1.5 0 0 1 5.5 9H7V7a5 5 0 0 1 5-5Zm0 2.4A2.6 2.6 0 0 0 9.4 7v2h5.2V7A2.6 2.6 0 0 0 12 4.4Z" />
+  </Icon>
+);
+
+export const ShareIcon = (props) => (
+  <Icon {...props}>
+    <path d="M18 16.1c-.8 0-1.5.3-2 .8l-7.1-4.1c.1-.3.1-.5.1-.8s0-.5-.1-.8l7-4.1c.5.5 1.3.8 2.1.8a3 3 0 1 0-3-3v.4L7.9 9.5A3 3 0 1 0 6 15a3 3 0 0 0 1.9-.7l7.1 4.2v.4a3 3 0 1 0 3-2.8Z" />
+  </Icon>
+);
+
+export const SearchIcon = (props) => (
+  <Icon {...props}>
+    <path d="M10 3a7 7 0 1 1-4.2 12.6l-3.1 3.1-1.4-1.4 3.1-3.1A7 7 0 0 1 10 3Zm0 2.2a4.8 4.8 0 1 0 0 9.6 4.8 4.8 0 0 0 0-9.6Z" />
+  </Icon>
+);
+
+export const PlusIcon = (props) => (
+  <Icon {...props}>
+    <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" />
+  </Icon>
+);
+
 export const RemovePersonIcon = (props) => (
   <Icon {...props}>
     <path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-2.67 0-8 1.34-8 4v2h12.26A6 6 0 0 1 9 14Zm8.5-1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9ZM20 18h-5v-1.5h5V18Z" />
@@ -221,5 +307,7 @@ export default {
   HangUpIcon, PeopleIcon, ChatIcon, InfoIcon, CloseIcon, SendIcon, CopyIcon,
   CalendarIcon, CheckIcon, ChevronIcon, FullscreenIcon, FullscreenExitIcon, GridIcon,
   GridDotsIcon, HandIcon, MenuIcon, MoreIcon, PinIcon, SettingsIcon, VideoPlusIcon,
-  ReactionIcon, RemovePersonIcon, ShieldIcon, TuneIcon,
+  ReactionIcon, RemovePersonIcon, ShieldIcon, TuneIcon, NotesIcon, BoldIcon, ItalicIcon,
+  CodeIcon, HighlightIcon, HeadingIcon, BulletIcon, TodoIcon, QuoteIcon, TrashIcon,
+  LockIcon, ShareIcon, SearchIcon, PlusIcon,
 };

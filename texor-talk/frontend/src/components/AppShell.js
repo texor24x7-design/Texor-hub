@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Avatar, Loading, Logo } from '@/components/ui';
 import {
-  CalendarIcon, ChatIcon, GridDotsIcon, MenuIcon, SettingsIcon, ShieldIcon, VideoPlusIcon,
+  CalendarIcon, ChatIcon, GridDotsIcon, MenuIcon, NotesIcon, SettingsIcon, ShieldIcon,
+  VideoPlusIcon,
 } from '@/components/icons';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { auth } from '@/lib/api';
@@ -47,6 +48,7 @@ export function AppShell({ children }) {
   const destinations = [
     { href: '/meetings', label: 'Meetings', icon: <CalendarIcon /> },
     { href: '/channels', label: 'Channels', icon: <ChatIcon /> },
+    { href: '/notes', label: 'Notes', icon: <NotesIcon /> },
     ...(user.isAdmin ? [{ href: '/admin', label: 'Admin', icon: <ShieldIcon /> }] : []),
   ];
 

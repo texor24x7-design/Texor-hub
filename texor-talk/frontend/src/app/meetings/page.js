@@ -6,6 +6,7 @@ import { AppShell } from '@/components/AppShell';
 import { Alert, Button, Field, Loading, formatTimestamp } from '@/components/ui';
 import { CalendarIcon, ChevronIcon, VideoPlusIcon } from '@/components/icons';
 import { meetings as meetingApi } from '@/lib/api';
+import { LiveCard } from '@/components/LiveCard';
 
 /** Start one, join one, or look at what is coming. */
 export default function MeetingsPage() {
@@ -122,19 +123,13 @@ function MeetingsHome({ user }) {
           </h2>
           <div className="dash__cards">
             {live.map((meeting) => (
-              <button
+              <LiveCard
                 key={meeting.code}
-                type="button"
-                className="dash__card"
-                onClick={() => router.push(`/meetings/${meeting.code}`)}
-              >
-                <strong>{meeting.title}</strong>
-                <span className="meta">
-                  {meeting.participantCount || 0} in the call
-                  {meeting.viewer.isHost ? ' · you host' : ` · ${meeting.host.name}`}
-                </span>
-                <span className="dash__card-join">Join</span>
-              </button>
+                meeting={meeting}
+                onOpen={() => router.push(`/meetings/${meeting.code}`)}
+                onEnded={load}
+                onError={setError}
+              />
             ))}
           </div>
         </section>

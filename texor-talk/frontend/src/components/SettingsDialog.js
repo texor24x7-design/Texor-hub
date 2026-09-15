@@ -193,6 +193,12 @@ export function SettingsDialog({ onClose, inCall = false }) {
                   onChange={(leaveEmpty) => update({ leaveEmpty })}
                 />
                 <Toggle
+                  label="Sounds"
+                  hint="A short chime when somebody joins or leaves, and when a meeting ends."
+                  on={prefs.sounds}
+                  onChange={(sounds) => update({ sounds })}
+                />
+                <Toggle
                   label="Show reactions"
                   hint="Turn off to stop reactions appearing over the video."
                   on={prefs.showReactions}

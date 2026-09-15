@@ -121,6 +121,30 @@ export const meetings = {
   leaveAsGuest: (code) => api(`/api/meetings/${code}/guest/leave`, { method: 'POST' }),
 };
 
+/**
+ * Meeting notes.
+ *
+ * `save` is called while somebody is typing, so it sends the whole document
+ * every time rather than a patch. Merging two half-documents from racing saves
+ * is how an editor loses a paragraph, and a note is small enough that sending
+ * all of it costs nothing.
+ */
+export const notes = {
+  list: (params = {}) => {
+    const query = new URLSearchParams(
+      Object.entries(params).filter(([, value]) => value !== '' && value != null),
+    );
+    return api(`/api/notes${query.size ? `?${query}` : ''}`);
+  },
+  get: (id) => api(`/api/notes/${id}`),
+  create: (body) => api('/api/notes', { method: 'POST', body }),
+  save: (id, body) => api(`/api/notes/${id}`, { method: 'PATCH', body }),
+  remove: (id) => api(`/api/notes/${id}`, { method: 'DELETE' }),
+
+  // Who can be tagged, for a note that does not exist yet.
+  people: (code) => api(`/api/meetings/${code}/people`),
+};
+
 export const admin = {
   policy: () => api('/api/admin/policy'),
   savePolicy: (body) => api('/api/admin/policy', { method: 'PUT', body }),

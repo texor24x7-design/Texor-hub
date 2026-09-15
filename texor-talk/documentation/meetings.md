@@ -245,6 +245,56 @@ On iOS no element can go fullscreen — only a `<video>`, through
 `webkitEnterFullscreen`. The tile's name overlay cannot come with it there, and
 native video fullscreen is the whole of what is on offer.
 
+## Ending a meeting
+
+A host can end a live meeting from the meetings list without joining it first —
+a host who notices a meeting still open after everyone wandered off should not
+have to walk back into the room to close the door.
+
+Two details worth keeping:
+
+- **Host only.** `endMeetingNow` refuses anyone else, so a button offered to a
+  participant would always fail. A control that cannot work is worse than none.
+- **The card is a container, not a `<button>`.** It used to be one big button.
+  A button inside a button is invalid markup and the two click targets fight
+  over every press, so joining and ending are now siblings.
+
+The confirmation says how many people are still in the call, because ending
+drops all of them and there is no undo.
+
+## Duration
+
+Shown in three places, from two fields the server already sent (`startedAt`,
+`endedAt`) — no new endpoint, no polling.
+
+| Where | What |
+|---|---|
+| The call bar | a live clock, ticking each second |
+| The meetings list | `12 min in` on each live meeting |
+| A meeting's details | `ran for 45:12`, and time in call per person |
+
+All of it is `lib/duration.js`, which takes `now` as an argument rather than
+reading the clock. That is what makes "two minutes before the limit" a test
+rather than a two-hour wait.
+
+**The timer is its own component.** A one-second tick inside `CallView` would
+re-render the stage, every tile and every `<video>` element once a second. As a
+leaf it re-renders a `<span>`.
+
+**A countdown appears only near the end.** Most meetings have no
+`maxDurationMinutes` at all, and where there is one the room ticker really will
+end the call — so saying nothing would be worse. But a countdown running the
+whole meeting is a pressure device, so it stays silent until ten minutes remain,
+then gets more insistent at two.
+
+**The digits are `aria-hidden`.** A screen reader announcing a changing number
+every second would talk over the meeting. The same fact sits beside it in an
+`sr-only` span, read on request. Only the countdown warning is `aria-live`, and
+its text changes once a minute rather than once a second.
+
+A clock skewed a few seconds ahead of the server reads `0:00` rather than
+counting up towards zero.
+
 ## Presence
 
 There is no heartbeat endpoint. **A connected socket is a participant who is

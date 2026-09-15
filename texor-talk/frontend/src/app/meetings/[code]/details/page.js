@@ -4,7 +4,9 @@ import { use, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { Alert, Button, Field, Loading, formatTimestamp } from '@/components/ui';
-import { meetings as meetingApi } from '@/lib/api';
+import { meetings as meetingApi, notes as notesApi } from '@/lib/api';
+import { LockIcon, PlusIcon, ShareIcon } from '@/components/icons';
+import { durationBetween, startedAgo } from '@/lib/duration';
 
 /**
  * Everything about a meeting that is not the call itself: when it is, who is
@@ -77,6 +79,16 @@ function MeetingDetails({ code }) {
                 : 'Starts whenever someone joins'}
               {meeting.recurrence?.freq !== 'none' ? ` · repeats ${meeting.recurrence.freq}` : ''}
               {' · '}hosted by {meeting.host.name}
+              {/*
+                * Duration, in the tense the meeting is actually in. A finished
+                * meeting's length is the thing people come back here to find.
+                */}
+              {meeting.startedAt && meeting.endedAt
+                ? ` · ran for ${durationBetween(meeting.startedAt, meeting.endedAt)}`
+                : ''}
+              {meeting.startedAt && !meeting.endedAt && meeting.status === 'live'
+                ? ` · ${startedAgo(meeting.startedAt)}`
+                : ''}
             </p>
           </div>
 
@@ -135,6 +147,8 @@ function MeetingDetails({ code }) {
       />
 
       {meeting.attendance?.length ? <Attendance meeting={meeting} /> : null}
+
+      <MeetingNotes code={code} />
 
       {isHost && !over ? (
         <section className="panel">
@@ -340,6 +354,89 @@ function InviteeList({ meeting, isHost, onInvite, onUninvite }) {
 }
 
 /** Who actually turned up. Host-only, and only once somebody has. */
+/**
+ * The notes from this meeting.
+ *
+ * Both lists in one panel rather than two: after a meeting you are looking for
+ * "what was written down", and whether you or a colleague wrote it is a detail
+ * of the row, not a reason to look somewhere else.
+ */
+function MeetingNotes({ code }) {
+  const router = useRouter();
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    notesApi.list({ scope: 'all', meetingCode: code })
+      .then(({ notes: found }) => { if (!cancelled) setRows(found); })
+      .catch(() => { if (!cancelled) setRows([]); });
+    return () => { cancelled = true; };
+  }, [code]);
+
+  if (rows === null) return null;
+
+  return (
+    <section className="panel">
+      <div className="row row--between row--wrap panel__header">
+        <div>
+          <h2>Notes</h2>
+          <p>Yours are private unless you share them with the people who were here.</p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              const { note } = await notesApi.create({ meetingCode: code, blocks: [] });
+              router.push(`/notes/${note.id}`);
+            } catch (createError) {
+              setError(createError.message);
+              setBusy(false);
+            }
+          }}
+        >
+          <PlusIcon /> New note
+        </Button>
+      </div>
+
+      <Alert kind="error">{error}</Alert>
+
+      {rows.length === 0 ? (
+        <p className="meta">Nothing written down yet.</p>
+      ) : (
+        <div className="notes__grid">
+          {rows.map((note) => (
+            <button
+              key={note.id}
+              type="button"
+              className="notes__card"
+              onClick={() => router.push(`/notes/${note.id}`)}
+            >
+              <div className="notes__card-top">
+                <h3>{note.title || 'Untitled note'}</h3>
+                <span className="notes__card-vis">
+                  {note.visibility === 'meeting' ? <ShareIcon /> : <LockIcon />}
+                </span>
+              </div>
+              <p className="notes__card-preview">{note.preview || 'Empty'}</p>
+              <div className="notes__card-foot">
+                {note.isMine ? <span className="badge">You</span> : <span className="badge">{note.owner.name}</span>}
+                {note.mentionsMe ? <span className="badge badge--accent">Mentions you</span> : null}
+                <span className="notes__stat notes__stat--right">{note.stats.words} words</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Attendance({ meeting }) {
   return (
     <section className="panel">
@@ -356,6 +453,7 @@ function Attendance({ meeting }) {
               <th scope="col">Role</th>
               <th scope="col">Joined</th>
               <th scope="col">Left</th>
+              <th scope="col">Time in call</th>
               <th scope="col">Rejoins</th>
             </tr>
           </thead>
@@ -369,6 +467,12 @@ function Attendance({ meeting }) {
                 <td>{entry.role}</td>
                 <td>{formatTimestamp(entry.firstJoinedAt)}</td>
                 <td>{entry.leftAt ? formatTimestamp(entry.leftAt) : 'still in the call'}</td>
+                {/*
+                  * Wall-clock from first join to leaving, so somebody who
+                  * dropped and came back reads as one continuous stretch —
+                  * which is what "was this person in the meeting" means.
+                  */}
+                <td>{durationBetween(entry.firstJoinedAt, entry.leftAt)}</td>
                 <td>{entry.joins > 1 ? entry.joins - 1 : '—'}</td>
               </tr>
             ))}
