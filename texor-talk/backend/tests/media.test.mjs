@@ -6,6 +6,7 @@
  * actual DTLS handshaking and RTP on the wire.
  */
 import mongoose from 'mongoose';
+import { connectForTests } from './db.mjs';
 import { WebSocket } from 'ws';
 import { createHash, randomBytes } from 'node:crypto';
 
@@ -20,30 +21,6 @@ const { CAMERA_ENCODINGS, SCREEN_ENCODINGS } = await import(
 );
 
 const API = process.env.TEST_API ?? 'http://localhost:4102';
-/**
- * A hard stop, not a convention.
- *
- * This suite wipes collections. It once ran against a developer's real database
- * because `MONGODB_URI` was inherited from `.env`, and it deleted a meeting they
- * had just created. The database name must end in `_test` or nothing runs —
- * `npm test` builds that URI; running this file directly against `.env` will
- * refuse here rather than destroy anything.
- */
-function assertTestDatabase(uri) {
-  const name = (() => {
-    try { return new URL(uri).pathname.replace(/^\//, ''); } catch { return ''; }
-  })();
-
-  if (!name.endsWith('_test')) {
-    console.error(
-      `\n  REFUSING TO RUN.\n` +
-      `  This suite deletes collections and the target database is "${name || '(unparsed)'}".\n` +
-      `  It must end in _test. Use \`npm test\`, which creates an isolated one.\n`,
-    );
-    process.exit(1);
-  }
-  return uri;
-}
 
 const sha256 = (v) => createHash('sha256').update(v).digest('hex');
 
@@ -51,7 +28,7 @@ let pass = 0, fail = 0;
 const check = (l, ok, x = '') => { ok ? (pass++, console.log(`  ok   ${l}`)) : (fail++, console.log(`  FAIL ${l} ${x}`)); };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-await mongoose.connect(assertTestDatabase(process.env.MONGODB_URI));
+await connectForTests(process.env.MONGODB_URI);
 const db = mongoose.connection.db;
 for (const c of ['meetings', 'knocks', 'auditevents', 'auditcounters', 'policies', 'users', 'sessions']) {
   await db.collection(c).deleteMany({}).catch(() => {});

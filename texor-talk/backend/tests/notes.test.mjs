@@ -7,27 +7,12 @@
  * turned into a way into somebody else's meeting.
  */
 import mongoose from 'mongoose';
+import { connectForTests } from './db.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 
 const API = process.env.TEST_API ?? 'http://localhost:4102';
 
 /** See the note in meetings.test.mjs. This suite wipes collections. */
-function assertTestDatabase(uri) {
-  const name = (() => {
-    try { return new URL(uri).pathname.replace(/^\//, ''); } catch { return ''; }
-  })();
-
-  if (!name.endsWith('_test')) {
-    console.error(
-      `\n  REFUSING TO RUN.\n` +
-      `  This suite deletes collections and the target database is "${name || '(unparsed)'}".\n` +
-      `  It must end in _test. Use \`npm test\`, which creates an isolated one.\n`,
-    );
-    process.exit(1);
-  }
-  return uri;
-}
-
 const sha256 = (v) => createHash('sha256').update(v).digest('hex');
 
 let pass = 0;
@@ -37,7 +22,7 @@ const check = (label, ok, extra = '') => {
   else { fail += 1; console.log(`  FAIL ${label} ${extra}`); }
 };
 
-await mongoose.connect(assertTestDatabase(process.env.MONGODB_URI));
+await connectForTests(process.env.MONGODB_URI);
 const db = mongoose.connection.db;
 
 for (const c of ['notes', 'meetings', 'knocks', 'users', 'sessions', 'policies', 'guestsessions']) {

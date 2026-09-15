@@ -6,21 +6,11 @@
  * guest *cannot* do.
  */
 import mongoose from 'mongoose';
+import { connectForTests } from './db.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 
 const API = process.env.TEST_API ?? 'http://localhost:4102';
 const sha256 = (v) => createHash('sha256').update(v).digest('hex');
-
-function assertTestDatabase(uri) {
-  const name = (() => {
-    try { return new URL(uri).pathname.replace(/^\//, ''); } catch { return ''; }
-  })();
-  if (!name.endsWith('_test')) {
-    console.error(`\n  REFUSING TO RUN against "${name}". Use \`npm test\`.\n`);
-    process.exit(1);
-  }
-  return uri;
-}
 
 let pass = 0;
 let fail = 0;
@@ -28,7 +18,7 @@ const check = (l, ok, x = '') => {
   ok ? (pass += 1, console.log(`  ok   ${l}`)) : (fail += 1, console.log(`  FAIL ${l} ${x}`));
 };
 
-await mongoose.connect(assertTestDatabase(process.env.MONGODB_URI));
+await connectForTests(process.env.MONGODB_URI);
 const db = mongoose.connection.db;
 for (const c of ['meetings', 'knocks', 'guestsessions', 'users', 'sessions', 'auditevents', 'auditcounters', 'policies']) {
   await db.collection(c).deleteMany({}).catch(() => {});

@@ -53,7 +53,17 @@ jobs:
             cd texor-talk/backend
             npm ci
 
+            # The test runner runs the frontend's own suites from
+            # texor-talk/frontend, so its dependencies have to be present too.
+            # Without this the suites pass only while a previous manual install
+            # happens to still be on the box, and break on the first dependency
+            # change with an error that says nothing about the cause.
+            echo "==> Installing frontend dependencies"
+            cd ../frontend
+            npm ci
+
             echo "==> Running Talk tests"
+            cd ../backend
             npm test
 
             echo "==> Restarting Talk"

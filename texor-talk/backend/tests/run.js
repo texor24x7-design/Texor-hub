@@ -17,6 +17,7 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import mongoose from 'mongoose';
+import { connectForTests } from './db.mjs';
 
 const TEST_PORT = 4102;
 const TEST_API = `http://localhost:${TEST_PORT}`;
@@ -146,7 +147,10 @@ async function teardown() {
   if (server.exitCode === null) server.kill('SIGKILL');
 
   try {
-    await mongoose.connect(uri);
+    // The same bounded retry the suites use: a cluster that blinks during
+    // teardown should not leave a test database behind, and should not fail a
+    // deployment either.
+    await connectForTests(uri);
     await mongoose.connection.dropDatabase();
     await mongoose.disconnect();
     console.log(`  dropped ${dbName}\n`);

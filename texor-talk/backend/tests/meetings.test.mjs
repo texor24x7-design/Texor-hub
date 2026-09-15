@@ -5,34 +5,11 @@
  * the same way auth.controller would have. Everything after that is real HTTP.
  */
 import mongoose from 'mongoose';
+import { connectForTests } from './db.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 
 const API = process.env.TEST_API ?? 'http://localhost:4102';
 
-/**
- * A hard stop, not a convention.
- *
- * This suite wipes collections. It once ran against a developer's real database
- * because `MONGODB_URI` was inherited from `.env`, and it deleted a meeting they
- * had just created. The database name must end in `_test` or nothing runs —
- * `npm test` builds that URI; running this file directly against `.env` will
- * refuse here rather than destroy anything.
- */
-function assertTestDatabase(uri) {
-  const name = (() => {
-    try { return new URL(uri).pathname.replace(/^\//, ''); } catch { return ''; }
-  })();
-
-  if (!name.endsWith('_test')) {
-    console.error(
-      `\n  REFUSING TO RUN.\n` +
-      `  This suite deletes collections and the target database is "${name || '(unparsed)'}".\n` +
-      `  It must end in _test. Use \`npm test\`, which creates an isolated one.\n`,
-    );
-    process.exit(1);
-  }
-  return uri;
-}
 
 const sha256 = (v) => createHash('sha256').update(v).digest('hex');
 
@@ -43,7 +20,7 @@ const check = (label, ok, extra = '') => {
   else { fail += 1; console.log(`  FAIL ${label} ${extra}`); }
 };
 
-await mongoose.connect(assertTestDatabase(process.env.MONGODB_URI));
+await connectForTests(process.env.MONGODB_URI);
 const db = mongoose.connection.db;
 
 // Clean slate for the collections this script touches.
