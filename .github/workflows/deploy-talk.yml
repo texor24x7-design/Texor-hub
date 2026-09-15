@@ -1,0 +1,59 @@
+name: Deploy Texor Talk
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "texor-talk/**"
+      - ".github/workflows/deploy-talk.yml"
+
+jobs:
+  deploy:
+    name: Deploy Talk to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          passphrase: ${{ secrets.EC2_SSH_PASSPHRASE }}
+          script_stop: true
+          script: |
+            set -e
+
+            echo "==> Starting Texor Talk deployment"
+
+            cd ~/Texor-hub
+
+            echo "==> Fetching latest code"
+            git fetch origin main
+
+            echo "==> Checking out deployed commit"
+            git checkout --detach ${{ github.sha }}
+
+            echo "==> Installing backend dependencies"
+            cd texor-talk/backend
+            npm ci
+
+            echo "==> Running Talk tests"
+            npm test
+
+            echo "==> Restarting Talk"
+            pm2 restart texor-talk
+
+            echo "==> Waiting for Talk to start"
+            sleep 5
+
+            echo "==> Checking PM2 status"
+            pm2 status
+
+            echo "==> Checking Talk API"
+            curl --fail --silent --show-error \
+              http://127.0.0.1:4002/api/health
+
+            echo ""
+            echo "==> Texor Talk deployment successful"
