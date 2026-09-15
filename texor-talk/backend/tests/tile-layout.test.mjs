@@ -6,7 +6,7 @@
  * assertions are about filling the box and staying centred — not about matching
  * particular numbers.
  */
-const FE = '/Users/rajchavin/Projects/texor/texor-talk/frontend';
+const FE = new URL('../../frontend/', import.meta.url).pathname.replace(/\/$/, '');
 const { bestTileLayout, TILE_ASPECT } = await import(`${FE}/src/lib/tile-layout.js`);
 
 let pass = 0, fail = 0;
