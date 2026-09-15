@@ -37,8 +37,14 @@ const schema = z.object({
   // One mediasoup worker is a single CPU core. Defaults to the machine's count.
   MEDIA_WORKERS: z.coerce.number().int().min(1).max(64).optional(),
   MEDIA_LOG_LEVEL: z.enum(['debug', 'warn', 'error', 'none']).default('warn'),
-  // Ceiling per participant's outgoing video, in bits per second.
-  MEDIA_MAX_BITRATE: z.coerce.number().int().positive().default(1_500_000),
+  /**
+   * Bitrate is deliberately *not* here.
+   *
+   * It used to be two env vars, which meant changing what a meeting costs
+   * required a deploy and applied to every meeting in the organisation at once.
+   * It now lives in `services/quality.service.js` as named tiers: an admin sets
+   * the ceiling, a host picks within it, per meeting, while the call is running.
+   */
 
   // ── Meetings ───────────────────────────────────────────────────────────────
   // How early a guest may join a scheduled meeting. Hosts are never held back.
@@ -85,7 +91,6 @@ export const env = {
     rtcMaxPort: raw.MEDIA_RTC_MAX_PORT,
     workers: raw.MEDIA_WORKERS ?? Math.max(1, cpus().length),
     logLevel: raw.MEDIA_LOG_LEVEL,
-    maxBitrate: raw.MEDIA_MAX_BITRATE,
     /**
      * Announcing a loopback or private address works on one machine and fails
      * the moment a second device joins, in a way that looks like "everyone

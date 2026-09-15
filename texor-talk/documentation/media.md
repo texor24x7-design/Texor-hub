@@ -45,8 +45,39 @@ forwards whichever one each *viewer* can carry. That is what makes a grid of
 twelve people work: without it the sender picks one quality for everybody, and a
 single person on hotel wifi drags the whole call down to theirs.
 
-Screen shares deliberately do not use simulcast — one high-quality layer,
-because legible text matters more than adapting resolution.
+### Screen shares
+
+No simulcast, deliberately: everybody watching should see exactly what the
+person sharing sees, and layers would mean some of them quietly getting a worse
+one. The ceiling comes from the meeting's quality tier (see
+[Quality and what it costs](#quality-and-what-it-costs)) and is far above a
+camera's — a 1080p desktop at 30fps with text and scrolling will use all of it,
+and starving it shows up as **dropped frames rather than softness**.
+
+Three settings decide whether a share is smooth, and all three have to agree:
+
+| | Effect |
+|---|---|
+| `getDisplayMedia({ video: { frameRate } })` | What is captured at all |
+| `track.contentHint` | What the **encoder** protects |
+| `degradationPreference` | What the **sender** protects |
+
+Getting any one of them wrong wastes the other two. This product previously
+capped capture at 15fps and set neither hint, so browsers — which treat captured
+screens as detail content by default — held resolution and dropped frames. The
+result was a share that looked sharp and moved like a slideshow.
+
+The trade-off is exposed rather than assumed, because it is a judgement about
+the content: **Keep it smooth** (motion, 30fps, `maintain-framerate`) for demos
+and video, **Keep it sharp** (detail, `maintain-resolution`) for code and
+spreadsheets. Smooth is the default — a softer picture still reads, whereas a
+slideshow is unusable for anything you are actively doing.
+
+**More than one person can share at once.** Each share is an ordinary producer
+attributed to its owner, so they all coexist; the stage shows the most recent
+and offers a switcher when there are several. The roster is re-sent whenever a
+producer starts or stops, so a share whose `newProducer` went missing is
+repaired immediately rather than at the next tick.
 
 ### Screen audio
 
@@ -93,6 +124,84 @@ same ones the browser uses, and `produceVideo` retries once without encodings if
 a browser refuses them — losing the layering rather than the track.
 
 ---
+
+## Quality and what it costs
+
+Bitrate is the main running cost of this product, and it is not a deployment
+setting. An SFU forwards every stream to every participant, so the bandwidth a
+meeting burns is roughly **headcount × bitrate** — one person raising quality
+raises the bill for everybody in the room with them.
+
+So it has two levels, and the separation is the whole design:
+
+| | Who sets it | Where |
+|---|---|---|
+| **Ceiling** | an admin | `/admin` → *Highest video quality* (`Policy.maxQuality`) |
+| **Tier** | the host | the meeting's settings page, or the bar during the call (`Meeting.quality`) |
+
+A host may pick anything **at or below** the ceiling. Raising it above is
+refused with the plan named in the message; the ceiling is the only place a
+limit can go up, which is what makes it a commercial lever rather than a
+preference.
+
+The tiers live in `services/quality.service.js`:
+
+| Tier | Camera | Screen | Screen fps |
+|---|---|---|---|
+| Data saver | 0.4 Mbps | 1 Mbps | 15 |
+| Standard | 1 Mbps | 2.5 Mbps | 30 |
+| High | 1.5 Mbps | 5 Mbps | 30 |
+
+Named tiers rather than raw numbers, because "1800000" is not a decision anyone
+can make well, and the names survive the numbers behind them being tuned.
+
+### Clamping, not rejecting
+
+`effectiveTier(requested, ceiling)` returns the best tier allowed, never an
+error. Downgrading the organisation's plan therefore does not break meetings
+already scheduled at a tier that is no longer available — they quietly run at
+the best tier now permitted. Anything unrecognised lands on Standard.
+
+New meetings start at Standard (or the ceiling, if that is lower). Nobody should
+be spending the most by default.
+
+### Changing it mid-call
+
+The host's choice applies **live**, because the moment anyone wants this is the
+moment somebody says the screen share is stuttering. Three things move in this
+order, and the order matters:
+
+1. the tier is stored on the meeting, so it survives a rejoin
+2. every peer's send transport gets a new `setMaxIncomingBitrate` — **before**
+   anyone is told to send more, or the first client to react has its extra
+   bitrate thrown away by the SFU
+3. a `quality` message goes to the whole room
+
+Clients react by rewriting `maxBitrate` on their existing senders with
+`RTCRtpSender.setParameters`. Bitrate is a parameter on a sender, not part of
+the negotiated session, so **there is no renegotiation and no black frame** —
+the encoder simply starts targeting a different number on its next frame.
+Re-producing would have worked too, and would have shown every viewer a gap.
+
+Two constraints on that rewrite:
+
+- the **number of encodings must not change**. `setParameters` rejects a list of
+  a different length than the sender was created with, so the ladder is rebuilt
+  against the new ceiling and keeps its shape — the small simulcast layers stay
+  proportionally small instead of all collapsing onto the top.
+- **frame rate is not a sender parameter.** It is a constraint on the track, so
+  a screen share additionally gets `applyConstraints({ frameRate })`. Some
+  capture sources refuse this mid-share; that is caught, and the tier's bitrate
+  still applies.
+
+### Enforcement is on the send side only
+
+Capping what somebody may *receive* would punish them for the number of people
+in the room, which is not their doing. The cost is controlled at the source:
+`createTransport` sets `maxIncomingBitrate` on send transports, and
+`maxSendBitrate(tier)` covers a microphone, a camera and a screen at once plus
+headroom — a cap a legitimate sender bumps into produces exactly the stuttering
+this exists to prevent.
 
 ## Configuration
 

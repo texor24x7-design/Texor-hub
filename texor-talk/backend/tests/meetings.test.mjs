@@ -272,6 +272,46 @@ check('host ends the meeting', ended.status === 200 && ended.body.meeting.status
 check('joining an ended meeting is a 410', (await call(guest, `/api/meetings/${code}/join`, { method: 'POST' })).status === 410);
 check('attendance is closed out', ended.body.meeting.attendance.every((a) => !!a.leftAt), JSON.stringify(ended.body.meeting.attendance));
 
+console.log('\n── quality: the host chooses, the plan decides how far ──');
+const hq = await call(host, '/api/meetings', { method: 'POST', body: { title: 'quality' } });
+const hqCode = hq.body.meeting.code;
+check('a new meeting starts at standard, not at the ceiling', hq.body.meeting.quality === 'standard', hq.body.meeting.quality);
+
+const hqView = await call(host, `/api/meetings/${hqCode}`);
+check('the host is told the ceiling', hqView.body.meeting.qualityCeiling === 'high', String(hqView.body.meeting.qualityCeiling));
+check('the host is offered every tier under it', hqView.body.meeting.qualityOptions?.length === 3);
+check('each option is named for a person to read', hqView.body.meeting.qualityOptions?.every((t) => t.id && t.name && t.blurb));
+check('each option says what it costs relative to standard', hqView.body.meeting.qualityOptions?.every((t) => t.relativeCost > 0));
+
+const memberView = await call(member, `/api/meetings/${hqCode}`);
+check('a non-host is not shown the ceiling', memberView.body.meeting.qualityCeiling === undefined);
+check('a non-host is not offered the choice', memberView.body.meeting.qualityOptions === undefined);
+
+const raised = await call(host, `/api/meetings/${hqCode}`, { method: 'PATCH', body: { quality: 'high' } });
+check('the host can raise quality within the plan', raised.status === 200 && raised.body.meeting.quality === 'high', JSON.stringify(raised.body).slice(0, 160));
+check('a non-host cannot change quality', (await call(member, `/api/meetings/${hqCode}`, { method: 'PATCH', body: { quality: 'saver' } })).status === 403);
+check('an unknown tier is refused', (await call(host, `/api/meetings/${hqCode}`, { method: 'PATCH', body: { quality: 'ultra' } })).status === 400);
+
+await call(admin, '/api/admin/policy', { method: 'PUT', body: { maxQuality: 'standard' } });
+const overCeiling = await call(host, `/api/meetings/${hqCode}`, { method: 'PATCH', body: { quality: 'high' } });
+check('the plan refuses a tier above its ceiling', overCeiling.status === 403, `${overCeiling.status} ${JSON.stringify(overCeiling.body)}`);
+check('and the refusal names the plan rather than the number',
+  /standard/.test(overCeiling.body.error?.message ?? ''), JSON.stringify(overCeiling.body));
+
+const clamped = await call(host, `/api/meetings/${hqCode}`);
+check('a meeting stored above the new ceiling still opens', clamped.status === 200);
+check('and it is offered only what the plan now allows', clamped.body.meeting.qualityOptions?.length === 2);
+check('the host can still lower it', (await call(host, `/api/meetings/${hqCode}`, { method: 'PATCH', body: { quality: 'saver' } })).body.meeting.quality === 'saver');
+
+const afterCap = await call(host, '/api/meetings', { method: 'POST', body: { title: 'after the cap' } });
+check('a new meeting under a standard ceiling still starts at standard', afterCap.body.meeting.quality === 'standard');
+await call(admin, '/api/admin/policy', { method: 'PUT', body: { maxQuality: 'saver' } });
+const saverEra = await call(host, '/api/meetings', { method: 'POST', body: { title: 'saver era' } });
+check('a saver ceiling makes saver the default too', saverEra.body.meeting.quality === 'saver', saverEra.body.meeting.quality);
+check('a saver ceiling offers the host nothing to raise to',
+  (await call(host, `/api/meetings/${saverEra.body.meeting.code}`)).body.meeting.qualityOptions?.length === 1);
+await call(admin, '/api/admin/policy', { method: 'PUT', body: { maxQuality: 'high' } });
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await mongoose.disconnect();
 process.exit(fail === 0 ? 0 : 1);

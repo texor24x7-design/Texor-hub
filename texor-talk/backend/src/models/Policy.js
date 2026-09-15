@@ -29,6 +29,16 @@ const policySchema = new Schema(
     maxDurationMinutes: { type: Number, default: 0, min: 0, max: 24 * 60 },
     maxParticipants: { type: Number, default: 0, min: 0, max: 1000 },
 
+    /**
+     * The best quality any meeting in this organisation may use.
+     *
+     * Hosts choose at or below this. It is the one limit that costs money to
+     * raise — an SFU forwards every stream to every participant, so bandwidth
+     * is headcount multiplied by bitrate — which makes it the natural place for
+     * a plan to apply.
+     */
+    maxQuality: { type: String, enum: ['saver', 'standard', 'high'], default: 'high' },
+
     defaultMuteOnEntry: { type: Boolean, default: true },
     defaultVideoOffOnEntry: { type: Boolean, default: false },
     screenShareDefault: { type: String, enum: ['everyone', 'hosts'], default: 'everyone' },

@@ -13,8 +13,11 @@ import Message from '../models/Message.js';
 import env from '../config/env.js';
 import ApiError from '../utils/ApiError.js';
 import { meetingInvite } from '../utils/ics.js';
-import { ejectPeer, endRoom, refreshKnocks, updatePeerRole } from '../media/signalling.js';
+import {
+  ejectPeer, endRoom, refreshKnocks, updatePeerRole, updateRoomQuality,
+} from '../media/signalling.js';
 import { connectedTexorIds } from '../media/room.js';
+import { availableTiers, effectiveTier, isTier, limitsFor } from '../services/quality.service.js';
 import {
   GUEST_COOKIE,
   assertGuestScope,
@@ -88,6 +91,7 @@ export const createMeetingSchema = z
     access: z.enum(['invited', 'texor', 'anyone']).default('texor'),
     lobby: z.enum(['off', 'external', 'everyone']).optional(),
     invitees: z.array(inviteeInput).max(500).default([]),
+    quality: z.enum(['saver', 'standard', 'high']).optional(),
     recurrence: recurrenceInput.default(NO_RECURRENCE),
     settings: settingsInput.default({}),
     channelId: z.string().nullish().default(null),
@@ -110,6 +114,7 @@ export const updateMeetingSchema = z.object({
   timezone: z.string().max(64).optional(),
   access: z.enum(['invited', 'texor', 'anyone']).optional(),
   lobby: z.enum(['off', 'external', 'everyone']).optional(),
+  quality: z.enum(['saver', 'standard', 'high']).optional(),
   recurrence: recurrenceInput.optional(),
   settings: settingsInput.optional(),
 });
@@ -124,6 +129,7 @@ export const inviteeSchema = z.object({ invitees: z.array(inviteeInput).min(1).m
 export const rsvpSchema = z.object({ response: z.enum(['accepted', 'declined', 'tentative']) });
 export const knockDecisionSchema = z.object({ decision: z.enum(['admit', 'deny']) });
 export const roleSchema = z.object({ role: z.enum(['cohost', 'participant']) });
+export const transferSchema = z.object({ texorId: z.string().min(1) });
 
 // ── Loading and presenting ───────────────────────────────────────────────────
 
@@ -175,7 +181,7 @@ function requireHost(meeting, user) {
  * there is nothing a client could learn from this payload that would get it
  * into a call it is not entitled to.
  */
-function present(meeting, user, { policy } = {}) {
+function presentMeeting(meeting, user, { policy } = {}) {
   const role = meeting.roleOf(user.texorId, user.email);
   const isHost = role === 'host' || role === 'cohost';
   /**
@@ -215,6 +221,11 @@ function present(meeting, user, { policy } = {}) {
     endedAt: meeting.endedAt,
     maxDurationMinutes: meeting.maxDurationMinutes,
     maxParticipants: meeting.maxParticipants,
+
+    quality: effectiveTier(meeting.quality, policy?.maxQuality),
+    // Only a host can change it, so only a host is told what the options are.
+    qualityOptions: isHost && policy ? availableTiers(policy.maxQuality) : undefined,
+    qualityCeiling: isHost && policy ? policy.maxQuality : undefined,
 
     // Emails of other invitees are host-only: a meeting invite should not hand
     // every attendee the address book of everyone else who was asked.
@@ -271,12 +282,28 @@ function present(meeting, user, { policy } = {}) {
  * of these is checked again by the signalling layer when a track is actually
  * offered, which is the only place refusing it means anything.
  */
-function mediaGrant(meeting, role) {
+function mediaGrant(meeting, role, policy) {
   const isModerator = role === 'host' || role === 'cohost';
+  /**
+   * Resolved here, not in the browser.
+   *
+   * The client needs concrete numbers to configure its encoders, and those
+   * numbers are the host's choice clamped by what the organisation allows. A
+   * client that made its own decision could spend whatever it liked.
+   */
+  const tier = effectiveTier(meeting.quality, policy?.maxQuality);
+  const limits = limitsFor(tier);
 
   return {
     role,
     isModerator,
+    quality: {
+      tier,
+      name: limits.name,
+      cameraBitrate: limits.cameraBitrate,
+      screenBitrate: limits.screenBitrate,
+      screenFrameRate: limits.screenFrameRate,
+    },
     canShareScreen: meeting.settings.screenShare === 'everyone' || isModerator,
     allowChat: meeting.settings.allowChat,
     startMuted: meeting.settings.muteOnEntry && !isModerator,
@@ -312,7 +339,7 @@ export async function listMeetings(req, res) {
     .limit(limit)
     .exec();
 
-  res.json({ meetings: meetings.map((meeting) => present(meeting, req.user)) });
+  res.json({ meetings: meetings.map((meeting) => presentMeeting(meeting, req.user)) });
 }
 
 export async function createMeeting(req, res) {
@@ -393,7 +420,7 @@ export async function createMeeting(req, res) {
     );
   }
 
-  res.status(201).json({ meeting: present(meeting, req.user, { policy }) });
+  res.status(201).json({ meeting: presentMeeting(meeting, req.user, { policy }) });
 }
 
 export async function getMeeting(req, res) {
@@ -405,12 +432,26 @@ export async function getMeeting(req, res) {
     throw ApiError.forbidden('This meeting is for invited people only.');
   }
 
-  res.json({ meeting: present(meeting, req.user, { policy }) });
+  res.json({ meeting: presentMeeting(meeting, req.user, { policy }) });
 }
 
 export async function updateMeeting(req, res) {
   const meeting = await loadMeeting(req.params.code);
   requireHost(meeting, req.user);
+
+  const policy = await getPolicy();
+
+  /**
+   * A host may lower quality freely and raise it only to the organisation's
+   * ceiling. Refused rather than silently clamped, because a host who asked for
+   * High and got Standard without being told would reasonably conclude the
+   * setting was broken.
+   */
+  if (req.body.quality && effectiveTier(req.body.quality, policy.maxQuality) !== req.body.quality) {
+    throw ApiError.forbidden(
+      `Your organisation's plan allows up to "${policy.maxQuality}" quality.`,
+    );
+  }
 
   const changed = {};
 
@@ -436,6 +477,18 @@ export async function updateMeeting(req, res) {
 
   await meeting.save();
 
+  /**
+   * A quality change lands on the call that is already running.
+   *
+   * The same change can arrive from the bar during the call, and the two routes
+   * have to end up in the same place — a host editing the settings page mid-
+   * meeting should not have to make everyone rejoin for it to take effect. A
+   * no-op when nobody is connected.
+   */
+  if (changed.quality) {
+    await updateRoomQuality(meeting.code, changed.quality, req.user.displayName);
+  }
+
   await record({
     action: ACTIONS.MEETING_UPDATED,
     actor: req.user,
@@ -444,7 +497,7 @@ export async function updateMeeting(req, res) {
     req,
   });
 
-  res.json({ meeting: present(meeting, req.user) });
+  res.json({ meeting: presentMeeting(meeting, req.user, { policy }) });
 }
 
 export async function cancelMeeting(req, res) {
@@ -467,7 +520,7 @@ export async function cancelMeeting(req, res) {
 
   await record({ action: ACTIONS.MEETING_CANCELLED, actor: req.user, meeting, req });
 
-  res.json({ meeting: present(meeting, req.user) });
+  res.json({ meeting: presentMeeting(meeting, req.user) });
 }
 
 // ── Guests ───────────────────────────────────────────────────────────────────
@@ -600,7 +653,7 @@ export async function joinMeeting(req, res) {
       status: 'waiting',
       knockId: knock._id.toString(),
       expiresAt: knock.expiresAt,
-      meeting: present(meeting, req.user),
+      meeting: presentMeeting(meeting, req.user),
     });
   }
 
@@ -619,8 +672,8 @@ export async function joinMeeting(req, res) {
 
   return res.json({
     status: 'admitted',
-    media: mediaGrant(meeting, role),
-    meeting: present(meeting, req.user, { policy }),
+    media: mediaGrant(meeting, role, policy),
+    meeting: presentMeeting(meeting, req.user, { policy }),
   });
 }
 
@@ -665,8 +718,8 @@ export async function getKnock(req, res) {
 
   return res.json({
     status: 'admitted',
-    media: mediaGrant(meeting, role),
-    meeting: present(meeting, req.user, { policy }),
+    media: mediaGrant(meeting, role, policy),
+    meeting: presentMeeting(meeting, req.user, { policy }),
   });
 }
 
@@ -776,7 +829,7 @@ export async function endMeetingNow(req, res) {
     req,
   });
 
-  res.json({ meeting: present(meeting, req.user) });
+  res.json({ meeting: presentMeeting(meeting, req.user) });
 }
 
 /**
@@ -815,7 +868,7 @@ export async function removeParticipant(req, res) {
     req,
   });
 
-  res.json({ meeting: present(meeting, req.user) });
+  res.json({ meeting: presentMeeting(meeting, req.user) });
 }
 
 /** Promotes someone to co-host, or puts them back. Host only — not co-hosts. */
@@ -864,7 +917,65 @@ export async function setParticipantRole(req, res) {
    */
   const appliedLive = updatePeerRole(meeting.code, texorId, promote ? 'cohost' : 'participant');
 
-  res.json({ meeting: present(meeting, req.user), appliedLive });
+  res.json({ meeting: presentMeeting(meeting, req.user), appliedLive });
+}
+
+/**
+ * Hands the meeting to somebody else.
+ *
+ * A meeting has exactly one host, and that host leaving should not mean the
+ * meeting loses the ability to admit people, mute anyone or end cleanly. The
+ * outgoing host becomes a co-host rather than a plain participant: they called
+ * the meeting, and demoting them to nothing on the way out would be a strange
+ * thing to do to them if they come back.
+ */
+export async function transferHost(req, res) {
+  const meeting = await loadMeeting(req.params.code);
+
+  if (meeting.hostTexorId !== req.user.texorId) {
+    throw ApiError.forbidden('Only the host can hand the meeting over.');
+  }
+
+  const { texorId } = req.body;
+  if (texorId === meeting.hostTexorId) {
+    throw ApiError.badRequest('They are already the host.');
+  }
+
+  // Handing it to somebody who is not there leaves the meeting hostless the
+  // moment the current host goes, which is the situation this exists to avoid.
+  const present = meeting.attendance.find((entry) => entry.texorId === texorId && !entry.leftAt);
+  if (!present) throw ApiError.badRequest('They are not in the meeting.');
+  if (meeting.isRemoved(texorId)) throw ApiError.badRequest('They were removed from this meeting.');
+
+  const previous = meeting.hostTexorId;
+  meeting.hostTexorId = texorId;
+  meeting.hostName = present.name;
+  meeting.hostEmail = present.email ?? '';
+
+  meeting.cohostTexorIds = [
+    ...new Set([...meeting.cohostTexorIds.filter((id) => id !== texorId), previous]),
+  ];
+
+  const entry = meeting.attendance.find((item) => item.texorId === texorId);
+  if (entry) entry.role = 'host';
+  const outgoing = meeting.attendance.find((item) => item.texorId === previous);
+  if (outgoing) outgoing.role = 'cohost';
+
+  await meeting.save();
+
+  // Live, both ways, so neither of them has to rejoin to get their controls.
+  updatePeerRole(meeting.code, texorId, 'host');
+  updatePeerRole(meeting.code, previous, 'cohost');
+
+  await record({
+    action: ACTIONS.HOST_TRANSFERRED,
+    actor: req.user,
+    meeting,
+    target: { texorId, name: present.name },
+    req,
+  });
+
+  res.json({ meeting: presentMeeting(meeting, req.user) });
 }
 
 // ── Invitations ──────────────────────────────────────────────────────────────
@@ -901,7 +1012,7 @@ export async function addInvitees(req, res) {
     });
   }
 
-  res.json({ meeting: present(meeting, req.user), added });
+  res.json({ meeting: presentMeeting(meeting, req.user), added });
 }
 
 export async function removeInvitee(req, res) {
@@ -923,7 +1034,7 @@ export async function removeInvitee(req, res) {
     req,
   });
 
-  res.json({ meeting: present(meeting, req.user) });
+  res.json({ meeting: presentMeeting(meeting, req.user) });
 }
 
 export async function respondToInvite(req, res) {
@@ -949,7 +1060,7 @@ export async function respondToInvite(req, res) {
     req,
   });
 
-  res.json({ meeting: present(meeting, req.user) });
+  res.json({ meeting: presentMeeting(meeting, req.user) });
 }
 
 /** The calendar file. Served to anyone who can see the meeting. */
@@ -993,6 +1104,7 @@ export default {
   endMeetingNow,
   removeParticipant,
   setParticipantRole,
+  transferHost,
   addInvitees,
   removeInvitee,
   respondToInvite,

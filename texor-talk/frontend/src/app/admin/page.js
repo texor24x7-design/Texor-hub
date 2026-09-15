@@ -104,6 +104,7 @@ function PolicyPanel() {
         defaultMuteOnEntry: draft.defaultMuteOnEntry,
         defaultVideoOffOnEntry: draft.defaultVideoOffOnEntry,
         screenShareDefault: draft.screenShareDefault,
+        maxQuality: draft.maxQuality,
       });
       setPolicy(saved);
       setDraft(saved);
@@ -148,6 +149,21 @@ function PolicyPanel() {
               <option value="off">Off</option>
               <option value="external">Outside guests knock</option>
               <option value="everyone">Everyone knocks</option>
+            </select>
+          </Field>
+
+          <Field
+            label="Highest video quality"
+            hint="The ceiling hosts choose within. Bandwidth is the main running cost of a meeting, and it grows with headcount multiplied by bitrate."
+            htmlFor="maxQuality"
+          >
+            <select
+              id="maxQuality" className="input" value={draft.maxQuality ?? 'high'}
+              onChange={(event) => set('maxQuality', event.target.value)}
+            >
+              <option value="saver">Data saver — lowest bandwidth</option>
+              <option value="standard">Standard — good for most meetings</option>
+              <option value="high">High — sharpest, most bandwidth</option>
             </select>
           </Field>
 

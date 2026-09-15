@@ -10,8 +10,10 @@ import {
   InfoIcon, MicIcon, MicOffIcon, PeopleIcon, PresentIcon, PresentOffIcon,
   ChevronIcon, GridIcon, HandIcon, PinIcon, ReactionIcon, RemovePersonIcon, SendIcon,
   ShieldIcon,
+  TuneIcon,
 } from '@/components/icons';
 import { SettingsDialog } from '@/components/SettingsDialog';
+import { loadPreferences } from '@/lib/preferences';
 
 /** Must match the server's allowlist in media/signalling.js. */
 const REACTIONS = ['👍', '👎', '❤️', '🎉', '👏', '😂', '😮', '😢', '🤔', '✋'];
@@ -62,6 +64,7 @@ function hydrate(peer, existing = {}) {
     ...peer,
     // Kept explicitly: a roster entry that omitted it would blank the face.
     picture: peer.picture ?? existing.picture ?? '',
+    screenAt: existing.screenAt ?? 0,
     producers,
     tracks: existing.tracks ?? {},
     // No microphone producer at all is also muted: they have not started one.
@@ -453,6 +456,17 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   const [myHand, setMyHand] = useState(false);
   const [connection, setConnection] = useState({ state: 'live' });
   const [settingsTab, setSettingsTab] = useState(null);
+  /**
+   * The stored settings, distinct from `prefs`.
+   *
+   * `prefs` is what the green room chose for this one join; these are the
+   * durable per-browser preferences. Re-read when the dialog closes so a change
+   * made mid-call takes effect without a rejoin.
+   */
+  const [settings, setSettings] = useState(() => loadPreferences());
+  const [leaving, setLeaving] = useState(false);
+  const [watchingId, setWatchingId] = useState(null);
+  const [localScreenAt, setLocalScreenAt] = useState(0);
 
   /**
    * How the stage is arranged.
@@ -467,6 +481,11 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   const [layout, setLayout] = useState('auto');
   const [pinned, setPinned] = useState(null);
   const [layoutOpen, setLayoutOpen] = useState(false);
+  const [qualityOpen, setQualityOpen] = useState(false);
+  const [quality, setQuality] = useState(grant.quality?.tier ?? 'standard');
+  const [qualityOptions, setQualityOptions] = useState(meeting?.qualityOptions ?? []);
+  // Something happened that is worth saying but not worth interrupting for.
+  const [notice, setNotice] = useState(null);
   const [role, setRole] = useState(grant.role);
   const [status, setStatus] = useState('connecting');
   const [error, setError] = useState(null);
@@ -509,6 +528,9 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     let cancelled = false;
 
     const room = new MeetingRoom(code, {
+      // Resolved by the server from the meeting's tier and the org ceiling.
+      limits: grant.quality,
+
       // Arrives before any track is consumed, so the tracks that follow land on
       // top of this rather than being wiped by it.
       /**
@@ -538,6 +560,9 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
       track: ({ peerTexorId, source, track }) =>
         updatePeer(peerTexorId, (existing) => ({
           tracks: { ...existing.tracks, [source]: track },
+          // Stamped so several simultaneous shares have a defined order, rather
+          // than whichever the peer map happened to yield first.
+          ...(source === 'screen' ? { screenAt: Date.now() } : {}),
         })),
 
       trackEnded: (peerTexorId, source) =>
@@ -595,6 +620,7 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
       localTrackEnded: (source) => {
         if (source !== 'screen') return;
         setLocalScreen(null);
+        setLocalScreenAt(0);
         setScreenOn(false);
       },
 
@@ -606,6 +632,18 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
       removed: (reason) => onClosed(reason),
       ended: (reason) => onClosed(reason),
       closed: (reason) => { if (!cancelled) onClosed(reason || 'You left the meeting.'); },
+      /**
+       * The host moved the meeting's bandwidth budget.
+       *
+       * Everyone is told, not only the host — the room has already re-aimed our
+       * own senders by the time this runs, and saying so is the difference
+       * between "the video just changed" and knowing why.
+       */
+      quality: ({ tier, name, changedBy }) => {
+        setQuality(tier);
+        setNotice(`${changedBy} set the video quality to ${name}.`);
+      },
+
       error: (message) => setError(message),
       warning: (message) => setError(message),
     });
@@ -701,6 +739,50 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
       window.removeEventListener('keydown', dismiss);
     };
   }, [layoutOpen]);
+
+  useEffect(() => {
+    if (!qualityOpen) return undefined;
+
+    const dismiss = (event) => {
+      if (event.type === 'keydown' && event.key !== 'Escape') return;
+      if (event.type === 'pointerdown' && event.target.closest?.('.meet__quality-wrap')) return;
+      setQualityOpen(false);
+    };
+
+    window.addEventListener('pointerdown', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      window.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [qualityOpen]);
+
+  /**
+   * Somebody handed us the meeting mid-call.
+   *
+   * The tiers a host may choose from came with the meeting we fetched before
+   * joining, and we fetched it as a participant — so a newly promoted host has
+   * an empty list until we ask again. Cheap, and only on the promotion.
+   */
+  useEffect(() => {
+    if (!isHost || qualityOptions.length > 0) return undefined;
+
+    let cancelled = false;
+    meetingApi.get(code)
+      .then(({ meeting: fresh }) => { if (!cancelled) setQualityOptions(fresh?.qualityOptions ?? []); })
+      .catch(() => {
+        // Not being able to offer the menu is not a reason to disturb the call.
+      });
+
+    return () => { cancelled = true; };
+  }, [isHost, qualityOptions.length, code]);
+
+  // A notice reports something that already happened, so it takes itself away.
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   // A host should not have to go looking for someone waiting at the door.
   useEffect(() => {
@@ -820,7 +902,10 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     return undefined;
   }
 
-  async function leave() {
+  /**
+   * Leaving, once any question about it has been answered.
+   */
+  async function leaveNow() {
     roomRef.current?.close();
     await meetingApi.leave(code).catch(() => {});
 
@@ -832,6 +917,40 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   }
 
   /**
+   * The host clicking Leave.
+   *
+   * Only ever a question when it is genuinely one: the person leaving is the
+   * host, and there is somebody left behind for it to matter to. Everybody
+   * else — participants, co-hosts, a host alone in the room — just leaves,
+   * because asking them would be a dialog with no real choice in it.
+   */
+  function leave() {
+    const isOwner = meeting?.viewer?.role === 'host' || role === 'host';
+    if (isOwner && everyone.length > 0) return setLeaving(true);
+    return leaveNow();
+  }
+
+  async function handOverAndLeave(texorId) {
+    try {
+      await meetingApi.transferHost(code, texorId);
+    } catch (transferError) {
+      setError(transferError.message);
+      return;
+    }
+    await leaveNow();
+  }
+
+  async function endAndLeave() {
+    try {
+      await roomRef.current?.endMeeting();
+    } catch (endError) {
+      setError(endError.message);
+      return;
+    }
+    await leaveNow();
+  }
+
+  /**
    * Who is presenting, and — for us — deliberately without the picture.
    *
    * Rendering our own share back to us is what produces the hall-of-mirrors:
@@ -840,13 +959,59 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
    * the same way, by showing the presenter a card instead of their own feed.
    * They can already see what they are sharing — it is on their screen.
    */
-  const presenting = useMemo(() => {
-    if (localScreen) return { track: null, name: user.displayName, isYou: true };
-    for (const peer of peers.values()) {
-      if (peer.tracks.screen) return { track: peer.tracks.screen, name: peer.name };
+  /**
+   * Every screen being shared, newest first.
+   *
+   * More than one person can share at once — which is useful, and was
+   * previously broken in a quiet way: the first share found in an unordered map
+   * won, and any others were consumed (costing everybody bandwidth) but never
+   * shown, with no way to reach them.
+   */
+  const shares = useMemo(() => {
+    const all = [];
+
+    if (localScreen) {
+      all.push({
+        texorId: user.texorId,
+        name: user.displayName,
+        track: localScreen,
+        isYou: true,
+        at: localScreenAt,
+      });
     }
-    return null;
-  }, [peers, localScreen, user.displayName]);
+
+    for (const peer of peers.values()) {
+      if (peer.tracks.screen) {
+        all.push({
+          texorId: peer.texorId,
+          name: peer.name,
+          track: peer.tracks.screen,
+          at: peer.screenAt ?? 0,
+        });
+      }
+    }
+
+    return all.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
+  }, [peers, localScreen, localScreenAt, user.texorId, user.displayName]);
+
+  /**
+   * Which share is on the stage.
+   *
+   * Defaults to the newest, because somebody starting to share has just decided
+   * there is something everyone should look at. An explicit choice sticks until
+   * that share ends.
+   */
+  const watching = shares.find((share) => share.texorId === watchingId) ?? shares[0] ?? null;
+
+  useEffect(() => {
+    // The chosen share ended; fall back rather than showing nothing.
+    if (watchingId && !shares.some((share) => share.texorId === watchingId)) setWatchingId(null);
+  }, [shares, watchingId]);
+
+  const presenting = watching
+    // Our own screen is never played back to us — see the note on the card.
+    ? { track: watching.isYou ? null : watching.track, name: watching.name, isYou: watching.isYou }
+    : null;
 
   /**
    * Who gets the big tile, and whether anybody does.
@@ -973,6 +1138,15 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           </div>
         ) : null}
 
+        {notice && !error ? (
+          <div className="meet__toast meet__toast--notice" role="status">
+            {notice}
+            <button type="button" className="meet__toast-close" onClick={() => setNotice(null)} aria-label="Dismiss">
+              <CloseIcon />
+            </button>
+          </div>
+        ) : null}
+
         {status !== 'live' || connection.state === 'reconnecting' ? (
           <div className="meet__connecting" role="status">
             <span className="spinner" aria-hidden="true" />
@@ -1024,6 +1198,23 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
                 />
               )}
 
+              {shares.length > 1 && stage.mode === 'present' ? (
+                <div className="shares" role="group" aria-label="Shared screens">
+                  <span className="shares__label">{shares.length} screens shared</span>
+                  {shares.map((share) => (
+                    <button
+                      key={share.texorId}
+                      type="button"
+                      className={`shares__pick ${watching?.texorId === share.texorId ? 'shares__pick--on' : ''}`}
+                      aria-pressed={watching?.texorId === share.texorId}
+                      onClick={() => setWatchingId(share.texorId)}
+                    >
+                      {share.isYou ? 'Yours' : share.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
               {stage.reason === 'pinned' ? (
                 <button type="button" className="meet__unpin" onClick={() => setPinned(null)}>
                   <PinIcon /> Unpin
@@ -1036,6 +1227,21 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
               {[selfTile, ...peerTiles]}
             </div>
           </div>
+        )}
+
+        {/**
+          * Over the stage in every layout, not inside one of them.
+          *
+          * This lived inside the grid branch and was lost when the stage was
+          * rewritten, so reactions were sent, broadcast and received — and then
+          * drawn nowhere. They also never expired, because the cleanup runs on
+          * the animation that was not happening.
+          */}
+        {settings.showReactions === false ? null : (
+          <ReactionLayer
+            reactions={reactions}
+            onDone={(key) => setReactions((current) => current.filter((entry) => entry.key !== key))}
+          />
         )}
 
         {/* Remote audio is played, never shown. One element per peer so one
@@ -1051,7 +1257,25 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         ))}
       </main>
 
-      {settingsTab ? <SettingsDialog inCall onClose={() => setSettingsTab(null)} /> : null}
+      {leaving ? (
+        <LeaveDialog
+          peers={everyone}
+          onCancel={() => setLeaving(false)}
+          onHandOver={handOverAndLeave}
+          onEnd={endAndLeave}
+          onJustLeave={leaveNow}
+        />
+      ) : null}
+
+      {settingsTab ? (
+        <SettingsDialog
+          inCall
+          onClose={() => {
+            setSettings(loadPreferences());
+            setSettingsTab(null);
+          }}
+        />
+      ) : null}
 
       {panel ? (
         <SidePanel
@@ -1169,6 +1393,55 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         </div>
 
         <div className="meet__bar-right">
+          {/*
+            * Host only, and in the bar rather than buried in settings, because
+            * the moment anyone wants this is the moment somebody says the share
+            * is stuttering — and it applies live, to everybody.
+            */}
+          {isHost && qualityOptions.length > 1 ? (
+            <div className="meet__quality-wrap">
+              {qualityOpen ? (
+                <div className="meet__menu" role="menu">
+                  <p className="meet__menu-head">
+                    Video quality for everyone
+                    <span>Higher costs more bandwidth for every person here.</span>
+                  </p>
+                  {qualityOptions.map((tier) => (
+                    <button
+                      key={tier.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={quality === tier.id}
+                      className={`meet__menu-item ${quality === tier.id ? 'meet__menu-item--on' : ''}`}
+                      onClick={async () => {
+                        setQualityOpen(false);
+                        if (tier.id === quality) return;
+                        // Optimistic, then corrected by the broadcast the
+                        // server sends back to everyone including us.
+                        setQuality(tier.id);
+                        try {
+                          await roomRef.current?.setQuality(tier.id);
+                        } catch (qualityError) {
+                          setQuality(quality);
+                          setError(qualityError.message);
+                        }
+                      }}
+                    >
+                      <strong>{tier.name}</strong>
+                      <span>{tier.blurb}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <PanelButton
+                active={qualityOpen}
+                onClick={() => setQualityOpen((open) => !open)}
+                label="Video quality"
+                icon={<TuneIcon />}
+              />
+            </div>
+          ) : null}
+
           <div className="meet__layout-wrap">
             {layoutOpen ? (
               <div className="meet__menu" role="menu">
@@ -1554,6 +1827,98 @@ function hashOf(value) {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) | 0;
   return hash;
+}
+
+/**
+ * What a host is asked when they leave a meeting other people are still in.
+ *
+ * Three genuinely different intentions, and guessing wrong is costly in both
+ * directions: ending a call everyone is still using, or leaving a room nobody
+ * can admit anyone into. Handing over is offered first because it is usually
+ * what somebody stepping out actually means.
+ */
+function LeaveDialog({ peers, onCancel, onHandOver, onEnd, onJustLeave }) {
+  const [choice, setChoice] = useState(peers.length === 1 ? peers[0].texorId : '');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const onKey = (event) => { if (event.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  const run = (action) => async () => {
+    setBusy(true);
+    await action();
+    setBusy(false);
+  };
+
+  return (
+    <div className="dialog__scrim" role="presentation" onPointerDown={(event) => {
+      if (event.target === event.currentTarget) onCancel();
+    }}>
+      <div className="leave" role="dialog" aria-modal="true" aria-label="Leaving the meeting">
+        <h2>You are hosting this meeting</h2>
+        <p className="leave__lead">
+          {peers.length === 1
+            ? `${peers[0].name} is still here.`
+            : `${peers.length} other people are still here.`} What would you like to do?
+        </p>
+
+        <div className="leave__option">
+          <div className="leave__option-head">
+            <strong>Make someone else the host</strong>
+            <span>They can admit people, mute and end the meeting. You stay a co-host.</span>
+          </div>
+          <div className="leave__pick">
+            <select
+              className="setting__select"
+              aria-label="Who should host"
+              value={choice}
+              onChange={(event) => setChoice(event.target.value)}
+            >
+              <option value="">Choose someone…</option>
+              {peers.map((peer) => (
+                <option key={peer.texorId} value={peer.texorId}>{peer.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="meet__chip meet__chip--primary"
+              disabled={!choice || busy}
+              onClick={run(() => onHandOver(choice))}
+            >
+              Hand over &amp; leave
+            </button>
+          </div>
+        </div>
+
+        <div className="leave__option">
+          <div className="leave__option-head">
+            <strong>Just leave</strong>
+            <span>The meeting carries on without a host until you come back.</span>
+          </div>
+          <button type="button" className="meet__chip" disabled={busy} onClick={run(onJustLeave)}>
+            Leave
+          </button>
+        </div>
+
+        <div className="leave__option leave__option--danger">
+          <div className="leave__option-head">
+            <strong>End the meeting for everyone</strong>
+            <span>Everybody is disconnected. This cannot be undone.</span>
+          </div>
+          <button type="button" className="meet__chip meet__chip--danger" disabled={busy} onClick={run(onEnd)}>
+            End for everyone
+          </button>
+        </div>
+
+        <button type="button" className="leave__cancel" onClick={onCancel} disabled={busy}>
+          Stay in the meeting
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function RemoteAudio({ track }) {

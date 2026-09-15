@@ -76,6 +76,9 @@ export async function assertCanCreateMeeting(user) {
 export function meetingDefaults(policy) {
   return {
     lobby: policy.lobbyDefault,
+    // A new meeting starts at the organisation's ceiling, or Standard if that
+    // ceiling is higher — nobody should be spending the most by default.
+    quality: policy.maxQuality === 'saver' ? 'saver' : 'standard',
     maxDurationMinutes: policy.maxDurationMinutes,
     maxParticipants: policy.maxParticipants,
     settings: {

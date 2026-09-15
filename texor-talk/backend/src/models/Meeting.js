@@ -122,6 +122,13 @@ const meetingSchema = new Schema(
     maxDurationMinutes: { type: Number, default: 0 },
     maxParticipants: { type: Number, default: 0 },
 
+    /**
+     * What the host asked for. Clamped against the org ceiling every time it is
+     * used rather than at write time, so a plan change takes effect on the next
+     * join instead of leaving meetings above a limit that no longer allows them.
+     */
+    quality: { type: String, enum: ['saver', 'standard', 'high'], default: 'standard' },
+
     status: {
       type: String,
       enum: ['scheduled', 'live', 'ended', 'cancelled'],

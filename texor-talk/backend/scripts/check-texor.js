@@ -87,4 +87,19 @@ console.log('\n  Authorization URL this product will use:');
 console.log(`  ${request.url}\n`);
 console.log(`  redirect_uri must be registered in Texor Account:\n  ${env.TEXOR_REDIRECT_URI}\n`);
 
-process.exit(failures ? 1 : 0);
+/**
+ * The other list.
+ *
+ * `redirect_uris` and `post_logout_redirect_uris` are registered separately,
+ * and signing in exercises only the first — so a deployment can look entirely
+ * healthy right up until somebody signs out and gets
+ * "post_logout_redirect_uri not registered". Printing both is the cheapest way
+ * to notice before that happens.
+ */
+console.log('\n  post_logout_redirect_uri this product will send:');
+console.log(`  ${env.appOrigin}`);
+console.log('\n  Both lists must be registered. To check or fix, in texor-accounts/backend:');
+console.log(`  npm run client:redirects ${env.TEXOR_CLIENT_ID}`);
+console.log(`  npm run client:redirects ${env.TEXOR_CLIENT_ID} -- --add ${env.appOrigin} --logout\n`);
+
+process.exit(failures > 0 ? 1 : 0);

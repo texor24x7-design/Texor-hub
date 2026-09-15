@@ -190,6 +190,23 @@ serious product draws the line in the same place: a host can mute, and can ask.
 The action does not exist on the server, so it cannot be reached by a client
 that decides to try.
 
+### Handing the meeting over
+
+A meeting has exactly one host, and that host leaving should not cost the room
+its ability to admit people, mute anyone or end cleanly. `POST
+/api/meetings/:code/host` moves it to somebody **already in the call** — handing
+it to an absent person recreates the problem it exists to solve.
+
+The outgoing host becomes a **co-host**, not a plain participant: they called
+the meeting, and stripping them on the way out would be strange if they come
+back. Both roles change live, so neither has to rejoin to get their controls.
+
+A host clicking Leave is asked what they mean — hand over, just leave, or end it
+for everyone — but **only when it is genuinely a question**: they are the host
+and somebody else is still there. Participants, co-hosts, and a host alone in
+the room simply leave, because a dialog with no real choice in it is just an
+obstacle.
+
 ### Removing someone
 
 Both halves happen on the server:
@@ -311,10 +328,17 @@ to the browser. The console at `/admin` is a view onto it and nothing more.
 | `lobbyDefault`, `screenShareDefault`, `defaultMuteOnEntry`, `defaultVideoOffOnEntry` | Copied into a meeting as it is created |
 | `maxDurationMinutes` | The room ticker ends the call when it is reached |
 | `maxParticipants` | Joining |
+| `maxQuality` | A host changes the meeting's video quality, on the settings page or during the call |
 
 **Limits are snapshotted at creation.** A meeting keeps the caps it was created
 with, so tightening the policy next month does not retroactively shorten a
 meeting already sitting in somebody's calendar.
+
+`maxQuality` is the exception, and deliberately so: it is a **live ceiling**
+rather than a snapshot, because it is the one setting that governs what a
+meeting costs to run while it is running. A meeting stored above a ceiling that
+has since come down is not broken by it — it is clamped to the best tier now
+allowed. See [Quality and what it costs](media.md#quality-and-what-it-costs).
 
 ### Admins
 

@@ -119,6 +119,13 @@ export const GridIcon = (props) => (
   </Icon>
 );
 
+/** Sliders — the meeting's quality budget. */
+export const TuneIcon = (props) => (
+  <Icon {...props}>
+    <path d="M3 17v2h6v-2H3ZM3 5v2h10V5H3Zm10 16v-2h8v-2h-8v-2h-2v6h2ZM7 9v2H3v2h4v2h2V9H7Zm14 4v-2H11v2h10Zm-6-4h2V7h4V5h-4V3h-2v6Z" />
+  </Icon>
+);
+
 export const RemovePersonIcon = (props) => (
   <Icon {...props}>
     <path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-2.67 0-8 1.34-8 4v2h12.26A6 6 0 0 1 9 14Zm8.5-1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9ZM20 18h-5v-1.5h5V18Z" />
@@ -214,5 +221,5 @@ export default {
   HangUpIcon, PeopleIcon, ChatIcon, InfoIcon, CloseIcon, SendIcon, CopyIcon,
   CalendarIcon, CheckIcon, ChevronIcon, FullscreenIcon, FullscreenExitIcon, GridIcon,
   GridDotsIcon, HandIcon, MenuIcon, MoreIcon, PinIcon, SettingsIcon, VideoPlusIcon,
-  ReactionIcon, RemovePersonIcon, ShieldIcon,
+  ReactionIcon, RemovePersonIcon, ShieldIcon, TuneIcon,
 };

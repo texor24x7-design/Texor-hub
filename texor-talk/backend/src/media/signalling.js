@@ -30,6 +30,7 @@ import {
 } from '../services/meeting.service.js';
 import { Peer, closeRoom, createWebRtcTransport, getOrCreateRoom, getRoom } from './room.js';
 import { attachSpeakingDetection } from './speaking.js';
+import { effectiveTier, isTier, limitsFor, maxSendBitrate } from '../services/quality.service.js';
 
 const ROOM_TICK_MS = 5_000;
 
@@ -253,7 +254,19 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
   switch (action) {
     // ── Transports ──
     case 'createTransport': {
-      const { transport, parameters } = await createWebRtcTransport(room);
+      /**
+       * Only the sending direction is capped. Limiting what somebody may
+       * *receive* would punish them for the number of people in the room, which
+       * is not their doing — the cost is controlled at the source instead.
+       */
+      let maxIncomingBitrate;
+      if (data.direction === 'send') {
+        const meeting = await Meeting.findOne({ code }).select('quality').exec();
+        const policy = await getPolicy();
+        maxIncomingBitrate = maxSendBitrate(effectiveTier(meeting?.quality, policy.maxQuality));
+      }
+
+      const { transport, parameters } = await createWebRtcTransport(room, { maxIncomingBitrate });
 
       if (data.direction === 'send') {
         peer.sendTransport?.close();
@@ -319,6 +332,14 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
         },
       });
 
+      /**
+       * The roster carries each peer's producers, so starting a track changes
+       * it. Without this the authoritative copy lags a delta by up to a full
+       * tick — and a `newProducer` that went missing left somebody's screen
+       * share invisible for those seconds rather than being repaired at once.
+       */
+      broadcastRoster(room);
+
       return { id: producer.id };
     }
 
@@ -332,6 +353,7 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
         type: 'producerClosed',
         data: { peerTexorId: user.texorId, producerId: data.producerId },
       });
+      broadcastRoster(room);
       return {};
     }
 
@@ -528,6 +550,40 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
       }
 
       return { muted };
+    }
+
+    /**
+     * The host changes how much bandwidth this meeting is allowed to use.
+     *
+     * Done live rather than "from the next meeting", because the moment a host
+     * wants this is the moment somebody says the screen share is stuttering.
+     * Nothing is renegotiated: the senders already exist and their bitrate is a
+     * parameter on them, so each client rewrites it in place and the picture
+     * changes without a black frame.
+     *
+     * Three things move together and all three are needed — the stored tier so
+     * it survives a rejoin, the transport caps so the SFU stops refusing what
+     * clients now send, and the broadcast so clients know what to send.
+     */
+    case 'setQuality': {
+      requireHost(peer);
+
+      if (!isTier(data.tier)) throw fail('badRequest', 'That is not a quality setting.');
+
+      const policy = await getPolicy();
+      const tier = effectiveTier(data.tier, policy.maxQuality);
+
+      if (tier !== data.tier) {
+        throw fail(
+          'forbidden',
+          `Your organisation's plan allows up to "${policy.maxQuality}" quality.`,
+        );
+      }
+
+      await Meeting.updateOne({ code }, { $set: { quality: tier } }).exec();
+      await applyRoomQuality(room, tier, peer.name);
+
+      return { tier };
     }
 
     case 'removePeer': {
@@ -882,6 +938,53 @@ export function ejectPeer(code, texorId, reason) {
   return true;
 }
 
+/**
+ * Push a tier onto a room that is already running.
+ *
+ * Order matters. The transports' incoming caps go up *before* anyone is told
+ * they may send more — otherwise the first client to react has its extra
+ * bitrate thrown away by an SFU still enforcing the old ceiling, which looks
+ * exactly like the change not working.
+ */
+async function applyRoomQuality(room, tier, changedBy) {
+  if (!room) return false;
+
+  const cap = maxSendBitrate(tier);
+  await Promise.all([...room.peers.values()].map(async (target) => {
+    try {
+      await target.sendTransport?.setMaxIncomingBitrate(cap);
+    } catch {
+      // A transport closing underneath us is not a reason to abandon the rest
+      // of the room; that peer gets the new cap when it rejoins.
+    }
+  }));
+
+  const limits = limitsFor(tier);
+  broadcastAll(room, {
+    type: 'quality',
+    data: {
+      tier,
+      name: limits.name,
+      cameraBitrate: limits.cameraBitrate,
+      screenBitrate: limits.screenBitrate,
+      screenFrameRate: limits.screenFrameRate,
+      changedBy,
+    },
+  });
+
+  return true;
+}
+
+/**
+ * The same change, arriving from the settings page rather than from the bar.
+ *
+ * A host editing the meeting while it is live should not have to rejoin for it
+ * to take effect — the two routes into this have to end up in the same place.
+ */
+export function updateRoomQuality(code, tier, changedBy) {
+  return applyRoomQuality(getRoom(code), tier, changedBy);
+}
+
 export function endRoom(code, reason) {
   const room = getRoom(code);
   if (!room) return false;
@@ -890,4 +993,6 @@ export function endRoom(code, reason) {
   return true;
 }
 
-export default { attachSignalling, updatePeerRole, ejectPeer, endRoom, refreshKnocks };
+export default {
+  attachSignalling, updatePeerRole, ejectPeer, endRoom, refreshKnocks, updateRoomQuality,
+};

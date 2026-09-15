@@ -43,6 +43,8 @@ import {
   roleSchema,
   rsvpSchema,
   setParticipantRole,
+  transferHost,
+  transferSchema,
   updateMeeting,
   updateMeetingSchema,
 } from '../controllers/meeting.controller.js';
@@ -149,6 +151,7 @@ export function createApiRouter() {
   router.post('/meetings/:code/leave', leaveMeeting);
   router.post('/meetings/:code/end', endMeetingNow);
   router.post('/meetings/:code/participants/:texorId/role', validate(roleSchema), setParticipantRole);
+  router.post('/meetings/:code/host', validate(transferSchema), transferHost);
   router.delete('/meetings/:code/participants/:texorId', removeParticipant);
 
   // Invitations.

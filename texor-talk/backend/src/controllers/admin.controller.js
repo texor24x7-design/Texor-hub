@@ -26,6 +26,7 @@ export const policySchema = z.object({
   defaultMuteOnEntry: z.boolean().optional(),
   defaultVideoOffOnEntry: z.boolean().optional(),
   screenShareDefault: z.enum(['everyone', 'hosts']).optional(),
+  maxQuality: z.enum(['saver', 'standard', 'high']).optional(),
   adminTexorIds: z.array(z.string().min(1)).max(200).optional(),
 });
 
@@ -68,6 +69,7 @@ const presentPolicy = (policy) => ({
   defaultMuteOnEntry: policy.defaultMuteOnEntry,
   defaultVideoOffOnEntry: policy.defaultVideoOffOnEntry,
   screenShareDefault: policy.screenShareDefault,
+  maxQuality: policy.maxQuality,
   adminTexorIds: policy.adminTexorIds,
   updatedAt: policy.updatedAt,
   updatedBy: policy.updatedByName,
@@ -88,7 +90,6 @@ export async function readPolicy(_req, res) {
         announcedAddress: env.media.announcedAddress,
         isLocalOnly: env.media.isLocalOnly,
         rtcPortRange: `${env.media.rtcMinPort}-${env.media.rtcMaxPort}`,
-        maxBitrate: env.media.maxBitrate,
         workers: await workerStats(),
       },
     },

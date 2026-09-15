@@ -24,6 +24,8 @@ export const DEFAULT_PREFERENCES = {
   mirror: true,
   leaveEmpty: true,
   showReactions: true,
+  // Whether a shared screen sacrifices sharpness or frames under pressure.
+  screenOptimise: 'motion',
 };
 
 export function loadPreferences() {

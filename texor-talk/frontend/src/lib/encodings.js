@@ -36,19 +36,70 @@
  * person on bad wifi gets the small layer instead of dragging everybody down
  * to it. Smallest first, which is the order mediasoup expects.
  */
-export const CAMERA_ENCODINGS = [
-  { scaleResolutionDownBy: 4, maxBitrate: 150_000 },
-  { scaleResolutionDownBy: 2, maxBitrate: 500_000 },
-  { scaleResolutionDownBy: 1, maxBitrate: 1_500_000 },
-];
+/**
+ * Built from the ceiling the server granted, rather than fixed here.
+ *
+ * The three layers keep their proportions — a tenth, a third, and the whole of
+ * whatever this meeting is allowed — so the shape of the ladder survives the
+ * budget changing. The top layer is the grant; nothing exceeds it.
+ */
+export function cameraEncodings(maxBitrate = 1_500_000) {
+  return [
+    { scaleResolutionDownBy: 4, maxBitrate: Math.round(maxBitrate * 0.1) },
+    { scaleResolutionDownBy: 2, maxBitrate: Math.round(maxBitrate * 0.33) },
+    { scaleResolutionDownBy: 1, maxBitrate },
+  ];
+}
+
+/** The default ladder, for anywhere a grant has not arrived yet. */
+export const CAMERA_ENCODINGS = cameraEncodings();
 
 /**
- * Screen: one layer, at a higher ceiling than a camera gets.
+ * Screen: one layer, at a much higher ceiling than a camera gets.
  *
- * No simulcast. Shrinking a shared screen to fit a slow connection makes the
- * text on it unreadable, which defeats the point of sharing it — better to
- * hold resolution and let the frame rate suffer.
+ * No simulcast, deliberately — everybody watching a shared screen should see
+ * exactly what the person sharing sees, and layers would mean some of them
+ * quietly getting a worse one.
+ *
+ * The ceiling is high because screen content is expensive: a 1080p desktop at
+ * 30fps with text, scrolling and a video playing in a corner will use all of
+ * this. Set it too low and the encoder makes up the difference by dropping
+ * frames, which is what "the quality is fine but it keeps sticking" looks like.
  */
-export const SCREEN_ENCODINGS = [{ maxBitrate: 2_500_000 }];
+export function screenEncodings(maxBitrate = 5_000_000) {
+  return [{ maxBitrate }];
+}
 
-export default { CAMERA_ENCODINGS, SCREEN_ENCODINGS };
+export const SCREEN_ENCODINGS = screenEncodings();
+
+/**
+ * How a screen share should behave when there is not enough bandwidth.
+ *
+ *   motion  keep the frame rate, let resolution drop — demos, video, scrolling
+ *   detail  keep the resolution, let frames drop — code, spreadsheets, slides
+ *
+ * Something has to give, and which one is a judgement about the content rather
+ * than a technical default. `motion` is the better default: a slightly softer
+ * picture still reads, whereas a slideshow of stills is unusable for anything
+ * you are actively doing.
+ *
+ * `contentHint` tells the encoder; `degradationPreference` tells the sender.
+ * Both are needed — setting one and not the other leaves the browser free to
+ * make the opposite choice with the half it was not told about.
+ */
+export const SCREEN_MODES = {
+  motion: {
+    contentHint: 'motion',
+    degradationPreference: 'maintain-framerate',
+    frameRate: { ideal: 30, max: 30 },
+  },
+  detail: {
+    contentHint: 'detail',
+    degradationPreference: 'maintain-resolution',
+    frameRate: { ideal: 15, max: 30 },
+  },
+};
+
+export default {
+  CAMERA_ENCODINGS, SCREEN_ENCODINGS, SCREEN_MODES, cameraEncodings, screenEncodings,
+};

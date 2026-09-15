@@ -95,6 +95,8 @@ export const meetings = {
   leave: (code) => api(`/api/meetings/${code}/leave`, { method: 'POST' }),
   end: (code) => api(`/api/meetings/${code}/end`, { method: 'POST' }),
 
+  transferHost: (code, texorId) => api(`/api/meetings/${code}/host`, { method: 'POST', body: { texorId } }),
+
   setRole: (code, texorId, role) =>
     api(`/api/meetings/${code}/participants/${texorId}/role`, { method: 'POST', body: { role } }),
   removeParticipant: (code, texorId) =>

@@ -164,18 +164,20 @@ function HostSettings({ meeting, onSave }) {
   const [draft, setDraft] = useState({
     access: meeting.access,
     lobby: meeting.lobby,
+    quality: meeting.quality ?? 'standard',
     ...meeting.settings,
   });
   const [busy, setBusy] = useState(false);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify({
-    access: meeting.access, lobby: meeting.lobby, ...meeting.settings,
+    access: meeting.access, lobby: meeting.lobby, quality: meeting.quality ?? 'standard',
+    ...meeting.settings,
   });
 
   async function save() {
     setBusy(true);
-    const { access, lobby, ...settings } = draft;
-    await onSave({ access, lobby, settings });
+    const { access, lobby, quality, ...settings } = draft;
+    await onSave({ access, lobby, quality, settings });
     setBusy(false);
   }
 
@@ -221,6 +223,25 @@ function HostSettings({ meeting, onSave }) {
             <option value="off">Off — everyone walks in</option>
             <option value="external">Guests from outside knock</option>
             <option value="everyone">Everyone knocks</option>
+          </select>
+        </Field>
+
+        <Field
+          label="Video quality"
+          hint={
+            meeting.qualityCeiling && meeting.qualityCeiling !== 'high'
+              ? `Your plan allows up to "${meeting.qualityCeiling}".`
+              : 'Higher quality uses more bandwidth for everyone in the meeting.'
+          }
+          htmlFor="quality"
+        >
+          <select
+            id="quality" className="input" value={draft.quality}
+            onChange={(event) => setDraft((current) => ({ ...current, quality: event.target.value }))}
+          >
+            {(meeting.qualityOptions ?? []).map((tier) => (
+              <option key={tier.id} value={tier.id}>{tier.name} — {tier.blurb}</option>
+            ))}
           </select>
         </Field>
 

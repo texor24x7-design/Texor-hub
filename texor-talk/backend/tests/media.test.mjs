@@ -562,6 +562,59 @@ check('the host is not muted by their own mute-all',
   !muteePeer.seen('producerPaused').some((e) => e.data.peerTexorId === 'tx-host'),
   JSON.stringify(muteePeer.seen('producerPaused').map((e) => e.data.peerTexorId)));
 
+console.log('\n── the host changes the quality of a call already running ──');
+/**
+ * The whole point of doing this over the socket rather than on a settings page
+ * is that it lands on people who are already in the meeting. So the assertions
+ * are about who hears about it and what the server does before telling them.
+ */
+const beforeQuality = muteePeer.seen('quality').length;
+const tierRaise = await hostPeer.request('setQuality', { tier: 'high' });
+check('the host is told which tier took effect', tierRaise.tier === 'high', JSON.stringify(tierRaise));
+await wait(400);
+
+const told = muteePeer.seen('quality');
+check('everyone in the room is told, not just the host',
+  told.length === beforeQuality + 1, String(told.length));
+check('the host is told too — their own senders have to move as well',
+  hostPeer.seen('quality').length >= 1);
+
+const qualityMsg = told[told.length - 1]?.data ?? {};
+check('the announcement carries the tier', qualityMsg.tier === 'high');
+check('and the numbers a client needs to re-aim its senders',
+  qualityMsg.cameraBitrate > 0 && qualityMsg.screenBitrate > 0 && qualityMsg.screenFrameRate > 0,
+  JSON.stringify(qualityMsg));
+check('and a name to show, not just an id', typeof qualityMsg.name === 'string' && qualityMsg.name.length > 0);
+check('and who did it', qualityMsg.changedBy === 'Hana Host');
+
+check('the meeting remembers it, so a rejoin gets the same tier',
+  (await rest(host, `/api/meetings/${code}`)).body.meeting.quality === 'high');
+
+console.log('\n── and it is the host who may do it ──');
+const notHostQuality = await muteePeer.request('setQuality', { tier: 'saver' }).catch((e) => e);
+check('a participant cannot change what the meeting costs',
+  notHostQuality instanceof Error, notHostQuality?.tier ? 'it was allowed' : notHostQuality?.message);
+const nonsense = await hostPeer.request('setQuality', { tier: 'ultra' }).catch((e) => e);
+check('an unknown tier is refused rather than coerced',
+  nonsense instanceof Error, nonsense?.tier ?? nonsense?.message);
+
+await db.collection('policies').updateOne({ key: 'org' }, { $set: { maxQuality: 'standard' } }, { upsert: true });
+const overPlan = await hostPeer.request('setQuality', { tier: 'high' }).catch((e) => e);
+check('the plan ceiling applies here too, not only on the settings page',
+  overPlan instanceof Error, overPlan?.tier ? 'it was allowed' : overPlan?.message);
+check('and the refusal names the plan', /standard/.test(overPlan?.message ?? ''), overPlan?.message);
+// Read from the database, not the API: the API reports the *effective* tier,
+// which is now clamped to the lowered ceiling. What is stored is untouched, so
+// raising the plan again restores the host's choice rather than losing it.
+check('a refused change leaves the stored tier where it was',
+  (await db.collection('meetings').findOne({ code }))?.quality === 'high');
+check('but the meeting reports the clamped tier while the plan is lower',
+  (await rest(host, `/api/meetings/${code}`)).body.meeting.quality === 'standard');
+
+const lowered = await hostPeer.request('setQuality', { tier: 'saver' });
+check('lowering is always allowed', lowered.tier === 'saver');
+await db.collection('policies').updateOne({ key: 'org' }, { $set: { maxQuality: 'high' } });
+
 muteePeer.close();
 
 console.log('\n── a meeting does not end under people who are still in it ──');
@@ -721,6 +774,109 @@ check('somebody without one gets an empty string rather than undefined',
   JSON.stringify((picPeer.welcome.peers ?? []).map((p) => p.picture)));
 
 picPeer.close();
+
+console.log('\n── handing the meeting over ──');
+const alice = await seedUser({ texorId: 'tx-ho', email: 'ho@texor.app', displayName: 'Alice Owner' });
+const bob = await seedUser({ texorId: 'tx-hb', email: 'hb@texor.app', displayName: 'Bob Next' });
+const carol = await seedUser({ texorId: 'tx-hc', email: 'hc@texor.app', displayName: 'Carol Bystander' });
+
+const owned = await rest(alice, '/api/meetings', {
+  method: 'POST', body: { title: 'Handover', lobby: 'off', access: 'texor' },
+});
+const hCode = owned.body.meeting.code;
+for (const u of [alice, bob, carol]) await rest(u, `/api/meetings/${hCode}/join`, { method: 'POST' });
+
+const aPeer = new TestPeer(alice, hCode);
+await aPeer.connect();
+const bPeer = new TestPeer(bob, hCode);
+await bPeer.connect();
+await wait(300);
+
+check('only the host may hand over',
+  (await rest(bob, `/api/meetings/${hCode}/host`, { method: 'POST', body: { texorId: 'tx-hc' } })).status === 403);
+check('handing it to somebody not in the meeting is refused',
+  (await rest(alice, `/api/meetings/${hCode}/host`, { method: 'POST', body: { texorId: 'tx-nobody' } })).status === 400);
+check('handing it to yourself is refused',
+  (await rest(alice, `/api/meetings/${hCode}/host`, { method: 'POST', body: { texorId: 'tx-ho' } })).status === 400);
+
+const handed = await rest(alice, `/api/meetings/${hCode}/host`, { method: 'POST', body: { texorId: 'tx-hb' } });
+check('the host can hand over to someone present', handed.status === 200, JSON.stringify(handed.body).slice(0, 140));
+check('the meeting records the new host', handed.body.meeting.host.texorId === 'tx-hb',
+  JSON.stringify(handed.body.meeting.host));
+check('the outgoing host stays a co-host rather than being demoted to nothing',
+  handed.body.meeting.cohostTexorIds.includes('tx-ho'),
+  JSON.stringify(handed.body.meeting.cohostTexorIds));
+
+await wait(400);
+check('the new host is told live, without rejoining',
+  bPeer.seen('roleChanged').at(-1)?.data.role === 'host',
+  JSON.stringify(bPeer.seen('roleChanged').map((e) => e.data.role)));
+check('and the outgoing host is moved down live too',
+  aPeer.seen('roleChanged').at(-1)?.data.role === 'cohost',
+  JSON.stringify(aPeer.seen('roleChanged').map((e) => e.data.role)));
+
+// The new host must actually be able to host.
+const nowHosts = await rest(bob, `/api/meetings/${hCode}/knocks`);
+check('the new host can see the waiting list', nowHosts.status === 200, `HTTP ${nowHosts.status}`);
+check('the old host can still act as a co-host',
+  (await rest(alice, `/api/meetings/${hCode}/knocks`)).status === 200);
+
+aPeer.close();
+bPeer.close();
+await rest(bob, `/api/meetings/${hCode}/end`, { method: 'POST' }).catch(() => {});
+
+console.log('\n── two people sharing at once ──');
+// Both shares must exist as separate producers, each attributed to its owner,
+// so a client can list them and choose. Previously the second was consumed and
+// then never shown, with no way to reach it.
+const sharerA = await seedUser({ texorId: 'tx-sa', email: 'sa@texor.app', displayName: 'Sam A' });
+const sharerB = await seedUser({ texorId: 'tx-sb', email: 'sb@texor.app', displayName: 'Sid B' });
+const viewer = await seedUser({ texorId: 'tx-sv', email: 'sv@texor.app', displayName: 'Vic Viewer' });
+
+const shareMeeting = await rest(sharerA, '/api/meetings', {
+  method: 'POST', body: { title: 'Two screens', lobby: 'off', access: 'texor' },
+});
+const sCode = shareMeeting.body.meeting.code;
+for (const u of [sharerA, sharerB, viewer]) await rest(u, `/api/meetings/${sCode}/join`, { method: 'POST' });
+
+const peerSA = new TestPeer(sharerA, sCode); await peerSA.connect(); await peerSA.setupMedia();
+const peerSB = new TestPeer(sharerB, sCode); await peerSB.connect(); await peerSB.setupMedia();
+const peerSV = new TestPeer(viewer, sCode); await peerSV.connect(); await peerSV.setupMedia();
+
+const screenA = await peerSA.produce('video', 'screen');
+const screenB = await peerSB.produce('video', 'screen');
+await wait(500);
+
+const announced = peerSV.seen('newProducer').filter((e) => e.data.source === 'screen');
+check('the viewer is told about both', announced.length === 2,
+  JSON.stringify(announced.map((e) => e.data.peerTexorId)));
+check('each is attributed to its own owner',
+  new Set(announced.map((e) => e.data.peerTexorId)).size === 2,
+  JSON.stringify(announced.map((e) => e.data.peerTexorId)));
+
+const infoA = await peerSV.consume(screenA.id);
+const infoB = await peerSV.consume(screenB.id);
+check('both can be consumed at the same time',
+  infoA.source === 'screen' && infoB.source === 'screen');
+check('and stay distinguishable by owner',
+  infoA.peerTexorId === 'tx-sa' && infoB.peerTexorId === 'tx-sb',
+  `${infoA.peerTexorId} / ${infoB.peerTexorId}`);
+
+// The roster is what a late joiner reconciles from, so both must appear there.
+const rosterShares = (peerSV.seen('roster').at(-1)?.data.peers ?? [])
+  .flatMap((p) => (p.producers ?? []).filter((x) => x.source === 'screen').map(() => p.texorId));
+check('both appear in the authoritative roster', rosterShares.length === 2, JSON.stringify(rosterShares));
+
+// One stopping must not disturb the other.
+await peerSA.request('closeProducer', { producerId: screenA.id });
+await wait(400);
+check('closing one is announced',
+  peerSV.seen('producerClosed').some((e) => e.data.producerId === screenA.id));
+check('the other is untouched',
+  !peerSV.seen('producerClosed').some((e) => e.data.producerId === screenB.id));
+
+for (const p of [peerSA, peerSB, peerSV]) p.close();
+await rest(sharerA, `/api/meetings/${sCode}/end`, { method: 'POST' }).catch(() => {});
 
 console.log('\n── a knock reaches the host immediately ──');
 // The room ticker runs every 15s. If the admit prompt only arrived on a tick,

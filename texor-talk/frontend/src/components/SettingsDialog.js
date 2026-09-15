@@ -162,6 +162,25 @@ export function SettingsDialog({ onClose, inCall = false }) {
                   on={prefs.mirror}
                   onChange={(mirror) => update({ mirror })}
                 />
+
+                <div className="setting">
+                  <label className="setting__label" htmlFor="screenOptimise">
+                    When sharing your screen
+                  </label>
+                  <p className="setting__hint">
+                    On a slow connection something has to give. Which matters more depends on what
+                    you are showing.
+                  </p>
+                  <select
+                    id="screenOptimise"
+                    className="setting__select"
+                    value={prefs.screenOptimise ?? 'motion'}
+                    onChange={(event) => update({ screenOptimise: event.target.value })}
+                  >
+                    <option value="motion">Keep it smooth — demos, video, scrolling</option>
+                    <option value="detail">Keep it sharp — code, spreadsheets, slides</option>
+                  </select>
+                </div>
               </>
             ) : null}
 

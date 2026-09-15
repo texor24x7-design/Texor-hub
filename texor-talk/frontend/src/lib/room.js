@@ -21,7 +21,9 @@
  */
 import { Device } from 'mediasoup-client';
 import { API_ORIGIN } from '@/lib/api';
-import { CAMERA_ENCODINGS, SCREEN_ENCODINGS } from '@/lib/encodings';
+import {
+  CAMERA_ENCODINGS, SCREEN_MODES, cameraEncodings, screenEncodings,
+} from '@/lib/encodings';
 
 const WS_ORIGIN = API_ORIGIN.replace(/^http/, 'ws');
 
@@ -52,6 +54,15 @@ export class MeetingRoom {
     this.nextRequestId = 1;
     this.closed = false;
     this.reconnecting = false;
+
+    /**
+     * What this meeting is allowed to send, as granted by the server.
+     *
+     * Set before any track is produced. The server caps the transport too, so
+     * ignoring this would not buy anything — it would just mean encoding above
+     * a ceiling that then drops the excess, which is worse than encoding to it.
+     */
+    this.limits = handlers.limits ?? null;
   }
 
   // ── Signalling ─────────────────────────────────────────────────────────────
@@ -248,7 +259,7 @@ export class MeetingRoom {
               appData: { source },
               codecOptions: { opusStereo: false, opusDtx: true, opusFec: true },
             })
-          : await this.produceVideo(track, CAMERA_ENCODINGS, source);
+          : await this.produceVideo(track, cameraEncodings(this.limits?.cameraBitrate), source);
 
         this.producers.set(source, producer);
         if (paused) await this.setPaused(source, true);
@@ -397,6 +408,18 @@ export class MeetingRoom {
 
       case 'activeSpeaker':
         this.on.activeSpeaker?.(data.texorId);
+        break;
+
+      /**
+       * The host changed how much this meeting is allowed to send.
+       *
+       * Everyone gets this, not just the host, because everyone's camera is
+       * part of what the meeting costs.
+       */
+      case 'quality':
+        this.limits = data;
+        await this.applyLimits();
+        this.on.quality?.(data);
         break;
 
       case 'handChanged':
@@ -549,7 +572,11 @@ export class MeetingRoom {
     });
     const track = stream.getVideoTracks()[0];
 
-    const producer = await this.produceVideo(track, CAMERA_ENCODINGS, 'camera');
+    const producer = await this.produceVideo(
+      track,
+      cameraEncodings(this.limits?.cameraBitrate),
+      'camera',
+    );
 
     this.producers.set('camera', producer);
     return track;
@@ -565,7 +592,96 @@ export class MeetingRoom {
    * browser keeps showing its "sharing your screen" indicator for a share that
    * never started.
    */
-  async startScreen() {
+  /**
+   * Biases an already-created sender toward frames or toward sharpness.
+   *
+   * Applied after `produce`, because mediasoup-client owns the sender until it
+   * returns. Wrapped because `degradationPreference` is not universally
+   * supported — and where it is missing, the `contentHint` set on the track is
+   * still doing half the job.
+   */
+  async applyDegradation(producer, preference) {
+    const sender = producer?.rtpSender;
+    if (!sender?.getParameters) return;
+
+    try {
+      const parameters = sender.getParameters();
+      parameters.degradationPreference = preference;
+      await sender.setParameters(parameters);
+    } catch {
+      // Older browsers reject the field outright; the hint still applies.
+    }
+  }
+
+  /**
+   * Re-aim the live senders at the meeting's current budget.
+   *
+   * Bitrate is a parameter on a sender, not part of the negotiated session, so
+   * this changes with no offer/answer and no black frame — the encoder simply
+   * starts targeting a different number on its next frame. Re-producing would
+   * have worked too and would have shown every viewer a gap.
+   *
+   * The layer *shape* is preserved: whatever ladder was negotiated keeps its
+   * number of layers and its proportions, and only the ceiling moves. Handing
+   * `setParameters` a different number of encodings than the sender was created
+   * with is rejected outright.
+   */
+  async applyLimits() {
+    if (!this.limits) return;
+
+    const ceilings = {
+      camera: this.limits.cameraBitrate,
+      screen: this.limits.screenBitrate,
+    };
+
+    for (const [source, producer] of this.producers) {
+      const ceiling = ceilings[source];
+      const sender = producer?.rtpSender;
+      if (!ceiling || !sender?.getParameters) continue;
+
+      try {
+        const parameters = sender.getParameters();
+        const encodings = parameters.encodings ?? [];
+        if (encodings.length === 0) continue;
+
+        // Rebuild the same ladder against the new top, so the small layers stay
+        // proportionally small instead of all collapsing onto the ceiling.
+        const ladder = source === 'camera'
+          ? cameraEncodings(ceiling)
+          : screenEncodings(ceiling);
+
+        encodings.forEach((encoding, index) => {
+          // Fall back to the top of the ladder if this sender has more layers
+          // than we build, which is the browser's prerogative.
+          encoding.maxBitrate = (ladder[index] ?? ladder[ladder.length - 1]).maxBitrate;
+        });
+
+        await sender.setParameters(parameters);
+      } catch {
+        // A sender that refuses keeps the bitrate it already had, which is a
+        // worse picture or a dearer one — never a broken call.
+      }
+    }
+
+    // Frame rate is a constraint on the track rather than on the sender, and
+    // only a screen share has one worth moving.
+    const screen = this.producers.get('screen');
+    const max = this.limits.screenFrameRate;
+    if (screen?.track && max) {
+      try {
+        await screen.track.applyConstraints({ frameRate: { ideal: max, max } });
+      } catch {
+        // Some capture sources refuse to be re-constrained mid-share.
+      }
+    }
+  }
+
+  /** The host raises or lowers the budget for everyone. */
+  async setQuality(tier) {
+    return this.request('setQuality', { tier });
+  }
+
+  async startScreen(mode = 'motion') {
     // A stale entry here used to make every later attempt a silent no-op.
     if (this.producers.has('screen')) await this.stop('screen');
     if (this.producers.has('screenAudio')) await this.stop('screenAudio');
@@ -573,7 +689,19 @@ export class MeetingRoom {
     let stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 15 } },
+        // 30 unless the sharer has said they care more about sharpness. The old
+        // hard cap of 15 was the single biggest cause of a share that "sticks".
+        video: {
+          frameRate: {
+            // The tier caps the frame rate as well as the bitrate: Data saver
+            // has no use for 30fps it cannot afford to encode.
+            ideal: Math.min(
+              SCREEN_MODES[mode]?.frameRate?.ideal ?? 30,
+              this.limits?.screenFrameRate ?? 30,
+            ),
+            max: this.limits?.screenFrameRate ?? 30,
+          },
+        },
         /**
          * Every processing step off, deliberately.
          *
@@ -612,9 +740,26 @@ export class MeetingRoom {
       throw new Error('Your browser did not return a screen to share.');
     }
 
+    /**
+     * Tell the encoder what kind of picture this is *before* producing.
+     *
+     * Without a hint, browsers treat captured screens as detail content and
+     * hold resolution by dropping frames — which is exactly the complaint this
+     * is fixing, and it happens silently.
+     */
+    try {
+      track.contentHint = SCREEN_MODES[mode]?.contentHint ?? 'motion';
+    } catch {
+      // Read-only in some engines; the sender preference below still applies.
+    }
+
     let producer;
     try {
-      producer = await this.produceVideo(track, SCREEN_ENCODINGS, 'screen');
+      producer = await this.produceVideo(track, screenEncodings(this.limits?.screenBitrate), 'screen');
+      await this.applyDegradation(
+        producer,
+        SCREEN_MODES[mode]?.degradationPreference ?? 'maintain-framerate',
+      );
     } catch (error) {
       // Leaving the capture running would keep the browser claiming the screen
       // is being shared when nothing is being sent anywhere.

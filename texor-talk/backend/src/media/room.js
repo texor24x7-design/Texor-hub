@@ -10,6 +10,7 @@
  * leaves, because an idle Router still holds a worker's resources.
  */
 import env from '../config/env.js';
+import { maxSendBitrate } from '../services/quality.service.js';
 import logger from '../utils/logger.js';
 import { mediaCodecs, nextWorkerInPool } from './worker.js';
 
@@ -205,7 +206,7 @@ export function closeRoom(meetingCode) {
  * an address that browser can actually reach — a container's internal address
  * or 127.0.0.1 produces a call that connects and then stays silent.
  */
-export async function createWebRtcTransport(room) {
+export async function createWebRtcTransport(room, { maxIncomingBitrate } = {}) {
   const transport = await room.router.createWebRtcTransport({
     listenInfos: [
       {
@@ -227,7 +228,17 @@ export async function createWebRtcTransport(room) {
     enableUdp: true,
     enableTcp: true,
     preferUdp: true,
-    initialAvailableOutgoingBitrate: env.media.maxBitrate,
+    /**
+     * The starting bandwidth estimate, and it has to have room for the most
+     * expensive thing this transport will ever carry — a shared screen. Start
+     * it at a camera's ceiling and the estimator spends the first seconds of
+     * every share climbing, which the sender experiences as it stuttering and
+     * then settling.
+     */
+    // What the transport assumes it can push before congestion control has
+    // measured anything. The top tier, because guessing low here makes the
+    // first seconds of every call worse than they need to be while BWE climbs.
+    initialAvailableOutgoingBitrate: maxSendBitrate('high'),
   });
 
   // A transport that closes because DTLS failed is dead; holding the object
@@ -238,6 +249,19 @@ export async function createWebRtcTransport(room) {
       transport.close();
     }
   });
+
+  /**
+   * The ceiling that actually holds.
+   *
+   * Everything else about quality is the client cooperating: it is told a
+   * bitrate and asked to encode within it. This is the part that does not
+   * depend on cooperation — the SFU refuses to accept more than this from the
+   * sender, so a modified client cannot spend the organisation's bandwidth by
+   * simply choosing a bigger number.
+   */
+  if (maxIncomingBitrate) {
+    await transport.setMaxIncomingBitrate(maxIncomingBitrate).catch(() => {});
+  }
 
   return {
     transport,
