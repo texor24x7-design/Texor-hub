@@ -211,6 +211,42 @@ console.log('\n── it works on a phone ──');
     wide.length === 0, wide.join(', '));
 }
 
+console.log('\n── the card a shared link shows ──');
+{
+  /**
+   * A link pasted into a chat showed a title, a description and no picture —
+   * because there was no `og:image`, and because without `metadataBase` any
+   * image path stays relative, which every chat client ignores.
+   */
+  const { existsSync, readFileSync: read } = await import('node:fs');
+  const layout = join(SRC, 'app', 'layout.js');
+  const card = join(SRC, 'app', 'opengraph-image.js');
+
+  check('there is a card image', existsSync(card));
+  check('and the layout declaring it', existsSync(layout));
+
+  if (existsSync(layout)) {
+    const text = read(layout, 'utf8');
+    // The one that made the difference: relative image URLs are dropped.
+    check('an absolute base is set, so the image URL resolves',
+      text.includes('metadataBase'), 'missing — the image will be ignored');
+    check('the card is described for Open Graph', text.includes('openGraph'));
+    check('and for Twitter, as a large image',
+      /summary_large_image/.test(text), 'summary card crops to a thumbnail');
+    check('the base follows the deployment rather than being hard-coded',
+      text.includes('NEXT_PUBLIC_TALK_ORIGIN'), 'hard-coded origin');
+  }
+
+  if (existsSync(card)) {
+    const text = read(card, 'utf8');
+    check('the card is the size every client crops to',
+      /width:\s*1200/.test(text) && /height:\s*630/.test(text), 'wrong dimensions');
+    // Read from the same file the app uses, so the two cannot drift.
+    check('it uses the real brand mark', text.includes('talk-icon.svg'));
+    check('and carries alt text', /export const alt/.test(text));
+  }
+}
+
 console.log('\n── the tab icon ──');
 {
   /**

@@ -146,6 +146,7 @@
 }
 
 .lp__nav { display: flex; gap: 2.25rem; margin: 0 auto; }
+/* Centred by its own auto margins; it pushes nothing else around. */
 .lp__nav-link {
   color: var(--lp-body);
   text-decoration: none;
@@ -155,7 +156,15 @@
 }
 .lp__nav-link:hover { color: var(--lp-ink); }
 
-.lp__actions { display: flex; align-items: center; gap: 1.5rem; flex: none; }
+/*
+ * `margin-left: auto` here, not `margin: 0 auto` on the nav.
+ *
+ * The nav was doing the pushing, and the nav is hidden below 68rem — so on
+ * every phone the brand and the buttons bunched together on the left with the
+ * right half of the header empty. A rule that only works while a neighbour is
+ * visible is not a rule.
+ */
+.lp__actions { display: flex; align-items: center; gap: 1.25rem; flex: none; margin-left: auto; }
 
 .lp__signin {
   border: 0;
@@ -497,11 +506,36 @@
 }
 
 @media (max-width: 40rem) {
-  .lp__header { padding: 1.25rem 1.25rem; gap: 1rem; }
-  .lp__hero { padding: 1rem 1.25rem 7rem; }
-  .lp__wordmark-main { font-size: 1.3rem; }
-  .lp__cta { padding: 0.7rem 1.2rem; font-size: 0.9rem; }
-  .lp__signin { font-size: 0.9rem; }
+  .lp__header {
+    padding: 0.9rem 1rem;
+    padding-top: calc(0.9rem + env(safe-area-inset-top, 0px));
+    gap: 0.6rem;
+  }
+  .lp__hero { padding: 0.75rem 1rem 7rem; }
+
+  /* The mark shrinks so the actions have room to stay legible. */
+  .lp__logo { width: 32px; height: 32px; }
+  .lp__wordmark-top { font-size: 0.625rem; }
+  .lp__wordmark-main { font-size: 1.15rem; }
+
+  .lp__actions { gap: 0.75rem; }
+  .lp__cta { padding: 0.6rem 1rem; font-size: 0.875rem; }
+  .lp__signin { font-size: 0.875rem; }
+  /* The placeholder has to match what replaces it, or the header still jumps. */
+  .lp__pending { width: 8.5rem; height: 2.4rem; }
+  .lp__me { padding: 0.25rem 0.7rem 0.25rem 0.25rem; font-size: 0.875rem; }
+  .lp__me-face { width: 1.8rem; height: 1.8rem; }
+  .lp__me-name { max-width: 5rem; }
+
+  /* Wraps rather than forcing the page wider than the phone. */
+  .lp__family { flex-wrap: wrap; margin-bottom: 1.1rem; }
+  .lp__family span { font-size: 0.75rem; }
+
+  .lp__foot {
+    padding: 1.5rem 1rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
+    gap: 0.75rem;
+  }
+  .lp__foot p { font-size: 0.8125rem; line-height: 1.6; }
   .lp__ctas { margin-bottom: 2.75rem; }
   .lp__btn { flex: 1 1 100%; }
   .lp__join { flex: 1 1 100%; }
@@ -515,4 +549,17 @@
   .lp__badge { left: 0; right: auto; bottom: -1.25rem; padding: 0.75rem 1rem; }
   .lp__badge-line { font-size: 0.95rem; }
   .lp__script { font-size: 1.45rem; right: 0; bottom: -5.5rem; }
+}
+
+/*
+ * Very narrow.
+ *
+ * Both actions lead to the same place, so "Sign in" goes and "Get Started"
+ * stays — one clear way in beats two cramped ones. The mark carries the brand
+ * without the word beside it.
+ */
+@media (max-width: 23rem) {
+  .lp__signin { display: none; }
+  .lp__wordmark { display: none; }
+  .lp__pending { width: 6rem; }
 }
