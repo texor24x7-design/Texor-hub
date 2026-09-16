@@ -113,7 +113,11 @@ const BRAND_COLOR = {
  * with it.
  */
 function FallbackMark({ id, size }) {
-  const color = BRAND_COLOR[id] ?? '#4f46e5';
+  // No provider colour to hand: the tile takes ours, so it still belongs to
+  // the page. Literal rather than `var(--brand-600)` because this fill is read
+  // by Satori when the sign-in screen is drawn into a preview image, and that
+  // renderer resolves no custom properties.
+  const color = BRAND_COLOR[id] ?? '#1c5992';
 
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">

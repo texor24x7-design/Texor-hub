@@ -4,14 +4,45 @@
  * Deliberately small and dependency-free — the sign-in screen is the most
  * load-bearing page in the ecosystem and should not wait on a component library.
  */
-export function Logo({ subtitle = 'Account' }) {
+/**
+ * The product mark.
+ *
+ * The supplied logo file, used as it was drawn — mark and wordmark together,
+ * not a mark beside text set to look like one. It used to be the latter, which
+ * meant the letterforms were whatever the interface font happened to be and
+ * drifted every time that changed.
+ *
+ * `size` is a height; the width follows the artwork's own 713:130.
+ *
+ * There is no dark cut and no `subtitle` prop any more. The wordmark already
+ * says "Texor Accounts", and the file sets it in black — which is right,
+ * because every surface this sits on is light on every machine (see
+ * `color-scheme: light` in `globals.css`).
+ */
+const LOGO_RATIO = 713 / 130;
+
+export function Logo({ size = 30 }) {
   return (
-    <span className="logo">
-      <span className="logo__mark" aria-hidden="true">T</span>
-      <span className="logo__text">
-        Texor{subtitle ? <span>&nbsp;{subtitle}</span> : null}
-      </span>
-    </span>
+    <img
+      className="logo logo__lockup"
+      src="/brand/accounts-logo.svg"
+      alt="Texor Accounts"
+      width={Math.round(size * LOGO_RATIO)}
+      height={size}
+    />
+  );
+}
+
+/** Just the mark, for places with no room for the name. */
+export function LogoIcon({ size = 28 }) {
+  return (
+    <img
+      className="logo__icon"
+      src="/brand/accounts-icon.svg"
+      alt="Texor Accounts"
+      width={size}
+      height={size}
+    />
   );
 }
 

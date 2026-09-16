@@ -3,62 +3,79 @@
  *
  * Every product in the ecosystem imports the same variable names, so a change
  * here (or an override of --brand-*) restyles a whole app without touching
- * component code. Colours are defined once in light and remapped for dark.
+ * component code.
  */
 :root {
-  --brand-500: #4f46e5;
-  --brand-600: #4338ca;
-  --brand-700: #3730a3;
-  --brand-050: #eef2ff;
+  /*
+   * The scale is built from the logo, not chosen beside it.
+   *
+   * `Accounts Logo OG SVG.svg` draws its ring in #226DB4. That is the
+   * product's blue, so it is `--brand-500` here and every other step is the
+   * same hue (209deg) and saturation (68%) at a different lightness — which is
+   * why the interface and the mark look like one thing rather than two blues
+   * that nearly agree.
+   */
+  --brand-050: #eaf3fc;
+  --brand-400: #5ba1e2;
+  --brand-500: #226db4;
+  --brand-600: #1c5992;
+  --brand-700: #164674;
 
-  --bg: #f7f7f9;
+  /*
+   * The mark's red, as a decorative accent only — never as a plain background
+   * for body text, where 4.57:1 is too close to the floor. Anything that has
+   * to be read uses --danger, which is the same red taken down far enough to
+   * be legible at small sizes.
+   */
+  --accent: #e42527;
+
+  /*
+   * Greys with a little of the brand hue mixed in, so white surfaces sit on
+   * the page rather than floating on a neutral that belongs to nothing.
+   */
+  --bg: #f5f7fa;
   --surface: #ffffff;
-  --surface-muted: #f2f3f7;
-  --border: #e3e4ea;
-  --border-strong: #cfd1db;
+  --surface-muted: #eff2f7;
+  --border: #e0e5ec;
+  --border-strong: #c9d1dc;
 
-  --text: #17181d;
-  --text-muted: #61636e;
-  --text-subtle: #8a8c98;
+  --text: #16191f;
+  --text-muted: #5c646f;
+  --text-subtle: #858d99;
 
-  --danger: #c2334d;
-  --danger-bg: #fdf0f2;
+  --danger: #c81e20;
+  --danger-bg: #fdefef;
   --success: #167a5b;
   --success-bg: #eefaf5;
 
   --radius: 10px;
   --radius-lg: 16px;
-  --shadow: 0 1px 2px rgb(20 20 30 / 6%), 0 8px 24px rgb(20 20 30 / 6%);
+  --shadow: 0 1px 2px rgb(20 30 45 / 6%), 0 8px 24px rgb(20 30 45 / 7%);
 
-  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /*
+   * The family typeface, loaded in `app/layout.js` — the same one Texor Talk
+   * is set in. The system stack behind it is what renders for the moment
+   * before the font arrives and on anything that fails to load it, so the
+   * fallback is a real design, not a placeholder.
+   */
+  --font: var(--font-texor), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --brand-500: #7c76f0;
-    --brand-600: #6b64ea;
-    --brand-700: #8e88f5;
-    --brand-050: #211f3a;
-
-    --bg: #0e0f13;
-    --surface: #16171d;
-    --surface-muted: #1d1f27;
-    --border: #262832;
-    --border-strong: #363945;
-
-    --text: #f0f0f4;
-    --text-muted: #a2a5b4;
-    --text-subtle: #767a8a;
-
-    --danger: #ef7189;
-    --danger-bg: #2a1620;
-    --success: #4bbf97;
-    --success-bg: #10241e;
-
-    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 30%);
-  }
-}
+/**
+ * This product is light, on every machine.
+ *
+ * There used to be a `prefers-color-scheme: dark` block here redefining every
+ * token. It went deliberately: the supplied logo sets its wordmark in black
+ * and is drawn for a light surface, and the browser picks a logo cut from the
+ * *operating system* rather than from these tokens — so a machine in dark mode
+ * got a page assembled from two different ideas of what the brand looked like.
+ *
+ * `color-scheme: light` is the other half of saying so. Without it the browser
+ * still paints its own furniture dark — form controls, scrollbars, the canvas
+ * behind the page — against a light document.
+ */
+:root { color-scheme: light; }
 
 * { box-sizing: border-box; }
 
@@ -88,9 +105,18 @@ p { margin: 0; }
   display: grid;
   place-items: center;
   padding: 2rem 1.25rem;
+  /*
+   * A wash of the brand blue behind the card, rather than a flat grey. It is
+   * what makes the sign-in screen read as this product's and not as a default.
+   */
+  background:
+    radial-gradient(56rem 28rem at 50% -8%, color-mix(in srgb, var(--brand-500) 14%, transparent), transparent 70%),
+    var(--bg);
 }
 
 .auth-card {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   max-width: 26rem;
   background: var(--surface);
@@ -100,7 +126,31 @@ p { margin: 0; }
   padding: 2rem;
 }
 
+/*
+ * The mark's two colours as a hairline along the top of the card.
+ *
+ * This is the only place the logo's red appears in the interface. As 3px of
+ * decoration it reads as brand; anywhere it could be mistaken for a state —
+ * text, a border, a filled background — red still means something is wrong.
+ */
+.auth-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  /*
+   * Two blocks, not a blend. Interpolating blue to red in sRGB spends its
+   * whole middle in a purple that is in neither the mark nor the palette.
+   */
+  background: linear-gradient(90deg, var(--brand-500) 0 62%, var(--accent) 62%);
+}
+
 .auth-card__header { margin-bottom: 1.5rem; }
+/*
+ * The lockup sets "ACCOUNTS" in heavy caps and the heading under it is heavy
+ * too, so the stack's own gap leaves the two reading as one block of black.
+ */
+.auth-card__header .logo { margin-bottom: 0.45rem; }
 .auth-card__header p { color: var(--text-muted); margin-top: 0.4rem; }
 .auth-card__footer {
   margin-top: 1.5rem;
@@ -120,18 +170,18 @@ p { margin: 0; }
 .grow { flex: 1; min-width: 0; }
 
 /* ── brand ────────────────────────────────────────────────────────────────── */
-.logo { display: inline-flex; align-items: center; gap: 0.55rem; font-weight: 640; letter-spacing: -0.02em; }
-.logo__mark {
-  width: 28px; height: 28px;
-  display: grid; place-items: center;
-  border-radius: 8px;
-  background: linear-gradient(140deg, var(--brand-500), var(--brand-700));
-  color: #fff;
-  font-size: 0.875rem;
-  font-weight: 700;
-}
-.logo__text { font-size: 1rem; }
-.logo__text span { color: var(--text-muted); font-weight: 500; }
+/*
+ * One image, not a mark beside text: the wordmark is part of the supplied
+ * artwork now, so there is nothing here to keep in step with it.
+ */
+.logo { display: inline-block; line-height: 0; justify-self: start; }
+/*
+ * `max-width` so the lockup can never be the thing that makes the page scroll
+ * sideways. It is a fixed 165px wide at the default size, which is wider than
+ * the drawer's content column on a 320px phone.
+ */
+.logo__lockup { display: block; height: auto; max-width: 100%; }
+.logo__icon { display: block; flex: none; }
 
 /* ── forms ────────────────────────────────────────────────────────────────── */
 .field { display: grid; gap: 0.375rem; }
@@ -327,7 +377,6 @@ p { margin: 0; }
 .pill--in_review { background: #fff4ed; color: #9a3412; }
 .pill--published { background: var(--success-bg); color: var(--success); }
 .pill--first_party { background: var(--brand-050); color: var(--brand-700); }
-@media (prefers-color-scheme: dark) { .pill--in_review { background: #33200f; color: #fdba74; } }
 
 .credential {
   display: flex; align-items: center; gap: 0.6rem;
@@ -373,7 +422,9 @@ p { margin: 0; }
   overflow-y: auto;
 }
 
-.sidebar__brand { padding: 0.25rem 0.5rem 1.25rem; }
+/* 0.75rem, not the links' 0.6rem: the lockup carries a little left bearing of
+   its own, and this is what lines its mark up with the icons below it. */
+.sidebar__brand { padding: 0.25rem 0.75rem 1.25rem; }
 
 .sidebar__section { margin-top: 1.25rem; }
 .sidebar__label {

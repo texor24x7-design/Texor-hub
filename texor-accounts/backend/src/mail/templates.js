@@ -22,22 +22,23 @@ function layout({ heading, body, action, footer }) {
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>${escape(heading)}</title></head>
-<body style="margin:0;padding:0;background:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:32px 12px;">
+<body style="margin:0;padding:0;background:#f5f7fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f7fa;padding:32px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:14px;padding:32px;">
         <tr><td style="padding-bottom:24px;">
-          <span style="display:inline-block;width:28px;height:28px;line-height:28px;text-align:center;border-radius:8px;background:#4338ca;color:#ffffff;font-weight:700;font-size:14px;">T</span>
-          <span style="font-size:16px;font-weight:600;color:#17181d;padding-left:8px;vertical-align:middle;">${escape(env.APP_NAME)}</span>
+          <img src="${escape(env.accountsWebOrigin)}/brand/accounts-icon.png" width="28" height="28" alt=""
+               style="display:inline-block;width:28px;height:28px;vertical-align:middle;border:0;">
+          <span style="font-size:16px;font-weight:600;color:#16191f;padding-left:8px;vertical-align:middle;">${escape(env.APP_NAME)}</span>
         </td></tr>
-        <tr><td style="font-size:20px;font-weight:650;color:#17181d;padding-bottom:12px;">${escape(heading)}</td></tr>
+        <tr><td style="font-size:20px;font-weight:650;color:#16191f;padding-bottom:12px;">${escape(heading)}</td></tr>
         <tr><td style="font-size:15px;line-height:1.6;color:#3f4149;padding-bottom:24px;">${body}</td></tr>
         ${action ? `<tr><td style="padding-bottom:24px;">
-          <a href="${escape(action.url)}" style="display:inline-block;background:#4338ca;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 22px;border-radius:9px;">${escape(action.label)}</a>
+          <a href="${escape(action.url)}" style="display:inline-block;background:#1c5992;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 22px;border-radius:9px;">${escape(action.label)}</a>
         </td></tr>
         <tr><td style="font-size:13px;line-height:1.6;color:#6b6d78;padding-bottom:24px;">
           If the button does not work, copy this link into your browser:<br>
-          <a href="${escape(action.url)}" style="color:#4338ca;word-break:break-all;">${escape(action.url)}</a>
+          <a href="${escape(action.url)}" style="color:#1c5992;word-break:break-all;">${escape(action.url)}</a>
         </td></tr>` : ''}
         <tr><td style="border-top:1px solid #e6e6ec;padding-top:20px;font-size:13px;line-height:1.6;color:#8a8c98;">${footer}</td></tr>
       </table>
