@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { VideoTile } from '@/components/VideoTile';
@@ -8,7 +9,7 @@ import { Alert, Avatar, Button, Field, Loading, Logo } from '@/components/ui';
 import {
   CameraIcon, CameraOffIcon, ChatIcon, CheckIcon, CloseIcon, CopyIcon, HangUpIcon,
   InfoIcon, MicIcon, MicOffIcon, PeopleIcon, PresentIcon, PresentOffIcon,
-  ChevronIcon, GridIcon, HandIcon, PinIcon, ReactionIcon, RemovePersonIcon, SendIcon,
+  ChevronIcon, GridIcon, HandIcon, PinIcon, PipIcon, ReactionIcon, RemovePersonIcon, SendIcon,
   ShieldIcon,
   TuneIcon,
   NotesIcon,
@@ -22,9 +23,13 @@ const REACTIONS = ['👍', '👎', '❤️', '🎉', '👏', '😂', '😮', '�
 import { auth, meetings as meetingApi, signInWithTexor } from '@/lib/api';
 import { MeetingNotes } from '@/components/MeetingNotes';
 import { MeetingTimer } from '@/components/MeetingTimer';
+import { PipStage } from '@/components/PipStage';
+import {
+  choosePipFeed, documentPipSupported, holdMediaSession, onBrowserRequestsPip, openPipWindow,
+} from '@/lib/pip';
 import { ConnectionInfo } from '@/components/ConnectionInfo';
 import { createChimes } from '@/lib/sounds';
-import { chooseStage, promptToInvite } from '@/lib/stage';
+import { captureSurface, chooseStage, mirrorsItself, promptToInvite } from '@/lib/stage';
 import { MeetingRoom } from '@/lib/room';
 import { describeMediaError } from '@/lib/media-errors';
 import { bestTileLayout } from '@/lib/tile-layout';
@@ -1000,6 +1005,122 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     onLeave();
   }
 
+  /* ── the floating window ─────────────────────────────────────────────── */
+
+  /**
+   * Held as state, not a ref, because the portal below has to re-render when
+   * it opens and when it goes.
+   */
+  const [pipWindow, setPipWindow] = useState(null);
+
+  /**
+   * Whether this browser can float a window, decided after mount.
+   *
+   * Not during render: the server has no `window` and would say no, the
+   * browser would say yes, and the two disagreeing is a hydration mismatch —
+   * the control would appear on a second pass with React complaining about it.
+   */
+  const [canFloat, setCanFloat] = useState(false);
+  useEffect(() => { setCanFloat(documentPipSupported()); }, []);
+
+  // The window is held in a ref as well, so closing it does not have to happen
+  // inside a state updater — those are meant to be pure and StrictMode may run
+  // one twice, which would close a window that had already gone.
+  const pipRef = useRef(null);
+
+  const closePip = useCallback(() => {
+    pipRef.current?.close();
+    pipRef.current = null;
+    setPipWindow(null);
+  }, []);
+
+  /**
+   * Stable across renders — the guard reads the ref rather than the state.
+   *
+   * It has to be: the browser's request handler is registered once and holds
+   * whichever version of this it was given. A callback that changed every time
+   * the window opened would leave the browser calling a stale one.
+   */
+  const openPip = useCallback(async () => {
+    // Already floating. Asking twice throws in some builds and is a no-op in
+    // the rest, so neither is worth finding out about.
+    if (pipRef.current) return;
+
+    const target = await openPipWindow({ width: 360, height: 260 });
+    if (!target) return;
+
+    // Closing it from its own title bar has to reach this component, or the
+    // portal keeps rendering into a window that is gone.
+    target.addEventListener('pagehide', () => { pipRef.current = null; setPipWindow(null); }, { once: true });
+    pipRef.current = target;
+    setPipWindow(target);
+  }, []);
+
+  /**
+   * Opening without anybody clicking anything.
+   *
+   * Two halves, and both are needed:
+   *
+   *   · the `enterpictureinpicture` action, which is how the browser asks
+   *   · a live media session, which is what it grants the privilege to
+   *
+   * The first on its own was not enough — a page that merely registers the
+   * action is declined. Registered only while the call is live: a handler
+   * outliving its meeting would open a window onto nothing.
+   *
+   * Whether it actually fires is the browser's decision, not ours. Chrome
+   * grants this to a page that is capturing camera or microphone, which a call
+   * is; a browser with a different policy simply never calls, and the button in
+   * the bar still works.
+   */
+  useEffect(() => {
+    if (!documentPipSupported()) return undefined;
+
+    const release = holdMediaSession({ title: meeting?.title || 'Meeting', artist: 'Texor Talk' });
+    const unregister = onBrowserRequestsPip(() => { openPip(); });
+
+    return () => { unregister(); release(); };
+  }, [openPip, meeting?.title]);
+
+  /**
+   * Switching away, as a second try.
+   *
+   * The browser's own trigger covers switching applications, which never
+   * changes this document's visibility and so cannot be noticed from here.
+   * This covers the other half — moving to a different tab — for the cases
+   * where the browser did not act on its own. It is a best effort: without the
+   * privilege the request is refused, `openPipWindow` returns null, and
+   * nothing happens.
+   */
+  useEffect(() => {
+    const onHidden = () => { if (document.visibilityState === 'hidden') openPip(); };
+    document.addEventListener('visibilitychange', onHidden);
+    return () => document.removeEventListener('visibilitychange', onHidden);
+  }, [openPip]);
+
+  /**
+   * Coming back to the tab puts it away again.
+   *
+   * Two windows showing the same call is one too many, and the floating one is
+   * the copy. Leaving it open is the behaviour people complain about in every
+   * product that gets this wrong.
+   */
+  useEffect(() => {
+    if (!pipWindow) return undefined;
+
+    const onVisible = () => { if (document.visibilityState === 'visible') closePip(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [pipWindow, closePip]);
+
+  /**
+   * Leaving, or being thrown out, must not leave a window behind.
+   *
+   * Empty deps and the ref, so this runs once on the way out rather than on
+   * every change of the window it is holding.
+   */
+  useEffect(() => () => { pipRef.current?.close(); }, []);
+
   const copyInvite = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(meeting?.joinUrl ?? '');
@@ -1082,9 +1203,23 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     if (watchingId && !shares.some((share) => share.texorId === watchingId)) setWatchingId(null);
   }, [shares, watchingId]);
 
+  /**
+   * Whether our own share is one we can safely watch.
+   *
+   * Only a whole screen recurses. A tab or a single window is a different
+   * surface from the one the meeting is drawn on, so it can be played back
+   * like anybody else's — and it should be, because sharing the wrong tab is
+   * easy and used to be invisible to the one person who could fix it.
+   */
+  const selfShareMirrors = watching?.isYou ? mirrorsItself(watching.track) : false;
+
   const presenting = watching
-    // Our own screen is never played back to us — see the note on the card.
-    ? { track: watching.isYou ? null : watching.track, name: watching.name, isYou: watching.isYou }
+    ? {
+        track: selfShareMirrors ? null : watching.track,
+        name: watching.name,
+        isYou: watching.isYou,
+        surface: watching.isYou ? captureSurface(watching.track) : undefined,
+      }
     : null;
 
   /**
@@ -1156,6 +1291,47 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   // Being alone is not quite enough on its own: there is nobody to invite into
   // a call that has not connected yet.
   const offerInvite = promptToInvite({ peerCount: everyone.length, status });
+
+  /**
+   * What the floating window is looking at.
+   *
+   * A shared screen wins — including our own, when it is a tab or a window,
+   * because that is exactly when somebody wants to keep half an eye on what
+   * they are presenting while they work in another app.
+   */
+  const pipFeed = useMemo(() => {
+    /**
+     * Your own share is shown here, whatever it is of.
+     *
+     * The stage withholds a whole-screen share from the person sharing it,
+     * because the stage is *on* that screen and would draw itself inside
+     * itself. This window is the opposite case: it exists to be watched while
+     * you are working somewhere else, and what somebody presenting wants to
+     * keep an eye on is the thing they are presenting. Showing them a
+     * colleague's camera instead is the one answer that helps nobody.
+     *
+     * A whole-screen share does put a small copy of this window inside itself,
+     * bounded by how small it can get. That is the cost of any floating window
+     * during a full-screen capture, and it is a fair trade for being able to
+     * see that you are sharing the right thing.
+     */
+    const chosen = choosePipFeed({
+      shares,
+      peers: everyone,
+      speakingTexorId: speaking,
+      self: { texorId: user.texorId, name: user.displayName, track: localCamera },
+    });
+
+    const mine = chosen.kind === 'screen' && chosen.texorId === user.texorId;
+
+    return {
+      ...chosen,
+      // Your own name over your own share reads as a camera tile. What matters
+      // is that this is the thing everybody else is looking at.
+      name: mine ? 'You are presenting' : chosen.name,
+      muted: chosen.kind === 'self' ? !micOn : everyone.find((p) => p.texorId === chosen.texorId)?.muted,
+    };
+  }, [shares, everyone, speaking, user.texorId, user.displayName, localCamera, micOn]);
 
   /**
    * Tile size is computed, not guessed.
@@ -1269,12 +1445,17 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         ) : (
           <div className="meet__present">
             <div className="meet__present-main">
-              {stage.mode === 'present' && stage.feature.isYou ? (
+              {/*
+                * The card stands in only for a whole-screen share, which is
+                * the one that would recurse. A tab or a window is shown back
+                * like anything else.
+                */}
+              {stage.mode === 'present' && stage.feature.isYou && !stage.feature.track ? (
                 <div className="meet__presenting-self">
                   <PresentIcon />
-                  <p>You are presenting to everyone</p>
+                  <p>You are presenting your whole screen</p>
                   <span className="meet__muted">
-                    Your own screen is not shown back to you, so it cannot mirror itself.
+                    It is not shown back to you, so it cannot mirror itself.
                   </span>
                   <button type="button" className="meet__chip meet__chip--primary" onClick={toggleScreen}>
                     Stop presenting
@@ -1342,6 +1523,28 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         )}
 
         {/*
+        * The call, in a window of its own.
+        *
+        * A portal rather than a second React root: the mute button in the
+        * floating window and the one in the tab are the same state, so they
+        * cannot disagree — which is the bug every "mini player" built as a
+        * separate component eventually has.
+        */}
+      {pipWindow
+        ? createPortal(
+            <PipStage
+              feed={pipFeed}
+              micOn={micOn}
+              cameraOn={cameraOn}
+              onToggleMic={toggleMic}
+              onToggleCamera={toggleCamera}
+              onLeave={leave}
+            />,
+            pipWindow.document.body,
+          )
+        : null}
+
+      {/*
         * Alone in the room.
         *
         * This used to be the stage: the link filled it and the video did not
@@ -1532,6 +1735,24 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
               onClick={toggleScreen}
               label={screenOn ? 'Stop presenting' : 'Present now'}
               icon={screenOn ? <PresentOffIcon /> : <PresentIcon />}
+            />
+          ) : null}
+
+          {/*
+            * The floating window, by hand.
+            *
+            * The browser opens it on its own when somebody switches away, but
+            * only where it grants that — and only when it decides to. A button
+            * is the difference between a feature that exists and one people
+            * discover by accident.
+            */}
+          {canFloat ? (
+            <ControlButton
+              on
+              active={Boolean(pipWindow)}
+              onClick={() => (pipWindow ? closePip() : openPip())}
+              label={pipWindow ? 'Close the floating window' : 'Keep this meeting on top'}
+              icon={<PipIcon />}
             />
           ) : null}
 

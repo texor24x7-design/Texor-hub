@@ -86,4 +86,41 @@ export function promptToInvite({ peerCount = 0, status = 'connecting' } = {}) {
   return peerCount === 0 && status === 'live';
 }
 
-export default { chooseStage, promptToInvite };
+/**
+ * What a screen capture is actually of.
+ *
+ * `getDisplayMedia` reports this on the track, and the three answers matter
+ * differently to the person sharing:
+ *
+ *   monitor — a whole display
+ *   window  — one application window
+ *   browser — one browser tab
+ *
+ * Not every browser sets it. Safari has historically reported nothing, so an
+ * unknown surface is treated as a monitor — the conservative answer, because
+ * the cost of being wrong that way is a missing preview, and the cost of being
+ * wrong the other way is the recursion below.
+ */
+export function captureSurface(track) {
+  const surface = track?.getSettings?.().displaySurface;
+  return surface === 'browser' || surface === 'window' || surface === 'monitor'
+    ? surface
+    : 'monitor';
+}
+
+/**
+ * Whether showing a share back to the person sharing it would recurse.
+ *
+ * Only a whole screen can. The screen contains the window showing the screen,
+ * which contains the window showing the screen — the hall of mirrors, and the
+ * reason presenters are shown a card instead of their own feed.
+ *
+ * A tab or a single window cannot do that: what is captured is a different
+ * surface from the one the meeting is drawn on, so the presenter can watch
+ * their own share exactly as everybody else sees it. They used to be denied
+ * that for all three, which meant somebody sharing a tab had no way to tell
+ * whether they were sharing the right one.
+ */
+export const mirrorsItself = (track) => captureSurface(track) === 'monitor';
+
+export default { chooseStage, promptToInvite, captureSurface, mirrorsItself };
