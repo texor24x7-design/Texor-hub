@@ -3277,3 +3277,60 @@ p { margin: 0; }
   padding: 0.3rem 0.9rem;
   margin: 0.5rem 0 0.75rem;
 }
+
+/* ── downloading a note ───────────────────────────────────────────────────── */
+
+.dl { position: relative; display: inline-flex; align-items: center; gap: 0.5rem; }
+
+.dl__caret {
+  width: 0; height: 0;
+  margin-left: 0.4rem;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.7;
+}
+
+.dl__menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 40;
+  min-width: 12rem;
+  padding: 0.3rem;
+  display: grid;
+  gap: 0.1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.dl__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9375rem;
+  text-align: left;
+  cursor: pointer;
+}
+.dl__item:hover, .dl__item:focus-visible { background: var(--surface-muted); outline: none; }
+
+/* The extension, so the row says what lands in the downloads folder. */
+.dl__hint { color: var(--text-subtle); font-family: var(--mono); font-size: 0.78rem; }
+
+.dl__failed { color: var(--danger); font-size: 0.8125rem; }
+
+@media (max-width: 40rem) {
+  /* Anchored to the left edge instead, or a menu on a narrow screen opens off
+     the side of it. */
+  .dl__menu { right: auto; left: 0; }
+}

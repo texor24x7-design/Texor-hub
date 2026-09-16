@@ -20,7 +20,10 @@
  */
 
 /** Inline marks. `mention` is the one that carries an identity with it. */
-export const MARK_TYPES = ['bold', 'italic', 'code', 'highlight', 'mention'];
+export const MARK_TYPES = [
+  'bold', 'italic', 'underline', 'strike', 'code',
+  'highlight', 'color', 'link', 'mention',
+];
 
 /**
  * Highlighter colours, named rather than free-form.
@@ -31,7 +34,42 @@ export const MARK_TYPES = ['bold', 'italic', 'code', 'highlight', 'mention'];
  */
 export const HIGHLIGHT_COLORS = ['yellow', 'green', 'blue', 'pink', 'purple'];
 
-export const BLOCK_TYPES = ['paragraph', 'heading', 'bullet', 'todo', 'quote'];
+/** Text colour, named for the same reason the highlighter is. */
+export const TEXT_COLORS = ['red', 'orange', 'green', 'blue', 'purple', 'grey'];
+
+export const BLOCK_TYPES = ['paragraph', 'heading', 'bullet', 'numbered', 'todo', 'quote'];
+
+export const HEADING_LEVELS = [1, 2, 3];
+export const ALIGNMENTS = ['left', 'center', 'right', 'justify'];
+export const MAX_INDENT = 5;
+
+/**
+ * Schemes a link may use.
+ *
+ * An allowlist, not a blocklist. `javascript:` is the one everybody remembers,
+ * but `data:` carries a whole document and `vbscript:` still exists — and a
+ * note is written by one person and read by another, which is exactly the
+ * shape of thing that turns a stored link into a stored attack. Anything not
+ * named here is not a link and the mark is dropped, leaving the words behind.
+ */
+const LINK_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+
+export function safeHref(raw) {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (!text || text.length > 2000) return '';
+
+  // A bare domain is what people paste and type; assume the web's own scheme
+  // rather than rejecting it, but never assume one for anything with a colon
+  // already in it, or `javascript:alert(1)` becomes `https://javascript:...`.
+  const candidate = /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`;
+
+  try {
+    const url = new URL(candidate);
+    return LINK_SCHEMES.has(url.protocol.toLowerCase()) ? url.href : '';
+  } catch {
+    return '';
+  }
+}
 
 /** Caps. Generous for a real note, small enough that one cannot be a payload. */
 export const LIMITS = {
@@ -76,6 +114,20 @@ function sanitiseMark(raw, textLength) {
     mark.color = HIGHLIGHT_COLORS.includes(raw.color) ? raw.color : 'yellow';
   }
 
+  if (raw.type === 'color') {
+    // An unknown colour falls back rather than dropping the mark: the words
+    // were meant to stand out, and the safest way to honour that is a colour
+    // the stylesheet knows.
+    mark.color = TEXT_COLORS.includes(raw.color) ? raw.color : 'blue';
+  }
+
+  if (raw.type === 'link') {
+    const href = safeHref(raw.href);
+    // No destination means no link. The text stays; only the mark goes.
+    if (!href) return null;
+    mark.href = href;
+  }
+
   if (raw.type === 'mention') {
     // A mention with nobody behind it is just styled text, and storing it as a
     // mention would put a phantom into "notes that mention me".
@@ -104,6 +156,17 @@ function sanitiseBlock(raw) {
     .sort((left, right) => left.start - right.start || left.end - right.end);
 
   const block = { type, text, marks };
+
+  // Paragraph properties. Each is stored only where it means something, and
+  // only when it differs from the default, so an untouched note carries none.
+  if (type === 'heading') {
+    block.level = HEADING_LEVELS.includes(Number(raw.level)) ? Number(raw.level) : 2;
+  }
+
+  if (ALIGNMENTS.includes(raw.align) && raw.align !== 'left') block.align = raw.align;
+
+  const indent = clampInt(raw.indent, 0, MAX_INDENT);
+  if (indent) block.indent = indent;
 
   if (type === 'todo') block.done = Boolean(raw.done);
 
@@ -229,6 +292,7 @@ export default {
   BLOCK_TYPES,
   LIMITS,
   sanitiseBlocks,
+  safeHref,
   mentionsOf,
   plainText,
   preview,

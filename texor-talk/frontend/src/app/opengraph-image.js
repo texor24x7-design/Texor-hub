@@ -74,7 +74,7 @@ export default function Image() {
             marginTop: 54,
           }}
         >
-          Meet. Collaborate. Move Forward.
+          Talk. Collaborate. Move Forward.
         </div>
 
         <div style={{ display: 'flex', fontSize: 30, color: '#5b6675', marginTop: 18 }}>

@@ -114,7 +114,7 @@ export function Landing() {
           </a>
 
           <h1 className="lp__title">
-            Meet.
+            Talk.
             <br />
             Collaborate.
             <br />

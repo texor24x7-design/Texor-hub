@@ -19,7 +19,7 @@ const caveat = Caveat({
 });
 
 export const metadata = {
-  title: 'Texor Talk — Meet. Collaborate. Move Forward.',
+  title: 'Texor Talk — Talk. Collaborate. Move Forward.',
   description:
     'Secure, high-quality video meetings for modern teams. Built for productivity, designed for people.',
 

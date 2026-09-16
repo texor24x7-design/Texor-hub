@@ -27,26 +27,70 @@ export const HIGHLIGHTS = [
   { id: 'purple', label: 'Purple' },
 ];
 
-export const BLOCK_TYPES = ['paragraph', 'heading', 'bullet', 'todo', 'quote'];
+/** Text colour, as distinct from the highlighter behind it. */
+export const TEXT_COLORS = [
+  { id: 'red', label: 'Red' },
+  { id: 'orange', label: 'Orange' },
+  { id: 'green', label: 'Green' },
+  { id: 'blue', label: 'Blue' },
+  { id: 'purple', label: 'Purple' },
+  { id: 'grey', label: 'Grey' },
+];
+
+/** Every inline mark. The backend's schema has to allow exactly this set. */
+export const MARK_TYPES = [
+  'bold', 'italic', 'underline', 'strike', 'code',
+  'highlight', 'color', 'link', 'mention',
+];
+
+export const BLOCK_TYPES = ['paragraph', 'heading', 'bullet', 'numbered', 'todo', 'quote'];
+
+/** Heading sizes, as a word processor offers them. */
+export const HEADING_LEVELS = [1, 2, 3];
+
+export const ALIGNMENTS = ['left', 'center', 'right', 'justify'];
+
+/**
+ * How far a block can be pushed in.
+ *
+ * Bounded because indentation is stored as a number and rendered as padding:
+ * without a ceiling a held-down Tab walks the text off the side of the page,
+ * and the document has no way back from a value nothing renders.
+ */
+export const MAX_INDENT = 5;
 
 /**
  * Marks a character may carry only one of.
  *
  * Two highlight colours over the same word has no meaning anybody could see,
- * and two mentions over one character could not resolve to a person. Applying
- * one of these clears any other of the same type underneath it first.
+ * and two mentions over one character could not resolve to a person. The same
+ * goes for two text colours, and for a character that is inside two links —
+ * a click could only follow one of them. Applying one of these clears any
+ * other of the same type underneath it first.
  */
-const EXCLUSIVE = new Set(['highlight', 'mention']);
+const EXCLUSIVE = new Set(['highlight', 'color', 'link', 'mention']);
+
+/**
+ * The field that distinguishes two marks of the same type.
+ *
+ * Yellow highlight and green highlight are different marks; bold and bold are
+ * not. This used to be hard-coded to `color`, which worked while the
+ * highlighter was the only mark with a variant — a link would have compared
+ * equal to every other link and merged two different destinations into one.
+ */
+const VARIANT = { highlight: 'color', color: 'color', link: 'href' };
+
+export const variantOf = (mark) => (VARIANT[mark.type] ? mark[VARIANT[mark.type]] ?? '' : '');
 
 export const emptyBlock = (type = 'paragraph') => ({ type, text: '', marks: [] });
 export const emptyDoc = () => [emptyBlock()];
 
 /** Identity for coalescing. Two marks with the same key are the same styling. */
 const SEP = String.fromCharCode(31);
-const keyOf = (mark) => [mark.type, mark.color ?? '', mark.texorId ?? ''].join(SEP);
+const keyOf = (mark) => [mark.type, variantOf(mark), mark.texorId ?? ''].join(SEP);
 
-const sameKind = (mark, type, color) =>
-  mark.type === type && (type !== 'highlight' || mark.color === color);
+const sameKind = (mark, type, variant) =>
+  mark.type === type && (!VARIANT[type] || variantOf(mark) === (variant ?? ''));
 
 /** The marks covering one character. */
 export function marksAt(block, index) {
@@ -133,8 +177,10 @@ export function toggleMark(block, from, to, mark) {
   const range = snapToMentions(block, from, to);
   if (range.to <= range.from) return block;
 
-  return rangeHasMark(block, range.from, range.to, mark.type, mark.color)
-    ? removeMark(block, range.from, range.to, mark.type, mark.color)
+  const variant = variantOf(mark);
+
+  return rangeHasMark(block, range.from, range.to, mark.type, variant)
+    ? removeMark(block, range.from, range.to, mark.type, variant)
     : addMark(block, range.from, range.to, mark);
 }
 
@@ -284,6 +330,98 @@ export const hasType = (segment, type) => segment.marks.some((mark) => mark.type
 export const markOfType = (segment, type) => segment.marks.find((mark) => mark.type === type);
 
 /** The note as plain prose — previews, exports, and anything that counts words. */
+/**
+ * Block shape: type, and the three properties a word processor puts on a
+ * paragraph rather than on the characters inside it.
+ *
+ * They live on the block because that is what they describe. Alignment over
+ * half a paragraph is not a thing anybody can see, and neither is half an
+ * indent — storing them as ranges would allow documents that cannot be drawn.
+ */
+const clampLevel = (level) => (HEADING_LEVELS.includes(Number(level)) ? Number(level) : 2);
+
+/**
+ * `level` only means anything on a heading, so it is dropped elsewhere rather
+ * than carried invisibly: a paragraph that remembers it used to be an H1 turns
+ * back into one the next time somebody presses the heading button.
+ */
+export function setBlockType(block, type, { level } = {}) {
+  if (!BLOCK_TYPES.includes(type)) return block;
+
+  const next = { ...block, type };
+
+  if (type === 'heading') next.level = clampLevel(level ?? block.level);
+  else delete next.level;
+
+  // Only a todo has a tick; only a quote has a speaker.
+  if (type !== 'todo') delete next.done;
+  if (type !== 'quote') { delete next.speakerTexorId; delete next.speakerName; delete next.at; }
+
+  return next;
+}
+
+export function setAlign(block, align) {
+  if (!ALIGNMENTS.includes(align)) return block;
+
+  const next = { ...block, align };
+  // Left is the default, so it is stored as absence rather than as a value —
+  // otherwise every paragraph ever typed carries a property that means nothing.
+  if (align === 'left') delete next.align;
+
+  return next;
+}
+
+export const alignOf = (block) => (ALIGNMENTS.includes(block?.align) ? block.align : 'left');
+
+export const indentOf = (block) => {
+  const level = Number(block?.indent);
+  if (!Number.isFinite(level)) return 0;
+  return Math.min(MAX_INDENT, Math.max(0, Math.floor(level)));
+};
+
+/** Push in or pull out by one step, never past either end. */
+export function indentBy(block, delta) {
+  const level = Math.min(MAX_INDENT, Math.max(0, indentOf(block) + delta));
+
+  const next = { ...block, indent: level };
+  if (level === 0) delete next.indent;
+
+  return next;
+}
+
+/**
+ * The number each item in an ordered list shows.
+ *
+ * Counting is derived, never stored. A stored number is wrong the moment
+ * somebody inserts an item above it, and then the document disagrees with
+ * itself — this way the list cannot be out of order, only rendered.
+ *
+ * A run restarts when the list is broken by another kind of block, and each
+ * indent level counts on its own, so a nested list starts at 1 and the outer
+ * list carries on where it left off underneath.
+ */
+export function listNumbers(blocks) {
+  const numbers = new Map();
+  const counters = [];
+
+  (blocks ?? []).forEach((block, index) => {
+    if (block?.type !== 'numbered') {
+      counters.length = 0;
+      return;
+    }
+
+    const depth = indentOf(block);
+    // Coming back out of a nested level abandons its count, so going in again
+    // starts from 1 rather than resuming a list the reader has stopped seeing.
+    counters.length = depth + 1;
+    counters[depth] = (counters[depth] ?? 0) + 1;
+
+    numbers.set(index, counters[depth]);
+  });
+
+  return numbers;
+}
+
 export const plainText = (blocks) => (blocks ?? []).map((block) => block.text ?? '').join('\n');
 
 export function noteStats(blocks) {

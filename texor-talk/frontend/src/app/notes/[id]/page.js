@@ -6,6 +6,7 @@ import { AppShell } from '@/components/AppShell';
 import { Alert, Button, Loading, formatTimestamp } from '@/components/ui';
 import { LockIcon, ShareIcon, TrashIcon } from '@/components/icons';
 import { NoteBody, NoteEditor } from '@/components/NoteEditor';
+import { NoteDownload } from '@/components/NoteDownload';
 import { notes as notesApi } from '@/lib/api';
 import { saveLabel, useAutosave } from '@/lib/use-autosave';
 
@@ -30,6 +31,19 @@ function NoteScreen({ id }) {
 
   const save = useCallback((draft) => notesApi.save(id, draft), [id]);
   const { state, error: saveError, queue, flushNow } = useAutosave(save);
+
+  /**
+   * The document as it is on screen, which is not the same as the one that was
+   * loaded: autosave sends edits to the server but nothing sends them back, so
+   * `note` stops being current the moment somebody types. A download built
+   * from it would quietly be a few seconds behind the words on screen.
+   */
+  const [draft, setDraft] = useState(null);
+
+  const edit = useCallback((next) => {
+    setDraft(next);
+    queue(next);
+  }, [queue]);
 
   if (error) {
     return (
@@ -64,6 +78,10 @@ function NoteScreen({ id }) {
                 {saveLabel(state)}
               </span>
             ) : null}
+
+            {/* Offered on a note somebody shared with you as well as your own:
+                being able to read it and not keep it would be an odd rule. */}
+            <NoteDownload note={{ ...note, ...(draft ?? {}) }} />
 
             {note.canEdit ? (
               <>
@@ -114,7 +132,7 @@ function NoteScreen({ id }) {
             key={note.id}
             note={note}
             people={note.people ?? []}
-            onChange={queue}
+            onChange={edit}
             autoFocus={!note.title}
           />
         ) : (
