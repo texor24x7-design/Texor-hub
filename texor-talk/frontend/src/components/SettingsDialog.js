@@ -19,7 +19,7 @@ const TABS = [
  * anyone, and having to join a meeting to find the setting is the reason they
  * end up doing it in front of everyone.
  */
-export function SettingsDialog({ onClose, inCall = false }) {
+export function SettingsDialog({ onClose, inCall = false, onDevice }) {
   const [tab, setTab] = useState('audio');
   const [prefs, setPrefs] = useState(() => loadPreferences());
   const [devices, setDevices] = useState({ mics: [], cameras: [], speakers: [] });
@@ -117,7 +117,7 @@ export function SettingsDialog({ onClose, inCall = false }) {
                   value={prefs.micId}
                   options={devices.mics}
                   empty="No microphone found"
-                  onChange={(micId) => update({ micId })}
+                  onChange={(micId) => { update({ micId }); onDevice?.('mic', micId); }}
                 />
                 <Picker
                   label="Speakers"
@@ -148,7 +148,7 @@ export function SettingsDialog({ onClose, inCall = false }) {
                   value={prefs.cameraId}
                   options={devices.cameras}
                   empty="No camera found"
-                  onChange={(cameraId) => update({ cameraId })}
+                  onChange={(cameraId) => { update({ cameraId }); onDevice?.('camera', cameraId); }}
                 />
                 <Toggle
                   label="Join with camera off"

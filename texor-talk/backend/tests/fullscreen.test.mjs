@@ -7,7 +7,7 @@
  * is worth pinning down is which call is reached in which case.
  */
 const FE = new URL('../../frontend/', import.meta.url).pathname.replace(/\/$/, '');
-const { enterFullscreen, exitFullscreen, fullscreenSupported } =
+const { enterFullscreen, exitFullscreen, fullscreenSupported, fullscreenAction } =
   await import(`${FE}/src/lib/fullscreen.js`);
 
 let pass = 0, fail = 0;
@@ -76,6 +76,55 @@ console.log('\n── exiting ──');
   globalThis.document = {};
   check('and does not throw when neither exists',
     await exitFullscreen().then(() => true).catch(() => false));
+}
+
+console.log('\n── what a toggle should do ──');
+{
+  /**
+   * The bug this is here for.
+   *
+   * `toggle` used to exit first and *then* ask whether the thing it had just
+   * exited was the one being toggled. By that point nothing was fullscreen,
+   * the comparison was against null, and it fell through and re-entered — so
+   * the button to leave fullscreen left and came straight back. From the
+   * outside that is indistinguishable from the button not working, and it was
+   * invisible here because the decision lived inside a React hook that cannot
+   * run without a browser.
+   *
+   * It is a pure function now, and this is the case that was wrong.
+   */
+  const tile = { id: 'tile' };
+  const other = { id: 'other' };
+
+  check('leaving the thing that is fullscreen is an exit, not a re-entry',
+    fullscreenAction(tile, tile) === 'exit', fullscreenAction(tile, tile));
+
+  check('nothing fullscreen means enter', fullscreenAction(null, tile) === 'enter');
+  check('and undefined counts as nothing', fullscreenAction(undefined, tile) === 'enter');
+
+  // One tile to another: the browser rejects a second request while one is
+  // already fullscreen, so it has to be left first.
+  check('another element fullscreen means swap', fullscreenAction(other, tile) === 'swap');
+
+  check('no target at all does nothing', fullscreenAction(tile, null) === 'none');
+  check('even with nothing fullscreen either', fullscreenAction(null, null) === 'none');
+  check('and no arguments does not throw', fullscreenAction() === 'none');
+
+  /**
+   * The property underneath it: asking for the same thing twice returns to
+   * where it started. A toggle that does not is not a toggle.
+   */
+  const settle = (current, target) => {
+    const action = fullscreenAction(current, target);
+    if (action === 'exit') return null;
+    if (action === 'enter' || action === 'swap') return target;
+    return current;
+  };
+
+  check('toggling twice comes back to nothing fullscreen',
+    settle(settle(null, tile), tile) === null);
+  check('and toggling a second tile lands on that one',
+    settle(settle(null, tile), other) === other);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

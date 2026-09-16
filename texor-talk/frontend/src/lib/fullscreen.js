@@ -46,6 +46,28 @@ export async function exitFullscreen() {
 }
 
 /**
+ * What a toggle should do, given what is fullscreen *now* and what was asked
+ * for.
+ *
+ * Pulled out of the hook below and made pure, because the hook cannot be run
+ * without a browser and this is where the bug was: the old code exited first
+ * and then asked whether the thing it had just exited was the target. By then
+ * nothing was fullscreen, the comparison was against `null`, and it fell
+ * through and re-entered — so the button to leave fullscreen left and came
+ * straight back, which is indistinguishable from it not working at all.
+ *
+ *   none  — nothing to act on
+ *   exit  — the target is already fullscreen; this is the toggle off
+ *   swap  — something else is fullscreen; leave it, then enter the target
+ *   enter — nothing is fullscreen
+ */
+export function fullscreenAction(current, target) {
+  if (!target) return 'none';
+  if (current === target) return 'exit';
+  return current ? 'swap' : 'enter';
+}
+
+/**
  * Tracks and toggles fullscreen for one element.
  *
  * `active` is derived from the browser's own `fullscreenchange` rather than
@@ -70,14 +92,20 @@ export function useFullscreen(elementRef, videoRef) {
   }, [elementRef]);
 
   const toggle = useCallback(async () => {
+    const target = elementRef.current;
+
+    // Read once, before anything changes it. This is the whole of the fix.
+    const action = fullscreenAction(fullscreenElement(), target);
+    if (action === 'none') return;
+
     try {
-      if (fullscreenElement()) {
-        await exitFullscreen();
-        // Leaving one tile to enter another: exiting first is required, since
-        // a second request while already fullscreen is rejected.
-        if (fullscreenElement() === elementRef.current) return;
-      }
-      await enterFullscreen(elementRef.current, videoRef?.current);
+      if (action === 'exit' || action === 'swap') await exitFullscreen();
+
+      // Leaving one tile to enter another: exiting first is required, since a
+      // second request while already fullscreen is rejected.
+      if (action === 'exit') return;
+
+      await enterFullscreen(target, videoRef?.current);
     } catch {
       // A rejected request is not worth an error message — the button simply
       // did not take, and the user can see that it did not.
@@ -87,4 +115,6 @@ export function useFullscreen(elementRef, videoRef) {
   return { active, toggle };
 }
 
-export default { useFullscreen, enterFullscreen, exitFullscreen, fullscreenSupported };
+export default {
+  useFullscreen, enterFullscreen, exitFullscreen, fullscreenSupported, fullscreenAction,
+};

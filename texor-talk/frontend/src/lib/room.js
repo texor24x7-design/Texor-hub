@@ -241,7 +241,14 @@ export class MeetingRoom {
         // A screen capture cannot be restarted without a fresh user gesture.
         producer.track?.stop();
       } else if (producer.track?.readyState === 'live') {
-        carried.push({ source, track: producer.track, paused: producer.paused });
+        carried.push({
+          source,
+          track: producer.track,
+          paused: producer.paused,
+          // Which device this was, so a track the system reclaims during a long
+          // reconnect can be re-opened as the same one rather than the default.
+          deviceId: producer.track.getSettings?.().deviceId,
+        });
       }
       producer.close();
     }
@@ -277,24 +284,60 @@ export class MeetingRoom {
     if (!this.closed) this.on.closed?.('Lost the connection to the meeting.');
   }
 
-  /** Re-sends the tracks we were already sending, on the new transports. */
+  /**
+   * Re-sends the tracks we were already sending, on the new transports.
+   *
+   * ── Why a dead track is re-opened rather than skipped ──
+   *
+   * A reconnect carries the live camera and microphone across so the browser
+   * never re-prompts and the capture light does not blink. That works for a
+   * blip. It does not work for the case this is really for — a bad connection,
+   * where the retry loop can run for a minute or more — because by then the
+   * operating system may have taken the device back: a laptop that slept, a
+   * headset that was unplugged, another app that grabbed the microphone while
+   * this one was not using it.
+   *
+   * The old code checked `readyState` and silently moved on. You came back to
+   * the meeting with the microphone button lit, no microphone attached, and no
+   * indication of either — talking to a room that could not hear you, which is
+   * exactly the "voice bug after reconnecting" this is here to end.
+   */
   async resend(carried) {
-    for (const { source, track, paused } of carried) {
-      if (track.readyState !== 'live') continue;
-
+    for (const { source, track, paused, deviceId } of carried) {
       try {
+        // A track the system has reclaimed cannot be re-sent, so ask for the
+        // same device again. This is the slow path and the important one.
+        const live = track.readyState === 'live'
+          ? track
+          : (await navigator.mediaDevices.getUserMedia(Room.constraintsFor(source, deviceId)))
+            .getTracks()[0];
+
+        if (!live) throw new Error(`No ${source} to send.`);
+
         const producer = source === 'mic'
           ? await this.sendTransport.produce({
-              track,
+              track: live,
               appData: { source },
               codecOptions: { opusStereo: false, opusDtx: true, opusFec: true },
             })
-          : await this.produceVideo(track, cameraEncodings(this.limits?.cameraBitrate), source);
+          : await this.produceVideo(live, cameraEncodings(this.limits?.cameraBitrate), source);
 
         this.producers.set(source, producer);
         if (paused) await this.setPaused(source, true);
+
+        // The caller holds the old track to draw your own tile with; a
+        // re-opened device is a different one and has to reach it.
+        if (live !== track) this.on.localTrack?.(source, live);
       } catch {
-        this.on.warning?.(`Could not restart your ${source} after reconnecting.`);
+        /**
+         * Reported as a source that is *off*, not as a warning in passing.
+         *
+         * The caller turns the button off in response, so the state on screen
+         * matches the state on the wire — a lit microphone that is sending
+         * nothing is worse than an obviously muted one.
+         */
+        this.on.sourceLost?.(source);
+        this.on.warning?.(`Your ${source === 'mic' ? 'microphone' : source} did not come back after reconnecting.`);
       }
     }
   }
@@ -947,6 +990,83 @@ export class MeetingRoom {
   }
 
   /** Closes a track for good — the peer's tile loses it. */
+/**
+   * The constraints one source is captured with.
+   *
+   * Shared by the initial capture and by a mid-call device change, so the
+   * microphone a meeting switches to is opened exactly the way the one it
+   * started with was — echo cancellation and the rest. Two copies of this
+   * drifting apart is how a swapped microphone ends up echoing.
+   */
+  static constraintsFor(source, deviceId) {
+    const device = deviceId ? { deviceId: { exact: deviceId } } : {};
+
+    if (source === 'mic') {
+      return {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          ...device,
+        },
+      };
+    }
+
+    return { video: { ...VIDEO_CONSTRAINTS, ...device } };
+  }
+
+  /**
+   * Change which microphone or camera is being sent, mid-call.
+   *
+   * `replaceTrack` swaps what the existing sender is reading from. There is no
+   * renegotiation, no new producer id, and nobody else sees anything except the
+   * picture or the voice changing — which is the difference between switching
+   * headsets and dropping out of the meeting for a second.
+   *
+   * This did not exist. The settings dialog wrote the new device to storage and
+   * nothing acted on it, so changing your microphone during a call did nothing
+   * at all until you left and came back — and there was no sign that it had not
+   * worked.
+   *
+   * Returns the new track, or null when that source is not being sent right
+   * now — a choice made while muted is still saved, and takes effect the next
+   * time the source starts.
+   */
+  async useDevice(source, deviceId) {
+    const producer = this.producers.get(source);
+    if (!producer) return null;
+
+    // Held so it can be released once the new one is carrying the call.
+    const previous = producer.track;
+
+    const stream = await navigator.mediaDevices.getUserMedia(
+      Room.constraintsFor(source, deviceId),
+    );
+    const track = stream.getTracks()[0];
+
+    if (!track) return null;
+
+    try {
+      await producer.replaceTrack({ track });
+    } catch (error) {
+      // The new device could not be attached; keep the one that works rather
+      // than leaving the call silent.
+      track.stop();
+      throw error;
+    }
+
+    /**
+     * Only once the swap has succeeded.
+     *
+     * Stopping the old track first would leave the call with nothing on air for
+     * as long as the new device takes to open — which on a USB headset is long
+     * enough to cut a word in half. Releasing it afterwards is what turns the
+     * old device's indicator light off.
+     */
+    previous?.stop();
+    return track;
+  }
+
   async stop(source) {
     const producer = this.producers.get(source);
     if (!producer) return;

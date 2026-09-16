@@ -714,6 +714,30 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
 
       error: (message) => setError(message),
       warning: (message) => setError(message),
+
+      /**
+       * A device came back as a different track after reconnecting.
+       *
+       * Your own tile is drawn from the track the page is holding, and a
+       * re-opened device is not the same object — without this the preview
+       * stays frozen on the last frame before the drop while the call is
+       * carrying live video.
+       */
+      localTrack: (source, track) => {
+        if (source === 'camera') setLocalCamera(track);
+      },
+
+      /**
+       * A device did not come back at all.
+       *
+       * The button goes off so the screen agrees with the wire. A microphone
+       * that looks live and is sending nothing is the worst of the three
+       * possible states.
+       */
+      sourceLost: (source) => {
+        if (source === 'mic') setMicOn(false);
+        if (source === 'camera') { setCameraOn(false); setLocalCamera(null); }
+      },
     });
 
     roomRef.current = room;
@@ -994,14 +1018,29 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
    * dropped us on the "Meeting ended" screen instead of taking us back to our
    * meetings. The flag is what distinguishes "I left" from "it ended".
    */
-  async function leaveNow() {
+  function leaveNow() {
     leavingRef.current = true;
+
+    /**
+     * Close the socket, then go. Nothing is awaited.
+     *
+     * Dropping the socket is what everybody else sees, and it is instant —
+     * which is why leaving used to look broken from the inside: the two
+     * requests below were awaited *before* the redirect, so on a slow
+     * connection the room had already watched you go while you were still
+     * sitting in the call staring at it.
+     *
+     * Neither request has to finish for the meeting to be right. The server
+     * closes the attendance row when the socket dies; these are bookkeeping,
+     * and they carry on in the background across a client-side navigation.
+     */
     roomRef.current?.close();
-    await meetingApi.leave(code).catch(() => {});
+
+    meetingApi.leave(code).catch(() => {});
 
     // A guest pass has no purpose once its meeting is left, and leaving it in
     // the browser is a credential nobody is tracking.
-    if (user.isGuest) await meetingApi.leaveAsGuest(code).catch(() => {});
+    if (user.isGuest) meetingApi.leaveAsGuest(code).catch(() => {});
 
     onLeave();
   }
@@ -1603,6 +1642,21 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
       {settingsTab ? (
         <SettingsDialog
           inCall
+          /**
+           * Applied to the call in progress, not just saved.
+           *
+           * Picking a different microphone used to write the choice to storage
+           * and stop there, so nothing changed until the next meeting — and
+           * nothing said so.
+           */
+          onDevice={async (source, deviceId) => {
+            try {
+              const track = await roomRef.current?.useDevice(source, deviceId);
+              if (source === 'camera' && track) setLocalCamera(track);
+            } catch {
+              setError('That device could not be used. The previous one is still on.');
+            }
+          }}
           onClose={() => {
             const saved = loadPreferences();
             setSettings(saved);
