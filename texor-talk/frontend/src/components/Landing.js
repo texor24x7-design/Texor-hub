@@ -53,13 +53,10 @@ export function Landing() {
     <div className="lp">
       <header className="lp__header">
         <a className="lp__brand" href="/" aria-label="Texor Talk">
-          {/* The real brand mark. Its red, orange and periwinkle are the
-              product's, and are not repeated in the page palette. */}
-          <img className="lp__logo" src="/brand/talk-icon.svg" alt="" width="40" height="40" />
-          <span className="lp__wordmark">
-            <span className="lp__wordmark-top">Texor</span>
-            <span className="lp__wordmark-main">TALK</span>
-          </span>
+          {/* The supplied logo, as drawn. Its red, orange and periwinkle are
+              the product's, and are not repeated in the page palette. This
+              page is light at every theme, so it needs only the one file. */}
+          <img className="lp__logo" src="/brand/talk-logo.svg" alt="Texor Talk" width="135" height="40" />
         </a>
 
         <nav className="lp__nav" aria-label="Main">

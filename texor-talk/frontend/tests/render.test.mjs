@@ -227,13 +227,20 @@ console.log('\n── the landing page ──');
     check('the headline is there', html.includes('Collaborate.'), html.slice(0, 160));
     check('and the line that carries the accent colour',
       html.includes('lp__title-accent'), html.slice(0, 160));
-    check('the wordmark reads Texor TALK',
-      html.includes('Texor') && html.includes('TALK'));
-    // The supplied brand asset, not a drawing of it. The mark was hand-drawn
-    // for a while and had the wrong colours — the real file has red and orange
-    // level bars where the mockup showed blue.
-    check('the brand mark is the real asset',
-      /<img[^>]*class="lp__logo"[^>]*src="\/brand\/talk-icon\.svg"/.test(html), html.slice(0, 400));
+    /**
+     * The supplied lockup, used as it was drawn — not the mark with the name
+     * set beside it in whatever the interface font happens to be. It was the
+     * latter for a while, which meant the wordmark quietly changed shape every
+     * time the typeface did.
+     */
+    check('the brand is the supplied logo file',
+      /<img[^>]*class="lp__logo"[^>]*src="\/brand\/talk-logo\.svg"/.test(html), html.slice(0, 400));
+    check('and it is not rebuilt out of text beside it',
+      !html.includes('lp__wordmark'), 'the wordmark is still being set as type');
+    // An image carries no text, so the name has to reach a screen reader some
+    // other way or the header becomes an unlabelled link.
+    check('the name still reaches assistive tech',
+      /class="lp__logo"[^>]*alt="Texor Talk"/.test(html), html.slice(0, 400));
     check('every navigation item is present',
       ['Product', 'Solutions', 'Resources'].every((item) => html.includes(item)));
     check('both calls to action are there',
@@ -376,11 +383,21 @@ console.log('\n── every other component renders ──');
   const logo = render('the app logo', h(Logo, {}));
   if (logo.html) {
     check('the app logo', true);
-    check('it uses the brand asset too',
-      logo.html.includes('/brand/talk-icon.svg'), logo.html);
-    // Text, not the wordmark image: black type vanishes on the dark call bar.
-    check('the wordmark is text so it works on dark',
-      logo.html.includes('TALK') && logo.html.includes('logo__main'), logo.html);
+    check('it uses the supplied logo file too',
+      logo.html.includes('/brand/talk-logo.svg'), logo.html);
+    check('and is not rebuilt out of text', !logo.html.includes('logo__main'), logo.html);
+
+    /**
+     * The file sets its wordmark and the microphone's outline in black, which
+     * disappears on the dark surfaces this component sits on. The same artwork
+     * with those fills lightened is offered beside it and the browser chooses,
+     * so the logo follows the reader's theme with no JavaScript.
+     */
+    check('a dark-surface variant is offered',
+      logo.html.includes('/brand/talk-logo-dark.svg'), logo.html);
+    check('chosen by the reader\'s theme rather than guessed',
+      /media="\(prefers-color-scheme: dark\)"/.test(logo.html), logo.html);
+
     check('and the whole mark reads as one name', logo.html.includes('Texor Talk'), logo.html);
   }
   const icon = render('the logo on its own', h(LogoIcon, {}));

@@ -42,7 +42,12 @@
   --radius-lg: 16px;
   --shadow: 0 1px 2px rgb(20 20 30 / 6%), 0 8px 24px rgb(20 20 30 / 6%);
 
-  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /*
+   * The product's typeface, loaded in `app/layout.js`. The system stack behind
+   * it is what renders for the moment before the font arrives and on anything
+   * that fails to load it, so the fallback is a real design, not a placeholder.
+   */
+  --font: var(--font-talk), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -132,24 +137,13 @@ p { margin: 0; }
 .grow { flex: 1; min-width: 0; }
 
 /* ── brand ────────────────────────────────────────────────────────────────── */
-.logo { display: inline-flex; align-items: center; gap: 0.5rem; }
+/*
+ * One image, not a mark beside text: the wordmark is part of the supplied
+ * artwork now, so there is nothing here to keep in step with it.
+ */
+.logo { display: inline-block; line-height: 0; }
+.logo__lockup { display: block; height: auto; }
 .logo__icon { display: block; flex: none; }
-/* Stacked, the way the supplied logo sets it: "Texor" small over "TALK". */
-.logo__words { display: grid; line-height: 1; }
-.logo__top {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  color: var(--text-muted);
-  margin-bottom: 0.1rem;
-}
-.logo__main {
-  font-size: 1.0625rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  /* `currentColor`, so the same component works on the dark in-call bar. */
-  color: currentColor;
-}
 
 /* ── forms ────────────────────────────────────────────────────────────────── */
 .field { display: grid; gap: 0.375rem; }
@@ -1099,8 +1093,9 @@ p { margin: 0; }
 .gr__title {
   font-size: clamp(1.4rem, 2.4vw, 1.85rem);
   font-weight: 680;
-  letter-spacing: -0.025em;
-  line-height: 1.15;
+  /* The same correction as `.hero__title`: it was built the same way. */
+  letter-spacing: 0.008em;
+  line-height: 1.3;
   margin: 0;
 }
 .gr__host { color: var(--text-muted); font-size: 0.9375rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
@@ -2697,8 +2692,22 @@ p { margin: 0; }
 .hero__title {
   font-size: clamp(1.65rem, 2.8vw, 2.25rem);
   font-weight: 680;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
+  /*
+   * No tightening.
+   *
+   * The -0.03em here was set against the system font this interface used to
+   * run on, which is drawn open and needs pulling in at display sizes. The
+   * face it runs on now is a headline design — already tight by construction —
+   * so the same figure applied on top of it closed the words up and the line
+   * read as one block.
+   *
+   * A trace is added back instead of subtracted. Compared side by side at this
+   * size, 0 still reads dense and 0.015em reads spaced-out; this sits between
+   * them. The rows are given room as well, which is half of what "congested"
+   * was describing.
+   */
+  letter-spacing: 0.008em;
+  line-height: 1.3;
 }
 .hero__sub { color: var(--text-muted); line-height: 1.6; max-width: 30rem; }
 .hero__actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.6rem; }

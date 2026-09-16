@@ -1,6 +1,27 @@
+import { Stack_Sans_Headline } from 'next/font/google';
+
 import '@/styles/globals.css';
 
 import { resolveOrigin } from '@/lib/origin.mjs';
+
+/**
+ * The typeface for the whole product.
+ *
+ * Loaded here rather than per page so every route is set in it — the call
+ * screen, notes, the landing page — and so it is downloaded once.
+ *
+ * Taken as the variable font: 200–700 in a single file, which is less to
+ * download than the four static weights this interface uses, and lets a rule
+ * ask for a weight in between where that reads better.
+ *
+ * `next/font` fetches it at build time and serves it from this deployment, so
+ * the finished page still makes no request to anybody else.
+ */
+const talkSans = Stack_Sans_Headline({
+  subsets: ['latin'],
+  variable: '--font-talk',
+  display: 'swap',
+});
 
 /**
  * Resolved rather than read straight from `NEXT_PUBLIC_TALK_ORIGIN`, because
@@ -72,7 +93,7 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" className={talkSans.variable}>
       <body>{children}</body>
     </html>
   );

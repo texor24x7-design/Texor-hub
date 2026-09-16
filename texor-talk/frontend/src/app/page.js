@@ -1,21 +1,16 @@
-import { Caveat, Poppins } from 'next/font/google';
+import { Caveat } from 'next/font/google';
 import '@/styles/landing.css';
 import { Landing } from '@/components/Landing';
 
 /**
- * Fonts are downloaded at build time and served from this deployment.
+ * The handwritten aside beside the illustration, and the only typeface this
+ * page loads of its own — the product's own face comes from the root layout.
  *
- * `next/font` self-hosts rather than linking to Google's CDN, so the finished
- * page makes no request to anybody else — which is the same rule the rest of
- * this product follows about outside services.
+ * `next/font` downloads it at build time and self-hosts it rather than linking
+ * to Google's CDN, so the finished page makes no request to anybody else,
+ * which is the same rule the rest of this product follows about outside
+ * services.
  */
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--lp-sans',
-  display: 'swap',
-});
-
 const caveat = Caveat({
   subsets: ['latin'],
   weight: ['600'],
@@ -45,7 +40,7 @@ export const metadata = {
  */
 export default function HomePage() {
   return (
-    <div className={`${poppins.variable} ${caveat.variable}`}>
+    <div className={caveat.variable}>
       <Landing />
     </div>
   );

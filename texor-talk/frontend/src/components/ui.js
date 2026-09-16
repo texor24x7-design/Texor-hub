@@ -5,28 +5,33 @@
 /**
  * The product mark.
  *
- * The icon is the real brand asset; the wordmark is text rather than the rest
- * of that asset, deliberately. The supplied logo sets "TALK" in black, which
- * disappears on the dark in-call bar — as text it inherits `currentColor` and
- * works on both, while the icon keeps its own red, orange and periwinkle.
+ * The supplied logo file, used as it was drawn — mark and wordmark together,
+ * not a mark beside text set to look like one. It used to be the latter, which
+ * meant the letterforms were whatever the interface font happened to be and
+ * drifted every time that changed.
+ *
+ * The file sets its wordmark and the microphone's outline in black, which
+ * disappears on a dark surface, so `talk-logo-dark.svg` carries the same
+ * artwork with those three fills lightened and nothing else touched. The
+ * browser picks between them, so this follows the reader's theme without any
+ * JavaScript and without a flash of the wrong one.
+ *
+ * `size` is a height; the width follows the artwork's own 372:110.
  */
+const LOGO_RATIO = 372 / 110;
+
 export function Logo({ size = 34 }) {
   return (
-    <span className="logo">
+    <picture className="logo">
+      <source srcSet="/brand/talk-logo-dark.svg" media="(prefers-color-scheme: dark)" />
       <img
-        className="logo__icon"
-        src="/brand/talk-icon.svg"
-        alt=""
-        width={size}
+        className="logo__lockup"
+        src="/brand/talk-logo.svg"
+        alt="Texor Talk"
+        width={Math.round(size * LOGO_RATIO)}
         height={size}
-        aria-hidden="true"
       />
-      <span className="logo__words">
-        <span className="logo__top">Texor</span>
-        <span className="logo__main">TALK</span>
-      </span>
-      <span className="sr-only">Texor Talk</span>
-    </span>
+    </picture>
   );
 }
 

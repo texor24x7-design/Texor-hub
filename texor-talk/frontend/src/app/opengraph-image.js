@@ -18,12 +18,15 @@ export const contentType = 'image/png';
 export const alt = 'Texor Talk — meetings for the Texor ecosystem';
 
 /**
- * Satori draws no SVG elements of its own, so the mark goes in as an image.
+ * Satori draws no SVG elements of its own, so the logo goes in as an image.
  * Read at build time: a fetch here would make the card depend on the site
  * being up to describe itself.
+ *
+ * The full lockup, not the mark with the name set beside it in whatever the
+ * card's font happens to be — the wordmark belongs to the artwork.
  */
-function markAsDataUri() {
-  const file = join(process.cwd(), 'public', 'brand', 'talk-icon.svg');
+function logoAsDataUri() {
+  const file = join(process.cwd(), 'public', 'brand', 'talk-logo.svg');
   return `data:image/svg+xml;base64,${readFileSync(file).toString('base64')}`;
 }
 
@@ -56,15 +59,9 @@ export default function Image() {
           }}
         />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={markAsDataUri()} width={104} height={104} alt="" />
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
-            <span style={{ fontSize: 30, color: '#5b6675', marginBottom: 6 }}>Texor</span>
-            <span style={{ fontSize: 76, fontWeight: 700, color: '#0b1b3e', letterSpacing: -2 }}>
-              TALK
-            </span>
-          </div>
+          <img src={logoAsDataUri()} width={372} height={110} alt="" />
         </div>
 
         <div

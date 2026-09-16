@@ -37,7 +37,15 @@
   --tx-blue: #6187ce;
   --tx-indigo: #6766cc;
 
-  --lp-sans-stack: var(--lp-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /*
+   * The same face as the rest of the product, loaded once in `app/layout.js`.
+   * The landing page used to carry a typeface of its own; it no longer does,
+   * so the page somebody arrives on and the product they arrive in are set in
+   * the same letters.
+   */
+  --lp-sans-stack: var(--font-talk), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* The handwritten aside by the illustration, which is a drawing, not type. */
   --lp-script-stack: var(--lp-script), "Segoe Script", cursive;
 
   min-height: 100dvh;
@@ -130,21 +138,6 @@
 .lp__foot-brand img { display: block; height: 1.35rem; width: auto; }
 .lp__foot p { font-size: 0.875rem; color: var(--lp-body); }
 
-.lp__wordmark { display: grid; line-height: 1; }
-.lp__wordmark-top {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--lp-body);
-  letter-spacing: 0.01em;
-  margin-bottom: 0.1rem;
-}
-.lp__wordmark-main {
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: var(--lp-ink);
-  letter-spacing: -0.01em;
-}
-
 .lp__nav { display: flex; gap: 2.25rem; margin: 0 auto; }
 /* Centred by its own auto margins; it pushes nothing else around. */
 .lp__nav-link {
@@ -207,7 +200,12 @@
   font-size: clamp(3rem, 5.9vw, 5.1rem);
   font-weight: 700;
   line-height: 1.04;
-  letter-spacing: -0.04em;
+  /*
+   * Less negative than the -0.04em this carried on the previous face, which
+   * is already drawn tight for setting large: the old figure closed the
+   * counters up and the three stacked lines started to look like one mass.
+   */
+  letter-spacing: -0.025em;
   margin: 0 0 1.4rem;
 }
 .lp__title-accent { color: var(--lp-blue); }
@@ -407,7 +405,13 @@
 .lp__badge-top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.1rem; }
 .lp__badge-wave { color: var(--lp-blue); flex: none; }
 .lp__badge-faint { color: var(--lp-muted); font-size: 0.9375rem; font-weight: 500; }
-.lp__badge-line { color: var(--lp-ink); font-size: 1.05rem; font-weight: 640; line-height: 1.3; }
+.lp__badge-line {
+  color: var(--lp-ink);
+  font-size: 1.05rem;
+  /* 640 was a nudge for the previous face; this one tops out at 700. */
+  font-weight: 700;
+  line-height: 1.3;
+}
 
 /* Tucked under the picture's right edge, where a caption would sit. */
 .lp__script {
@@ -513,10 +517,9 @@
   }
   .lp__hero { padding: 0.75rem 1rem 7rem; }
 
-  /* The mark shrinks so the actions have room to stay legible. */
-  .lp__logo { width: 32px; height: 32px; }
-  .lp__wordmark-top { font-size: 0.625rem; }
-  .lp__wordmark-main { font-size: 1.15rem; }
+  /* Shrinks so the actions have room to stay legible, on the artwork's own
+     372:110 — a logo set to a square would squash. */
+  .lp__logo { width: 108px; height: 32px; }
 
   .lp__actions { gap: 0.75rem; }
   .lp__cta { padding: 0.6rem 1rem; font-size: 0.875rem; }
@@ -555,11 +558,12 @@
  * Very narrow.
  *
  * Both actions lead to the same place, so "Sign in" goes and "Get Started"
- * stays — one clear way in beats two cramped ones. The mark carries the brand
- * without the word beside it.
+ * stays — one clear way in beats two cramped ones. The logo goes down a step
+ * rather than losing its wordmark: it is one piece of artwork, and half of it
+ * is not a logo.
  */
 @media (max-width: 23rem) {
   .lp__signin { display: none; }
-  .lp__wordmark { display: none; }
+  .lp__logo { width: 95px; height: 28px; }
   .lp__pending { width: 6rem; }
 }

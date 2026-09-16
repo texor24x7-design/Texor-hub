@@ -344,5 +344,103 @@ console.log('\n── the tab icon ──');
   }
 }
 
+console.log('\n── the logo ──');
+{
+  /**
+   * The dark-surface logo is the supplied file with three fills lightened and
+   * nothing else changed.
+   *
+   * Which means it goes stale silently: drop in a new `talk-logo.svg` and the
+   * dark variant keeps serving the old artwork to anyone on a dark theme, with
+   * nothing to notice — the page renders, the file is there, and only half the
+   * readers see it. So the two are compared rather than trusted.
+   */
+  const { existsSync, readFileSync: read } = await import('node:fs');
+  const brand = join(SRC, '..', 'public', 'brand');
+
+  const light = join(brand, 'talk-logo.svg');
+  const dark = join(brand, 'talk-logo-dark.svg');
+
+  check('the supplied logo is in the app', existsSync(light));
+  check('and a dark-surface variant beside it', existsSync(dark));
+
+  if (existsSync(light) && existsSync(dark)) {
+    const l = read(light, 'utf8');
+    const d = read(dark, 'utf8');
+
+    const BLACK = /fill="black"/g;
+    const LIGHT = /fill="#f0f0f4"/gi;
+
+    check('the variant differs only in those fills',
+      d.replace(LIGHT, 'fill="black"') === l,
+      'the two have drifted — regenerate the dark one from the supplied file');
+
+    check('and it really does recolour them, rather than being a copy',
+      (l.match(BLACK) ?? []).length > 0 && !BLACK.test(d),
+      'the dark variant still sets black, so it vanishes on a dark surface');
+
+    // The mark's own colours are the brand's and must survive the swap.
+    for (const colour of ['#FB0102', '#FA5908', '#6187CE']) {
+      check(`${colour} is untouched in the variant`, d.includes(colour), 'a brand colour was altered');
+    }
+  }
+}
+
+console.log('\n── the typeface ──');
+{
+  /**
+   * One face for the whole product, loaded once and handed to the stylesheets
+   * through a CSS variable.
+   *
+   * That indirection is what needs guarding. If the class carrying the
+   * variable ever comes off the document element, `var(--font-talk)` resolves
+   * to nothing, every stylesheet quietly falls through to its system fallback,
+   * and the entire product renders in the wrong letters. Nothing errors, the
+   * build passes, and the page looks plausible — the same shape of silent
+   * failure as a deleted rule.
+   */
+  const { existsSync, readFileSync: read } = await import('node:fs');
+
+  const layout = join(SRC, 'app', 'layout.js');
+  const globals = join(SRC, 'styles', 'globals.css');
+  const landing = join(SRC, 'styles', 'landing.css');
+
+  const VAR = '--font-talk';
+
+  if (existsSync(layout)) {
+    const text = read(layout, 'utf8');
+    check('the root layout loads the typeface',
+      /from 'next\/font\/google'/.test(text), 'no font is loaded for the app');
+    check('under the variable the stylesheets read',
+      text.includes(`variable: '${VAR}'`), `not exposed as ${VAR}`);
+
+    /**
+     * The one that matters: declaring the variable does nothing until the
+     * class is on an element the rest of the page inherits from.
+     */
+    check('and that variable is actually applied to the document',
+      /<html[^>]*className=\{[^}]*\.variable/.test(text),
+      'the variable is declared but never applied — everything falls back');
+
+    check('it is self-hosted rather than fetched from Google at runtime',
+      !/fonts\.(googleapis|gstatic)\.com/.test(text), 'links out to Google');
+  }
+
+  for (const [file, name, prop] of [
+    [globals, 'the app', '--font'],
+    [landing, 'the landing page', '--lp-sans-stack'],
+  ]) {
+    if (!existsSync(file)) continue;
+    const text = read(file, 'utf8');
+    const decl = text.match(new RegExp(`${prop}:([^;]*);`))?.[1] ?? '';
+
+    check(`${name} is set in it`, decl.includes(`var(${VAR})`), decl.trim() || 'not declared');
+    // A variable with nothing behind it renders as the browser's default serif
+    // in the moment before the font arrives, which is worse than a plain stack.
+    check(`${name} keeps a real fallback behind it`,
+      /sans-serif\s*$/.test(decl.trim()), decl.trim());
+  }
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);
