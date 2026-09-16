@@ -246,8 +246,40 @@ check('admin meeting rows never leak the room name', !JSON.stringify(all.body).i
 console.log('\n── ending ──');
 const ended = await call(host, `/api/meetings/${code}/end`, { method: 'POST' });
 check('host ends the meeting', ended.status === 200 && ended.body.meeting.status === 'ended');
-check('joining an ended meeting is a 410', (await call(guest, `/api/meetings/${code}/join`, { method: 'POST' })).status === 410);
 check('attendance is closed out', ended.body.meeting.attendance.every((a) => !!a.leftAt), JSON.stringify(ended.body.meeting.attendance));
+check('the clock stops when it ends', ended.body.meeting.activeSince === null, String(ended.body.meeting.activeSince));
+
+/**
+ * An ended meeting is idle, not finished.
+ *
+ * This used to be a 410 for everybody but the host, which meant a link shared
+ * with ten people stopped working the moment the room emptied out — and the
+ * only way back in was for the one person who owned it to go first. A room is
+ * a place; walking into an empty one is allowed, and doing so opens it again.
+ */
+// `guest` here is an uninvited account, so the lobby holds them — but it holds
+// them at the door rather than turning them away, which is the change.
+const reopened = await call(guest, `/api/meetings/${code}/join`, { method: 'POST' });
+check('an ended meeting no longer refuses people outright',
+  reopened.status === 200 && reopened.body.status === 'waiting',
+  `${reopened.status} ${JSON.stringify(reopened.body).slice(0, 160)}`);
+
+// Somebody the room admits reopens it by walking in.
+const reopenedByMember = await call(host, `/api/meetings/${code}/join`, { method: 'POST' });
+check('and somebody allowed in reopens it', reopenedByMember.body.status === 'admitted',
+  JSON.stringify(reopenedByMember.body).slice(0, 160));
+
+const afterReopen = await call(host, `/api/meetings/${code}`);
+check('and it is live again', afterReopen.body.meeting.status === 'live', afterReopen.body.meeting.status);
+check('with the time it had ended at cleared',
+  afterReopen.body.meeting.endedAt === null, String(afterReopen.body.meeting.endedAt));
+
+// The rules that actually protect a meeting are untouched by that.
+const cancelledMeeting = await call(host, '/api/meetings', { method: 'POST', body: { title: 'cancelled' } });
+const cancelledCode = cancelledMeeting.body.meeting.code;
+await call(host, `/api/meetings/${cancelledCode}`, { method: 'DELETE' });
+const refused = await call(guest, `/api/meetings/${cancelledCode}/join`, { method: 'POST' });
+check('but a cancelled meeting is still refused', refused.status === 410, String(refused.status));
 
 console.log('\n── quality: the host chooses, the plan decides how far ──');
 const hq = await call(host, '/api/meetings', { method: 'POST', body: { title: 'quality' } });

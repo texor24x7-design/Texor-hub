@@ -52,7 +52,12 @@ export const URGENT_MS = 2 * MINUTE;
  * nothing to warn about, and an ever-present countdown would invent an anxiety
  * the meeting did not have.
  */
-export function meetingTime({ startedAt, maxDurationMinutes = 0, now = Date.now() } = {}) {
+export function meetingTime({
+  activeMs = 0,
+  activeSince = null,
+  maxDurationMinutes = 0,
+  now = Date.now(),
+} = {}) {
   const idle = {
     running: false,
     elapsedMs: 0,
@@ -62,14 +67,31 @@ export function meetingTime({ startedAt, maxDurationMinutes = 0, now = Date.now(
     level: 'normal',
   };
 
-  if (!startedAt) return idle;
+  /**
+   * Occupied time, not time since the meeting started.
+   *
+   * `activeMs` is what earlier stretches banked; `activeSince` is the one
+   * running, and is null exactly when the room is empty. Counting from
+   * `startedAt` instead meant an empty room kept ticking all afternoon, and a
+   * reopened one carried on from the original start rather than from where it
+   * had actually got to.
+   */
+  const banked = Number(activeMs);
+  if (!Number.isFinite(banked) || banked < 0) return idle;
 
-  const started = new Date(startedAt).getTime();
-  if (!Number.isFinite(started)) return idle;
+  const since = activeSince === null || activeSince === undefined
+    ? null
+    : new Date(activeSince).getTime();
+
+  if (since !== null && !Number.isFinite(since)) return idle;
+
+  // Nothing banked and nobody here: the meeting has not run at all yet, which
+  // is a different thing from having run for zero seconds.
+  if (banked === 0 && since === null) return idle;
 
   // A clock skewed a few seconds ahead of the server should read 0:00, not a
   // negative number counting up towards zero.
-  const elapsedMs = Math.max(0, now - started);
+  const elapsedMs = banked + (since === null ? 0 : Math.max(0, now - since));
 
   const limitMs = maxDurationMinutes > 0 ? maxDurationMinutes * MINUTE : null;
   const remainingMs = limitMs === null ? null : Math.max(0, limitMs - elapsedMs);
@@ -82,7 +104,9 @@ export function meetingTime({ startedAt, maxDurationMinutes = 0, now = Date.now(
   }
 
   return {
-    running: true,
+    // Running means somebody is in the room. An empty one holds its total
+    // rather than counting, which is the whole point of the change.
+    running: since !== null,
     elapsedMs,
     elapsed: formatDuration(elapsedMs),
     remainingMs,

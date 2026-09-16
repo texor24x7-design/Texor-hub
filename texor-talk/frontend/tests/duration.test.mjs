@@ -50,20 +50,58 @@ console.log('\n── time left, in words ──');
 
 console.log('\n── a meeting that has not started ──');
 {
-  const idle = meetingTime({ startedAt: null });
+  const idle = meetingTime({ activeMs: 0, activeSince: null });
   check('there is no clock to show', idle.running === false && idle.elapsed === '');
   check('and nothing to warn about', idle.remaining === null && idle.level === 'normal');
 
   check('a nonsense date is treated as not started',
-    meetingTime({ startedAt: 'not a date' }).running === false);
+    meetingTime({ activeSince: 'not a date' }).running === false);
   check('so is no argument at all', meetingTime().running === false);
+  check('and so is a nonsense total', meetingTime({ activeMs: 'lots' }).running === false);
+}
+
+console.log('\n── the clock only runs while somebody is there ──');
+{
+  /**
+   * The change this function exists for.
+   *
+   * It used to count from `startedAt`, so an empty room kept ticking all
+   * afternoon and a reopened one carried on from the original start rather
+   * than from where it had actually got to. Time is now banked in `activeMs`
+   * as each stretch ends, and `activeSince` is the one still running — null
+   * exactly when the room is empty.
+   */
+  const start = Date.parse('2026-09-15T10:00:00Z');
+
+  const occupied = meetingTime({ activeMs: 0, activeSince: new Date(start), now: start + 5 * MIN });
+  check('an occupied room counts', occupied.elapsed === '5:00', occupied.elapsed);
+  check('and reports itself as running', occupied.running === true);
+
+  // An hour of nobody being there must cost the meeting nothing.
+  const empty = meetingTime({ activeMs: 5 * MIN, activeSince: null, now: start + 9 * HOUR });
+  check('an empty room holds its total', empty.elapsed === '5:00', empty.elapsed);
+  check('and is not running', empty.running === false);
+  check('but still has a total worth showing', empty.elapsedMs === 5 * MIN);
+
+  const resumed = meetingTime({
+    activeMs: 5 * MIN,
+    activeSince: new Date(start + 9 * HOUR),
+    now: start + 9 * HOUR + 10 * MIN,
+  });
+  check('reopening resumes rather than restarting', resumed.elapsed === '15:00', resumed.elapsed);
+  check('and the gap is not counted', resumed.elapsedMs === 15 * MIN, String(resumed.elapsedMs));
+
+  // A limit measured in occupied minutes cannot be run down by an empty room,
+  // which is the reason the cap moved onto this figure too.
+  const capped = meetingTime({ activeMs: 50 * MIN, activeSince: null, maxDurationMinutes: 60 });
+  check('a limit counts the same way', capped.remainingMs === 10 * MIN, String(capped.remainingMs));
 }
 
 console.log('\n── a meeting with no limit ──');
 {
   const start = Date.parse('2026-09-15T10:00:00Z');
   const t = meetingTime({
-    startedAt: new Date(start).toISOString(),
+    activeSince: new Date(start).toISOString(),
     maxDurationMinutes: 0,
     now: start + 12 * MIN + 4 * SEC,
   });
@@ -74,14 +112,14 @@ console.log('\n── a meeting with no limit ──');
   // An ever-present countdown would invent an anxiety the meeting did not have.
   check('and nothing is said about time left', t.remaining === null);
   check('the level stays normal however long it runs',
-    meetingTime({ startedAt: new Date(start).toISOString(), now: start + 9 * HOUR }).level === 'normal');
+    meetingTime({ activeSince: new Date(start).toISOString(), now: start + 9 * HOUR }).level === 'normal');
 }
 
 console.log('\n── a meeting with a limit ──');
 {
   const start = Date.parse('2026-09-15T10:00:00Z');
   const at = (ms) => meetingTime({
-    startedAt: new Date(start).toISOString(),
+    activeSince: new Date(start).toISOString(),
     maxDurationMinutes: 60,
     now: start + ms,
   });
@@ -109,7 +147,7 @@ console.log('\n── the boundaries, exactly ──');
 {
   const start = 1_000_000;
   const at = (ms, limit = 60) =>
-    meetingTime({ startedAt: new Date(start).toISOString(), maxDurationMinutes: limit, now: start + ms });
+    meetingTime({ activeSince: new Date(start).toISOString(), maxDurationMinutes: limit, now: start + ms });
 
   // Exactly on a threshold counts as having reached it — a warning that starts
   // a second late is fine; one that never starts is not.
@@ -127,7 +165,7 @@ console.log('\n── a clock running ahead of the server ──');
   // Browsers are not synchronised with the API. A start time a few seconds in
   // the "future" must read 0:00, not count up towards zero.
   const start = 2_000_000;
-  const skewed = meetingTime({ startedAt: new Date(start).toISOString(), now: start - 4 * SEC });
+  const skewed = meetingTime({ activeSince: new Date(start).toISOString(), now: start - 4 * SEC });
   check('it reads zero rather than going negative', skewed.elapsed === '0:00', skewed.elapsed);
   check('and is still considered running', skewed.running === true);
 }

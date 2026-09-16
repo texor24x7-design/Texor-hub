@@ -21,12 +21,15 @@ import { GUEST_COOKIE, resolveGuest } from '../services/guest.service.js';
 import { getPolicy, isExternalEmail } from '../services/policy.service.js';
 import { ACTIONS, record } from '../services/audit.service.js';
 import {
+  elapsedMsOf,
   endMeeting,
   evaluateJoin,
   isAbandoned,
   markJoined,
   markLeft,
   markPresent,
+  reconcileHost,
+  syncActiveTime,
 } from '../services/meeting.service.js';
 import { Peer, closeRoom, createWebRtcTransport, getOrCreateRoom, getRoom } from './room.js';
 import { attachSpeakingDetection } from './speaking.js';
@@ -161,6 +164,20 @@ async function handleConnection(socket, request) {
 
   await markJoined({ meeting, user, role });
 
+  /**
+   * Walking into an empty room makes you its host.
+   *
+   * The peer above was built with the role `evaluateJoin` worked out, and that
+   * was decided before `markJoined` had a chance to hand custody to whoever
+   * arrived — which, in an empty room, is this person. Without this the server
+   * knows they are hosting and their browser does not, so the room they are
+   * alone in has no admit button and the next person knocks at a door nobody
+   * appears able to open.
+   */
+  if (meeting.actingHostTexorId === user.texorId && peer.role !== 'host') {
+    peer.role = 'host';
+  }
+
   // Read by the room ticker, which sweeps by meeting rather than by socket.
   socket.meetingCode = meeting.code;
   socket.isAlive = true;
@@ -224,6 +241,36 @@ async function onDisconnect({ room, peer, user, code }) {
   if (meeting) {
     const left = await markLeft({ meeting, texorId: user.texorId });
     if (left) await record({ action: ACTIONS.MEETING_LEFT, actor: user, meeting });
+
+    /**
+     * Settle the clock and the room's custody against who is *actually* still
+     * connected, rather than against the attendance rows.
+     *
+     * `markLeft` has to reason from the rows, and those lag by up to the
+     * heartbeat timeout — somebody whose browser died is still "here" as far as
+     * the document is concerned. The socket map is right in front of us and is
+     * the truth, so this is the moment to use it.
+     *
+     * It also has to happen here rather than on the ticker: the last person out
+     * closes the room, and the ticker only visits meetings that still have a
+     * connected socket. Left to it, the final stretch would never be banked.
+     */
+    const here = [...room.peers.keys()];
+    const clock = syncActiveTime(meeting, here.length);
+    const custody = reconcileHost(meeting, here);
+
+    if (clock || custody) await meeting.save();
+
+    /**
+     * Tell the stand-in they are running the room now.
+     *
+     * Without this the promotion is real on the server and invisible in the
+     * browser: the admit button stays hidden, the person in the lobby keeps
+     * waiting, and nobody can tell why.
+     */
+    if (custody && meeting.actingHostTexorId) {
+      updatePeerRole(code, meeting.actingHostTexorId, 'host');
+    }
   }
 
   // An empty Router still holds resources on a worker.
@@ -835,10 +882,20 @@ function startRoomTicker(wss) {
          * check below is what stops a room full of connected people being
          * declared empty.
          */
+        const before = meeting.actingHostTexorId;
         if (markPresent(meeting, [...room.peers.keys()])) await meeting.save();
 
+        // `markPresent` settles custody as well as presence. When that moves
+        // the room to somebody new, they have to be told — the ticker is the
+        // path that catches a host whose connection died without a goodbye.
+        if (meeting.actingHostTexorId && meeting.actingHostTexorId !== before) {
+          updatePeerRole(code, meeting.actingHostTexorId, 'host');
+        }
+
         if (meeting.maxDurationMinutes > 0 && meeting.startedAt) {
-          const elapsed = (Date.now() - meeting.startedAt.getTime()) / 60_000;
+          // Occupied minutes, matching the same check on the join path. A limit
+          // that counted an empty room would spend itself overnight.
+          const elapsed = elapsedMsOf(meeting) / 60_000;
           if (elapsed > meeting.maxDurationMinutes) {
             await endMeeting({
               meeting,

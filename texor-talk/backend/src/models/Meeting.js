@@ -92,6 +92,18 @@ const meetingSchema = new Schema(
     hostEmail: { type: String, default: '' },
     cohostTexorIds: { type: [String], default: [] },
 
+    /**
+     * Who is running the room right now, when the person who owns it is not in
+     * it.
+     *
+     * Distinct from `hostTexorId` on purpose. That field is ownership — who
+     * scheduled this, whose calendar it is on, who it belongs to next week —
+     * and handing it to whoever happened to arrive first would let a guest end
+     * up owning somebody's recurring meeting. This one is *custody*: it lasts
+     * only as long as the sitting, and the owner takes it back by walking in.
+     */
+    actingHostTexorId: { type: String, default: null },
+
     // Set when the meeting was started from a channel, which is what lets the
     // channel show a join card and the meeting show where it came from.
     channel: { type: Schema.Types.ObjectId, ref: 'Channel', default: null, index: true },
@@ -139,6 +151,23 @@ const meetingSchema = new Schema(
     endedAt: { type: Date, default: null },
     endedReason: { type: String, default: '' },
 
+    /**
+     * How long this meeting has actually been occupied.
+     *
+     * Not `endedAt - startedAt`. A room that nobody is in is not running, and
+     * wall-clock time made an empty room keep counting all afternoon — then
+     * kept counting from the *original* start when somebody reopened it, so a
+     * five-minute call could report four hours and a duration limit could be
+     * exceeded by a meeting that had barely happened.
+     *
+     * `activeMs` is the time banked from stretches that have finished.
+     * `activeSince` is when the current stretch began, and is null exactly when
+     * the room is empty. The elapsed time is the sum of the two; see
+     * `elapsedMsOf` in `services/meeting.service.js`.
+     */
+    activeMs: { type: Number, default: 0, min: 0 },
+    activeSince: { type: Date, default: null },
+
     attendance: { type: [attendanceSchema], default: [] },
 
     // Removing someone has to outlive the click, or they rejoin from the link
@@ -169,6 +198,10 @@ meetingSchema.index({ status: 1, scheduledStart: -1 });
 meetingSchema.methods.roleOf = function roleOf(texorId, email = '') {
   if (!texorId) return 'guest';
   if (this.hostTexorId === texorId) return 'host';
+  // Standing in counts as hosting while it lasts: the whole point is that the
+  // room has somebody who can admit and mute, and a role of 'cohost' would not
+  // read as that to the person holding it.
+  if (this.actingHostTexorId && this.actingHostTexorId === texorId) return 'host';
   if (this.cohostTexorIds.includes(texorId)) return 'cohost';
 
   const invited = this.invitees.find(
@@ -188,7 +221,15 @@ meetingSchema.methods.isRemoved = function isRemoved(texorId) {
 };
 
 meetingSchema.methods.isHost = function isHost(texorId) {
-  return this.hostTexorId === texorId || this.cohostTexorIds.includes(texorId);
+  if (!texorId) return false;
+  return this.hostTexorId === texorId
+    || this.actingHostTexorId === texorId
+    || this.cohostTexorIds.includes(texorId);
+};
+
+/** The owner, as distinct from whoever is running the room at the moment. */
+meetingSchema.methods.isOwner = function isOwner(texorId) {
+  return Boolean(texorId) && this.hostTexorId === texorId;
 };
 
 /** Everyone currently in the call, by the server's reckoning. */

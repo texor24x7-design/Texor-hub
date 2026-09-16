@@ -53,4 +53,50 @@ export function savePreferences(preferences) {
   return preferences;
 }
 
-export default { loadPreferences, savePreferences, DEFAULT_PREFERENCES };
+/**
+ * How a stored preference becomes the state the green room opens with.
+ *
+ * Pure, and separate from the component, because this is the whole of what
+ * "remember my choice" means and it was the part that did not exist: the green
+ * room opened with hard-coded defaults, so "join muted", "join with camera
+ * off" and the two device pickers were collected by Settings and read by
+ * nothing.
+ *
+ * Note the inversion. Settings asks whether to *join muted*; the control in
+ * the green room is whether the microphone is *on*. Storing one and rendering
+ * the other is exactly where a round trip gets flipped, so both directions
+ * live here next to each other.
+ */
+export function joinDefaults(preferences = loadPreferences()) {
+  const prefs = { ...DEFAULT_PREFERENCES, ...(preferences ?? {}) };
+
+  return {
+    micOn: !prefs.joinMuted,
+    cameraOn: !prefs.joinCameraOff,
+    // '' rather than null: these feed a `<select>`, and a null value makes it
+    // an uncontrolled component that React then complains about.
+    chosen: { mic: prefs.micId ?? '', camera: prefs.cameraId ?? '' },
+  };
+}
+
+/** The other direction: what to store when somebody changes those controls. */
+export function joinPatch({ micOn, cameraOn, chosen } = {}) {
+  const patch = {};
+
+  if (micOn !== undefined) patch.joinMuted = !micOn;
+  if (cameraOn !== undefined) patch.joinCameraOff = !cameraOn;
+
+  if (chosen) {
+    // Empty means "system default", which is stored as absence rather than as
+    // an empty string — otherwise it is indistinguishable from a device whose
+    // id happens to be missing.
+    if (chosen.mic !== undefined) patch.micId = chosen.mic || null;
+    if (chosen.camera !== undefined) patch.cameraId = chosen.camera || null;
+  }
+
+  return patch;
+}
+
+export default {
+  loadPreferences, savePreferences, joinDefaults, joinPatch, DEFAULT_PREFERENCES,
+};

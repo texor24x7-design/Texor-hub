@@ -1941,65 +1941,12 @@ p { margin: 0; }
 }
 
 /* ── leaving as the host ──────────────────────────────────────────────────── */
-.leave {
-  width: min(32rem, 100%);
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 12px 40px rgb(0 0 0 / 30%);
-  padding: 1.75rem;
-  display: grid;
-  gap: 1rem;
-}
-.leave h2 { font-size: 1.25rem; font-weight: 550; }
-.leave__lead { color: var(--text-muted); font-size: 0.9rem; margin-top: -0.5rem; }
 
-.leave__option {
-  display: grid;
-  gap: 0.75rem;
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.leave__option-head strong { display: block; font-weight: 570; font-size: 0.9375rem; }
-.leave__option-head span { display: block; color: var(--text-muted); font-size: 0.8125rem; margin-top: 0.15rem; }
-.leave__option--danger { border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); }
 
-.leave__pick { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-.leave__pick .setting__select { flex: 1; min-width: 10rem; }
 
 /* The dialog's buttons borrow the call's chip, which is scoped to `.meet`, so
    the few properties it needs are restated rather than reaching into that scope. */
-.leave .meet__chip {
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  color: var(--text);
-  border-radius: 999px;
-  padding: 0.5rem 1rem;
-  font: inherit;
-  font-size: 0.875rem;
-  cursor: pointer;
-  justify-self: start;
-}
-.leave .meet__chip:hover:not(:disabled) { background: var(--surface-muted); }
-.leave .meet__chip:disabled { opacity: 0.5; cursor: not-allowed; }
-.leave .meet__chip--primary {
-  background: var(--brand-600); color: #fff; border-color: transparent; font-weight: 550;
-}
-.leave .meet__chip--primary:hover:not(:disabled) { background: var(--brand-700); }
-.leave .meet__chip--danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
-.leave .meet__chip--danger:hover:not(:disabled) { background: var(--danger-bg); }
 
-.leave__cancel {
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 0.875rem;
-  padding: 0.5rem;
-  cursor: pointer;
-  border-radius: var(--radius);
-}
-.leave__cancel:hover:not(:disabled) { background: var(--surface-muted); color: var(--text); }
 
 @media (max-width: 34rem) {
   .leave { padding: 1.25rem; }

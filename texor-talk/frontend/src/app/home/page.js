@@ -32,11 +32,25 @@ function Home({ user }) {
 
   const load = useCallback(async () => {
     try {
-      const { meetings } = await meetingApi.list('upcoming');
-      setList(meetings);
+      /**
+       * Two questions, not one.
+       *
+       * "What is happening right now" is about rooms this person has been
+       * inside that somebody is in at this moment — the server answers it from
+       * the live socket list, so a room everybody walked out of is simply not
+       * in the reply. "What is coming up" is about the calendar. They used to
+       * be the same fetch sorted two ways, which is why an abandoned meeting
+       * sat at the top of the page advertising itself as live.
+       */
+      const [live, upcoming] = await Promise.all([
+        meetingApi.list('joined'),
+        meetingApi.list('upcoming'),
+      ]);
+
+      setList({ live: live.meetings, upcoming: upcoming.meetings });
     } catch (loadError) {
       setError(loadError.message);
-      setList([]);
+      setList({ live: [], upcoming: [] });
     }
   }, []);
 
@@ -70,11 +84,15 @@ function Home({ user }) {
   }
 
   const first = (typeof user.displayName === 'string' ? user.displayName : '').split(' ')[0];
-  // Live first, then whatever is nearest. One list; the row says which is which.
-  const rows = [...(list ?? [])]
+
+  const liveRows = (list?.live ?? []).slice(0, 4);
+  const liveCodes = new Set(liveRows.map((meeting) => meeting.code));
+
+  // A room that is open right now belongs under "Live", not in the schedule
+  // underneath it as well.
+  const soonRows = (list?.upcoming ?? [])
+    .filter((meeting) => !liveCodes.has(meeting.code))
     .sort((left, right) => {
-      const liveFirst = Number(right.status === 'live') - Number(left.status === 'live');
-      if (liveFirst !== 0) return liveFirst;
       const at = (m) => new Date(m.nextOccurrence?.start ?? m.startedAt ?? 0).getTime();
       return at(left) - at(right);
     })
@@ -164,42 +182,61 @@ function Home({ user }) {
         ))}
       </section>
 
-      {/*
-        * One list, not two panels.
-        *
-        * "Happening now" and "Upcoming" are both just meetings, and giving each
-        * its own bordered card meant two sets of chrome, two headings and a gap
-        * between them to hold one row each. Live meetings sort to the top and
-        * are marked; that is the whole of the difference between them.
-        */}
       <div className="home__cols">
-      <section className="agenda">
-        <header className="agenda__head">
-          <h2>Meetings</h2>
-          {rows.length > 0 ? <a className="agenda__more" href="/meetings">View all</a> : null}
-        </header>
+      <div className="stack">
+        {/*
+          * Rooms with somebody in them, and only those.
+          *
+          * The section is absent rather than empty when nothing is open — a
+          * heading over a blank panel saying "nobody is meeting" is chrome
+          * reporting the ordinary case as if it were news.
+          */}
+        {liveRows.length > 0 ? (
+          <section className="agenda">
+            <header className="agenda__head">
+              <h2>Live now</h2>
+              <a className="agenda__more" href="/meetings">View all</a>
+            </header>
+            <div className="agenda__grid">
+              {liveRows.map((meeting) => (
+                <Card
+                  key={meeting.code}
+                  meeting={meeting}
+                  onOpen={() => router.push(`/meetings/${meeting.code}`)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
-        {list === null ? (
-          <p className="agenda__quiet">Loading…</p>
-        ) : rows.length === 0 ? (
-          <div className="agenda__empty">
-            <p>Nothing scheduled.</p>
-            <button type="button" className="btn btn--secondary" onClick={() => router.push('/meetings?new=1')}>
-              Schedule a meeting
-            </button>
-          </div>
-        ) : (
-          <div className="agenda__grid">
-            {rows.map((meeting) => (
-              <Card
-                key={meeting.code}
-                meeting={meeting}
-                onOpen={() => router.push(`/meetings/${meeting.code}`)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+        <section className="agenda">
+          <header className="agenda__head">
+            <h2>Scheduled</h2>
+            {soonRows.length > 0 ? <a className="agenda__more" href="/meetings">View all</a> : null}
+          </header>
+
+          {list === null ? (
+            <p className="agenda__quiet">Loading…</p>
+          ) : soonRows.length === 0 ? (
+            <div className="agenda__empty">
+              <p>Nothing scheduled.</p>
+              <button type="button" className="btn btn--secondary" onClick={() => router.push('/meetings?new=1')}>
+                Schedule a meeting
+              </button>
+            </div>
+          ) : (
+            <div className="agenda__grid">
+              {soonRows.map((meeting) => (
+                <Card
+                  key={meeting.code}
+                  meeting={meeting}
+                  onOpen={() => router.push(`/meetings/${meeting.code}`)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
 
       <Recent notes={notes} onOpen={(id) => router.push(`/notes/${id}`)} />
       </div>
@@ -219,7 +256,15 @@ function Home({ user }) {
  * from the code, the faces come from the roster.
  */
 function Card({ meeting, onOpen }) {
-  const isLive = meeting.status === 'live';
+  /**
+   * Live means somebody is in there, not that a column says so.
+   *
+   * `presentCount` is counted from open sockets, so a room everybody left
+   * stops claiming to be live the moment the last person goes rather than up
+   * to ninety seconds later — or never, which is what happened when nothing
+   * swept the list.
+   */
+  const isLive = (meeting.presentCount ?? 0) > 0;
   const accent = accentFor(meeting.code, { live: isLive });
   const when = whenParts(meeting.nextOccurrence?.start ?? meeting.startedAt);
 

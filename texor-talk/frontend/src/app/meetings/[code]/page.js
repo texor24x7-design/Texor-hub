@@ -15,7 +15,7 @@ import {
   SearchIcon,
 } from '@/components/icons';
 import { SettingsDialog } from '@/components/SettingsDialog';
-import { loadPreferences } from '@/lib/preferences';
+import { joinDefaults, joinPatch, loadPreferences, savePreferences } from '@/lib/preferences';
 
 /** Must match the server's allowlist in media/signalling.js. */
 const REACTIONS = ['👍', '👎', '❤️', '🎉', '👏', '😂', '😮', '😢', '🤔', '✋'];
@@ -437,6 +437,16 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
 
   const roomRef = useRef(null);
 
+  /**
+   * Set the moment we decide to go, and never cleared.
+   *
+   * Read by `onClosed` so that a departure we started ourselves does not get
+   * reported back to us as the meeting ending. A ref rather than state because
+   * it is read inside callbacks that were created before the render that would
+   * have updated it.
+   */
+  const leavingRef = useRef(false);
+
   const [peers, setPeers] = useState(() => new Map());
   const [localCamera, setLocalCamera] = useState(null);
   const [localScreen, setLocalScreen] = useState(null);
@@ -481,7 +491,6 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
    * made mid-call takes effect without a rejoin.
    */
   const [settings, setSettings] = useState(() => loadPreferences());
-  const [leaving, setLeaving] = useState(false);
   const [watchingId, setWatchingId] = useState(null);
   const [localScreenAt, setLocalScreenAt] = useState(0);
 
@@ -656,9 +665,26 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
 
       roleChanged: ({ role: next }) => setRole(next),
       peerRoleChanged: ({ texorId, role: next }) => updatePeer(texorId, () => ({ role: next })),
-      removed: (reason) => { chimes.current?.play('ended'); onClosed(reason); },
-      ended: (reason) => { chimes.current?.play('ended'); onClosed(reason); },
-      closed: (reason) => { if (!cancelled) onClosed(reason || 'You left the meeting.'); },
+      /**
+       * Being removed or the meeting ending are things done *to* us, so they
+       * are worth a chime and a screen explaining what happened. Our own exit
+       * is neither, and `leavingRef` is how the difference is told — the server
+       * sends `ended` to everybody, including whoever caused it.
+       */
+      removed: (reason) => {
+        if (leavingRef.current) return;
+        chimes.current?.play('ended');
+        onClosed(reason);
+      },
+      ended: (reason) => {
+        if (leavingRef.current) return;
+        chimes.current?.play('ended');
+        onClosed(reason);
+      },
+      closed: (reason) => {
+        if (cancelled || leavingRef.current) return;
+        onClosed(reason || 'You left the meeting.');
+      },
       /**
        * The host moved the meeting's bandwidth budget.
        *
@@ -912,7 +938,16 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     }
 
     try {
-      const track = await room.startScreen();
+      /**
+       * The choice from Settings, which used to go nowhere.
+       *
+       * `startScreen` has always taken a mode and set the track's
+       * `contentHint` from it — but it was called with no argument, so every
+       * share was "keep it smooth" regardless of what the reader picked. On a
+       * shared spreadsheet that is the wrong trade and there was no way to
+       * change it.
+       */
+      const track = await room.startScreen(settings.screenOptimise ?? 'motion');
       // Only claim to be presenting once there is something to present. This
       // used to be set unconditionally, so a share that never started still
       // flipped the button to "Stop presenting".
@@ -936,9 +971,16 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   }
 
   /**
-   * Leaving, once any question about it has been answered.
+   * Leaving.
+   *
+   * `leavingRef` is set before anything else happens. Closing the room makes
+   * the server tell everybody the call is over, and that message comes back to
+   * us too — so without this flag our own departure raced the redirect and
+   * dropped us on the "Meeting ended" screen instead of taking us back to our
+   * meetings. The flag is what distinguishes "I left" from "it ended".
    */
   async function leaveNow() {
+    leavingRef.current = true;
     roomRef.current?.close();
     await meetingApi.leave(code).catch(() => {});
 
@@ -962,38 +1004,16 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   }, [meeting?.joinUrl]);
 
   /**
-   * The host clicking Leave.
+   * Leaving, for everybody including the host.
    *
-   * Only ever a question when it is genuinely one: the person leaving is the
-   * host, and there is somebody left behind for it to matter to. Everybody
-   * else — participants, co-hosts, a host alone in the room — just leaves,
-   * because asking them would be a dialog with no real choice in it.
+   * A host used to be stopped here and asked to nominate a successor before
+   * they could go. It was a question the product can answer for itself — and
+   * one it could not ask at all when a host simply lost their connection, which
+   * is the common case. The room now hands itself to whoever is still in it,
+   * so there is nothing left to decide. See `reconcileHost` in
+   * `services/meeting.service.js`.
    */
-  function leave() {
-    const isOwner = meeting?.viewer?.role === 'host' || role === 'host';
-    if (isOwner && everyone.length > 0) return setLeaving(true);
-    return leaveNow();
-  }
-
-  async function handOverAndLeave(texorId) {
-    try {
-      await meetingApi.transferHost(code, texorId);
-    } catch (transferError) {
-      setError(transferError.message);
-      return;
-    }
-    await leaveNow();
-  }
-
-  async function endAndLeave() {
-    try {
-      await roomRef.current?.endMeeting();
-    } catch (endError) {
-      setError(endError.message);
-      return;
-    }
-    await leaveNow();
-  }
+  const leave = leaveNow;
 
   /**
    * Who is presenting, and — for us — deliberately without the picture.
@@ -1087,6 +1107,40 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   );
 
   const everyone = [...peers.values()];
+
+  /**
+   * Leaving a call nobody else joined.
+   *
+   * The setting offered this and nothing implemented it, so a meeting opened
+   * by mistake — or one everybody else forgot about — sat holding a camera, a
+   * microphone and a server slot until the machine was noticed.
+   *
+   * The clock only runs while you are genuinely alone, and any arrival stops
+   * it for good rather than pausing it: somebody who joins and leaves again
+   * has still shown the meeting is real. A minute before the end there is a
+   * warning, because being dropped from a call with no notice is worse than
+   * sitting in an empty one.
+   */
+  const ALONE_LIMIT_MS = 5 * 60_000;
+  const aloneRef = useRef(false);
+
+  useEffect(() => {
+    if (settings.leaveEmpty === false) return undefined;
+    // Once anybody has been here, this meeting is not an accident.
+    if (everyone.length > 0) { aloneRef.current = true; return undefined; }
+    if (aloneRef.current) return undefined;
+
+    const warn = setTimeout(
+      () => setNotice('Nobody else has joined. You will leave this meeting in a minute.'),
+      ALONE_LIMIT_MS - 60_000,
+    );
+    const go = setTimeout(() => { leaveNow(); }, ALONE_LIMIT_MS);
+
+    return () => { clearTimeout(warn); clearTimeout(go); };
+    // `leaveNow` is stable for the life of the call; re-running on it would
+    // restart the clock on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [everyone.length, settings.leaveEmpty]);
   const tileCount = everyone.length + 1;
   const alone = everyone.length === 0;
   const inviteInstead = showInviteInstead({ peerCount: everyone.length, cameraOn, status });
@@ -1305,24 +1359,18 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
             failing track cannot silence everybody else. */}
         {everyone.map((peer) => (
           <Fragment key={`${peer.texorId}-audio`}>
-            {peer.tracks.mic ? <RemoteAudio track={peer.tracks.mic} /> : null}
+            {peer.tracks.mic
+              ? <RemoteAudio track={peer.tracks.mic} speakerId={settings.speakerId} />
+              : null}
             {/* Program audio from someone else's share. We never play back our
                 own — the SFU does not send us our own producers — which is what
                 stops a presenter hearing their content a round trip late. */}
-            {peer.tracks.screenAudio ? <RemoteAudio track={peer.tracks.screenAudio} /> : null}
+            {peer.tracks.screenAudio
+              ? <RemoteAudio track={peer.tracks.screenAudio} speakerId={settings.speakerId} />
+              : null}
           </Fragment>
         ))}
       </main>
-
-      {leaving ? (
-        <LeaveDialog
-          peers={everyone}
-          onCancel={() => setLeaving(false)}
-          onHandOver={handOverAndLeave}
-          onEnd={endAndLeave}
-          onJustLeave={leaveNow}
-        />
-      ) : null}
 
       {settingsTab ? (
         <SettingsDialog
@@ -1361,7 +1409,8 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           <Clock />
           <span className="meet__divider" aria-hidden="true" />
           <MeetingTimer
-            startedAt={meeting?.startedAt}
+            activeMs={meeting?.activeMs}
+            activeSince={meeting?.activeSince}
             maxDurationMinutes={meeting?.maxDurationMinutes}
           />
           <span className="meet__divider meet__divider--wide" aria-hidden="true" />
@@ -1964,99 +2013,7 @@ function hashOf(value) {
   return hash;
 }
 
-/**
- * What a host is asked when they leave a meeting other people are still in.
- *
- * Three genuinely different intentions, and guessing wrong is costly in both
- * directions: ending a call everyone is still using, or leaving a room nobody
- * can admit anyone into. Handing over is offered first because it is usually
- * what somebody stepping out actually means.
- */
-function LeaveDialog({ peers, onCancel, onHandOver, onEnd, onJustLeave }) {
-  const [choice, setChoice] = useState(peers.length === 1 ? peers[0].texorId : '');
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const onKey = (event) => { if (event.key === 'Escape') onCancel(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
-
-  const run = (action) => async () => {
-    setBusy(true);
-    await action();
-    setBusy(false);
-  };
-
-  return (
-    <div className="dialog__scrim" role="presentation" onPointerDown={(event) => {
-      if (event.target === event.currentTarget) onCancel();
-    }}>
-      <div className="leave" role="dialog" aria-modal="true" aria-label="Leaving the meeting">
-        <h2>You are hosting this meeting</h2>
-        <p className="leave__lead">
-          {peers.length === 1
-            ? `${peers[0].name} is still here.`
-            : `${peers.length} other people are still here.`} What would you like to do?
-        </p>
-
-        <div className="leave__option">
-          <div className="leave__option-head">
-            <strong>Make someone else the host</strong>
-            <span>They can admit people, mute and end the meeting. You stay a co-host.</span>
-          </div>
-          <div className="leave__pick">
-            <select
-              className="setting__select"
-              aria-label="Who should host"
-              value={choice}
-              onChange={(event) => setChoice(event.target.value)}
-            >
-              <option value="">Choose someone…</option>
-              {peers.map((peer) => (
-                <option key={peer.texorId} value={peer.texorId}>{peer.name}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="meet__chip meet__chip--primary"
-              disabled={!choice || busy}
-              onClick={run(() => onHandOver(choice))}
-            >
-              Hand over &amp; leave
-            </button>
-          </div>
-        </div>
-
-        <div className="leave__option">
-          <div className="leave__option-head">
-            <strong>Just leave</strong>
-            <span>The meeting carries on without a host until you come back.</span>
-          </div>
-          <button type="button" className="meet__chip" disabled={busy} onClick={run(onJustLeave)}>
-            Leave
-          </button>
-        </div>
-
-        <div className="leave__option leave__option--danger">
-          <div className="leave__option-head">
-            <strong>End the meeting for everyone</strong>
-            <span>Everybody is disconnected. This cannot be undone.</span>
-          </div>
-          <button type="button" className="meet__chip meet__chip--danger" disabled={busy} onClick={run(onEnd)}>
-            End for everyone
-          </button>
-        </div>
-
-        <button type="button" className="leave__cancel" onClick={onCancel} disabled={busy}>
-          Stay in the meeting
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function RemoteAudio({ track }) {
+function RemoteAudio({ track, speakerId }) {
   const element = useRef(null);
 
   useEffect(() => {
@@ -2068,6 +2025,26 @@ function RemoteAudio({ track }) {
 
     return () => { audio.srcObject = null; };
   }, [track]);
+
+  /**
+   * Which speakers this comes out of.
+   *
+   * Its own effect, so changing the output device does not tear down and
+   * restart the stream — that would cut everybody off mid-sentence to apply a
+   * setting.
+   *
+   * `setSinkId` is not everywhere: Firefox has it behind a flag and iOS has no
+   * concept of choosing an output at all. Where it is missing the system
+   * default is used, which is the behaviour every other product falls back to
+   * as well. The picker offered this choice and nothing acted on it before.
+   */
+  useEffect(() => {
+    const audio = element.current;
+    if (!audio || typeof audio.setSinkId !== 'function') return;
+
+    // '' is the documented way to ask for the system default.
+    audio.setSinkId(speakerId ?? '').catch(() => {});
+  }, [speakerId]);
 
   return <audio ref={element} autoPlay hidden />;
 }
@@ -2087,11 +2064,33 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
   const video = useRef(null);
   const streamRef = useRef(null);
 
-  const [micOn, setMicOn] = useState(true);
-  const [cameraOn, setCameraOn] = useState(true);
+  /**
+   * What this person chose last time.
+   *
+   * Read once, on the way in. The green room used to start every join from
+   * hard-coded defaults — camera on, microphone on, system devices — so the
+   * four settings that exist to answer this exact question ("join muted",
+   * "join with camera off", which microphone, which camera) were collected in
+   * Settings and never read by anything.
+   */
+  const saved = useMemo(() => joinDefaults(), []);
+
+  const [micOn, setMicOn] = useState(saved.micOn);
+  const [cameraOn, setCameraOn] = useState(saved.cameraOn);
   const [devices, setDevices] = useState({ mics: [], cameras: [] });
-  const [chosen, setChosen] = useState({ mic: '', camera: '' });
+  const [chosen, setChosen] = useState(saved.chosen);
   const [deviceError, setDeviceError] = useState(null);
+
+  /**
+   * Remember a choice the moment it is made, rather than on the way through.
+   *
+   * Merged over a fresh read so this cannot clobber something changed in the
+   * settings dialog while the green room was open — the two write to the same
+   * store, and the last full object written would otherwise win.
+   */
+  const remember = useCallback((patch) => {
+    savePreferences({ ...loadPreferences(), ...patch });
+  }, []);
 
   // Preview the selected camera, and re-open it when the choice changes.
   useEffect(() => {
@@ -2115,12 +2114,44 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
          *
          * One prompt, before the call, covering both.
          */
-        const stream = await navigator.mediaDevices.getUserMedia({
+        /**
+         * Remembered devices are asked for exactly, then not at all.
+         *
+         * A stored id names a piece of hardware that may not be here any more
+         * — a headset unplugged, a dock left at the office, a different laptop
+         * with the same account. `exact` makes that an OverconstrainedError
+         * that fails the whole request, taking the microphone down with the
+         * camera. So the remembered choice is attempted, and a failure falls
+         * back to whatever the system has rather than leaving somebody unable
+         * to join at all. The stale id is forgotten on the way past, or the
+         * same fallback would happen on every join from now on.
+         */
+        const exact = {
           audio: chosen.mic ? { deviceId: { exact: chosen.mic } } : true,
           video: cameraOn
             ? (chosen.camera ? { deviceId: { exact: chosen.camera } } : true)
             : false,
-        });
+        };
+
+        let stream;
+        let fellBack = '';
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(exact);
+        } catch (error) {
+          const named = Boolean(chosen.mic || chosen.camera);
+          // Only a constraint failure is worth retrying. A refused permission
+          // would fail again identically, and asking twice is worse than once.
+          if (!named || error.name !== 'OverconstrainedError') throw error;
+
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: cameraOn });
+
+          if (cancelled) { stream.getTracks().forEach((track) => track.stop()); return; }
+
+          setChosen({ mic: '', camera: '' });
+          remember(joinPatch({ chosen: { mic: '', camera: '' } }));
+          fellBack = 'The device you used last time is not available, so the system default is selected.';
+        }
 
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
@@ -2131,7 +2162,9 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
         // Only the picture is previewed. Playing our own microphone back would
         // be an echo, and a loud one on speakers.
         if (video.current) video.current.srcObject = stream;
-        setDeviceError(null);
+        // Held until here: clearing unconditionally would wipe the note about
+        // the missing device a moment after writing it.
+        setDeviceError(fellBack || null);
 
         const all = await navigator.mediaDevices.enumerateDevices();
         if (cancelled) return;
@@ -2209,7 +2242,14 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
               className={`gr__toggle ${micOn ? '' : 'gr__toggle--off'}`}
               aria-pressed={!micOn}
               aria-label={micOn ? 'Join with microphone off' : 'Join with microphone on'}
-              onClick={() => setMicOn((on) => !on)}
+              onClick={() => {
+                const next = !micOn;
+                setMicOn(next);
+                // Stored as "join muted", which is the question Settings asks.
+                // Outside the updater: StrictMode may run one of those twice,
+                // and an updater that writes to storage is not a pure function.
+                remember(joinPatch({ micOn: next }));
+              }}
             >
               {micOn ? <MicIcon /> : <MicOffIcon />}
             </button>
@@ -2218,7 +2258,11 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
               className={`gr__toggle ${cameraOn ? '' : 'gr__toggle--off'}`}
               aria-pressed={!cameraOn}
               aria-label={cameraOn ? 'Join with camera off' : 'Join with camera on'}
-              onClick={() => setCameraOn((on) => !on)}
+              onClick={() => {
+                const next = !cameraOn;
+                setCameraOn(next);
+                remember(joinPatch({ cameraOn: next }));
+              }}
             >
               {cameraOn ? <CameraIcon /> : <CameraOffIcon />}
             </button>
@@ -2234,7 +2278,11 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
                 <select
                   aria-label="Microphone"
                   value={chosen.mic}
-                  onChange={(event) => setChosen((c) => ({ ...c, mic: event.target.value }))}
+                  onChange={(event) => {
+                    const mic = event.target.value;
+                    setChosen((c) => ({ ...c, mic }));
+                    remember(joinPatch({ chosen: { mic } }));
+                  }}
                 >
                   <option value="">Default microphone</option>
                   {devices.mics.map((d) => (
@@ -2249,7 +2297,11 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
                 <select
                   aria-label="Camera"
                   value={chosen.camera}
-                  onChange={(event) => setChosen((c) => ({ ...c, camera: event.target.value }))}
+                  onChange={(event) => {
+                    const camera = event.target.value;
+                    setChosen((c) => ({ ...c, camera }));
+                    remember(joinPatch({ chosen: { camera } }));
+                  }}
                 >
                   <option value="">Default camera</option>
                   {devices.cameras.map((d) => (
@@ -2264,8 +2316,10 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
 
       {/* ── what you are about to join ── */}
       <div className="gr__side">
-        <span className={`gr__state ${meeting?.status === 'live' ? 'gr__state--live' : ''}`}>
-          {meeting?.status === 'live' ? 'In progress' : 'Ready when you are'}
+        {/* What the room is, not what the record says: "in progress" over an
+            empty room is the same lie the meetings list used to tell. */}
+        <span className={`gr__state ${(meeting?.presentCount ?? 0) > 0 ? 'gr__state--live' : ''}`}>
+          {(meeting?.presentCount ?? 0) > 0 ? 'In progress' : 'Ready when you are'}
         </span>
 
         <h1 className="gr__title">{meeting?.title}</h1>
@@ -2301,7 +2355,10 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
             }}
             loading={joining}
           >
-            {isHost && meeting?.status !== 'live' ? 'Start the meeting' : 'Join now'}
+            {/* "Start" when the room is empty, whoever you are — anyone can
+                open it now, and a host walking into a busy room is joining it
+                like everybody else. */}
+            {(meeting?.presentCount ?? 0) > 0 ? 'Join now' : 'Start the meeting'}
           </Button>
           <button
             type="button"
@@ -2352,7 +2409,14 @@ function OverCard({ meeting, error, errorCode, notice, code, onBack }) {
   return (
     <>
       <div>
-        <h1>{missing ? 'This meeting no longer exists' : error ? 'Cannot join' : 'Meeting ended'}</h1>
+        {/*
+          * "Meeting ended" is no longer the ordinary case, so it is no longer
+          * the default heading. A room that emptied out is not over — its link
+          * still opens it — and this screen is now only reached by a meeting
+          * that was cancelled, a code that resolves to nothing, a refusal, or
+          * somebody else closing the room while you were in it.
+          */}
+        <h1>{missing ? 'This meeting no longer exists' : error ? 'Cannot join' : 'You left the meeting'}</h1>
         {meeting?.title ? <p className="meta" style={{ marginTop: '0.35rem' }}>{meeting.title}</p> : null}
       </div>
 
@@ -2368,8 +2432,15 @@ function OverCard({ meeting, error, errorCode, notice, code, onBack }) {
         </>
       ) : (
         <>
-          <Alert kind={error ? 'error' : 'info'}>{error ?? notice ?? 'This meeting is over.'}</Alert>
-          <Button onClick={onBack}>Back to meetings</Button>
+          <Alert kind={error ? 'error' : 'info'}>
+            {error ?? notice ?? 'You are no longer in this meeting.'}
+          </Alert>
+          <div className="row" style={{ gap: '0.6rem' }}>
+            {/* The room can be opened again, so offer that rather than only
+                the way out. */}
+            <Button onClick={() => window.location.reload()}>Rejoin</Button>
+            <Button variant="secondary" onClick={onBack}>Back to meetings</Button>
+          </div>
         </>
       )}
     </>

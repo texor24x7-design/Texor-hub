@@ -125,10 +125,19 @@ console.log('\n── org policy holds guests at the door ──');
 // The host set `lobby: 'off'`, but a guest has no account and is external by
 // definition, and `forceLobbyForExternal` defaults on — policy tightens what a
 // host chose, and never the other way round.
+/**
+ * Arriving before anybody else is a wait, not a refusal.
+ *
+ * It used to be a 409 saying to come back later, on the reasoning that no host
+ * would ever see the knock. A room can be reopened by anyone allowed in now, so
+ * the host turning up later finds this person still at the door — and the guest
+ * is still held there, which is the part that matters.
+ */
 const beforeHost = await call(guestCookie, `/api/meetings/${open.code}/join`, { method: 'POST' });
-check('with nobody there, a guest is told to come back',
-  beforeHost.status === 409 && beforeHost.body.error.code === 'host_not_present',
-  JSON.stringify(beforeHost.body));
+check('with nobody there, a guest waits rather than being turned away',
+  beforeHost.body.status === 'waiting', JSON.stringify(beforeHost.body).slice(0, 160));
+check('and is certainly not let into an empty room',
+  beforeHost.body.status !== 'admitted' && !beforeHost.body.media, JSON.stringify(beforeHost.body).slice(0, 160));
 
 await call(host.cookie, `/api/meetings/${open.code}/join`, { method: 'POST' });
 

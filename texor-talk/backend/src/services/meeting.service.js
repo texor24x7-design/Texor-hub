@@ -151,9 +151,20 @@ export async function evaluateJoin({ meeting, user, policy, now = new Date() }) 
   if (meeting.status === 'cancelled') {
     throw new ApiError(410, 'meeting_cancelled', 'This meeting was cancelled.');
   }
-  if (meeting.status === 'ended' && !meeting.isHost(user.texorId)) {
-    throw new ApiError(410, 'meeting_ended', 'This meeting has ended.');
-  }
+  /**
+   * An ended meeting is *idle*, not finished.
+   *
+   * This used to refuse everybody but the host with a 410, which meant a link
+   * shared with ten people stopped working the moment the room emptied out —
+   * and the only way back in was for the one person who owned it to go first.
+   * A room is a place; walking into an empty one is allowed.
+   *
+   * Nothing that actually protects a meeting lives here. Removal, access,
+   * capacity, the lobby, the join window and the duration cap are all below
+   * and all unchanged, so this widens *when* a link works, never *who* it
+   * works for. `cancelled` keeps its refusal above: that one was deliberate
+   * and is meant to be final.
+   */
 
   if (meeting.isRemoved(user.texorId)) {
     throw ApiError.forbidden('You were removed from this meeting.');
@@ -210,8 +221,10 @@ export async function evaluateJoin({ meeting, user, policy, now = new Date() }) 
   }
 
   // ── Has it run past its limit ──
+  // Occupied minutes, not minutes since it started: an hour of nobody being
+  // here should not spend somebody's hour.
   if (meeting.maxDurationMinutes > 0 && meeting.startedAt) {
-    const elapsedMinutes = (now.getTime() - meeting.startedAt.getTime()) / MINUTE;
+    const elapsedMinutes = elapsedMsOf(meeting, now.getTime()) / MINUTE;
     if (elapsedMinutes > meeting.maxDurationMinutes) {
       throw new ApiError(
         410,
@@ -238,16 +251,21 @@ export async function evaluateJoin({ meeting, user, policy, now = new Date() }) 
   const mustKnock =
     !isHost && (lobby === 'everyone' || (lobby === 'external' && (isExternal || role === 'guest')));
 
-  // Nobody to let them in. Rather than leave someone staring at a waiting
-  // screen no host will ever see, the first arrival opens the room themselves.
-  if (mustKnock && meeting.liveAttendance().length === 0 && meeting.status !== 'live') {
-    throw new ApiError(
-      409,
-      'host_not_present',
-      'The host has not started this meeting yet. Try again once it begins.',
-    );
-  }
-
+  /**
+   * An empty room used to be a refusal, and is now a wait.
+   *
+   * The reasoning behind the refusal was that nobody would ever see the knock —
+   * "the host has not started this meeting yet" was the honest answer when an
+   * ended meeting could only be reopened by its owner and a room with nobody in
+   * it had no way back. Neither is true any more: the link opens the room for
+   * anyone allowed in, so the host arriving later finds the person waiting and
+   * lets them through.
+   *
+   * Admitting them instead would be the other way to make the link "work", and
+   * it is the wrong one — it would hand the first stranger to find the code an
+   * empty room, which is exactly what the lobby exists to prevent. Knocks
+   * expire on their own, so nobody waits forever.
+   */
   return { outcome: mustKnock ? 'knock' : 'admit', role, isExternal, lobby };
 }
 
@@ -291,10 +309,130 @@ export async function markJoined({ meeting, user, role, now = new Date() }) {
   if (started) {
     meeting.status = 'live';
     meeting.startedAt = meeting.startedAt ?? now;
+
+    // Left behind until now, so a running meeting carried the time it had
+    // supposedly ended at — which read as a contradiction anywhere the two
+    // were shown together, and would have made "is it over" ambiguous for
+    // anything deciding by `endedAt` rather than by status.
+    meeting.endedAt = null;
+    meeting.endedReason = '';
   }
+
+  // Somebody is here by definition, so the clock runs; and if nobody present
+  // can run the room, the person who just arrived can.
+  const here = meeting.liveAttendance().map((entry) => entry.texorId);
+  syncActiveTime(meeting, here.length, now);
+  reconcileHost(meeting, here);
 
   await meeting.save();
   return { started, wasPresent };
+}
+
+/**
+ * How long the room has actually been occupied, in milliseconds.
+ *
+ * `activeMs` is what previous stretches banked; `activeSince` is the one still
+ * running. Reading them together is the only correct way to ask "how long has
+ * this meeting been going" — `now - startedAt` counts the hours nobody was
+ * here, and counts them again after a reopen.
+ */
+export const elapsedMsOf = (meeting, now = Date.now()) => {
+  const banked = Number(meeting.activeMs) || 0;
+  if (!meeting.activeSince) return banked;
+
+  // Clamped: a clock that steps backwards must not subtract from time that was
+  // genuinely spent.
+  return banked + Math.max(0, now - new Date(meeting.activeSince).getTime());
+};
+
+/**
+ * Start or stop the clock as the room fills and empties.
+ *
+ * Idempotent in both directions, which matters because presence is reconciled
+ * from several places — a join, a leave, the five-second ticker, and a lazy
+ * sweep on read — and two of them can easily see the same transition. Calling
+ * this twice for one departure must not bank the stretch twice.
+ */
+export function syncActiveTime(meeting, presentCount, now = new Date()) {
+  const at = now instanceof Date ? now : new Date(now);
+
+  if (presentCount > 0) {
+    if (!meeting.activeSince) meeting.activeSince = at;
+    return false;
+  }
+
+  if (!meeting.activeSince) return false;
+
+  meeting.activeMs = (Number(meeting.activeMs) || 0)
+    + Math.max(0, at.getTime() - new Date(meeting.activeSince).getTime());
+  meeting.activeSince = null;
+  return true;
+}
+
+/**
+ * Who, of the people currently here, should run the room.
+ *
+ * Prefers a signed-in member over a guest, then whoever has been here longest.
+ * A guest ends up hosting only a room that is entirely guests — which is the
+ * right answer for a room that is entirely guests, and the wrong one anywhere
+ * else.
+ */
+export function earliestJoined(meeting, presentTexorIds) {
+  const present = new Set(presentTexorIds);
+
+  const candidates = meeting.attendance
+    .filter((entry) => present.has(entry.texorId))
+    .sort((left, right) => {
+      const guest = Number(left.role === 'guest') - Number(right.role === 'guest');
+      if (guest !== 0) return guest;
+      return new Date(left.firstJoinedAt).getTime() - new Date(right.firstJoinedAt).getTime();
+    });
+
+  return candidates[0]?.texorId ?? null;
+}
+
+/**
+ * Keep the room in the hands of somebody who is in it.
+ *
+ * A meeting used to be left hostless the moment its owner closed their laptop:
+ * nobody could admit from the lobby, nobody could mute, and a knocker waited
+ * at a door that could not be opened. The old answer was a dialog asking the
+ * departing host to nominate a successor, which is a question the product can
+ * answer for itself — and could not answer at all when the host simply lost
+ * their connection.
+ *
+ * Returns true when something changed, so callers know whether to save.
+ */
+export function reconcileHost(meeting, presentTexorIds) {
+  const present = new Set(presentTexorIds);
+  const before = meeting.actingHostTexorId;
+
+  /**
+   * The owner takes it back by walking in.
+   *
+   * The stand-in becomes a co-host rather than dropping to nothing: they have
+   * been running the room, possibly for an hour, and taking the admit button
+   * out of their hands the moment the owner reappears would be a worse
+   * surprise than leaving it there.
+   */
+  if (present.has(meeting.hostTexorId)) {
+    if (before && before !== meeting.hostTexorId && !meeting.cohostTexorIds.includes(before)) {
+      meeting.cohostTexorIds.push(before);
+    }
+    meeting.actingHostTexorId = null;
+    return before !== null;
+  }
+
+  const covered = meeting.cohostTexorIds.some((id) => present.has(id))
+    || Boolean(before && present.has(before));
+
+  // Somebody here can already run it, or there is nobody here to hand it to.
+  // An empty room keeps its last stand-in: they are the likeliest person to
+  // come back, and the next arrival takes it from them anyway.
+  if (covered || present.size === 0) return false;
+
+  meeting.actingHostTexorId = earliestJoined(meeting, present);
+  return meeting.actingHostTexorId !== before;
 }
 
 export async function markLeft({ meeting, texorId, now = new Date() }) {
@@ -303,6 +441,20 @@ export async function markLeft({ meeting, texorId, now = new Date() }) {
 
   entry.leftAt = now;
   entry.lastSeenAt = now;
+
+  /**
+   * The last person out stops the clock.
+   *
+   * This cannot be left to the ticker: when the final socket closes the room is
+   * deleted from memory, and the ticker only visits meetings that still have a
+   * connected socket — so it would never look at this meeting again and the
+   * running stretch would stay open forever, quietly counting an empty room
+   * for as long as the record lasted.
+   */
+  const here = meeting.liveAttendance().map((item) => item.texorId);
+  syncActiveTime(meeting, here.length, now);
+  reconcileHost(meeting, here);
+
   await meeting.save();
   return true;
 }
@@ -335,6 +487,18 @@ export function markPresent(meeting, texorIds, now = new Date()) {
     changed = true;
   }
 
+  /**
+   * The two things that follow from presence, settled here because this is the
+   * only place holding the authoritative list of who is connected.
+   *
+   * `markPresent` runs from the five-second ticker and from the lazy sweep on
+   * read, so both the clock and the room's custody stay right even when the
+   * events that should have updated them were missed — a browser that crashed
+   * without a close frame, a server restart, a socket that died silently.
+   */
+  if (syncActiveTime(meeting, present.size, now)) changed = true;
+  if (reconcileHost(meeting, texorIds)) changed = true;
+
   return changed;
 }
 
@@ -356,6 +520,12 @@ export function reapStaleAttendance(meeting, now = new Date()) {
       changed = true;
     }
   }
+
+  // Reaping is how a crashed client is noticed, and it can be what empties the
+  // room — so the clock has to stop here too, backdated to nothing later than
+  // now. Without this, a room emptied by a crash rather than a goodbye would
+  // keep counting.
+  if (changed && syncActiveTime(meeting, meeting.liveAttendance().length, now)) changed = true;
 
   return changed;
 }
@@ -390,6 +560,19 @@ export async function endMeeting({ meeting, reason, now = new Date() }) {
   meeting.endedAt = now;
   meeting.endedReason = reason;
 
+  // Everybody was just marked gone, so the stretch that was running is over.
+  syncActiveTime(meeting, 0, now);
+
+  /**
+   * Custody ends with the sitting.
+   *
+   * Cleared rather than kept, because the next person through the door should
+   * be able to run the room — leaving a stand-in named here would mean an
+   * empty, reopened meeting had a host who was not in it and could not admit
+   * anybody.
+   */
+  meeting.actingHostTexorId = null;
+
   // Everybody in the waiting room is waiting for a door that is now shut.
   await Knock.updateMany(
     { meeting: meeting._id, status: 'waiting' },
@@ -422,11 +605,19 @@ export function rollForward(meeting, now = new Date()) {
   meeting.endedAt = null;
   meeting.endedReason = '';
   meeting.attendance = [];
+  // A new occurrence has run for no time and is nobody's to host yet.
+  meeting.activeMs = 0;
+  meeting.activeSince = null;
+  meeting.actingHostTexorId = null;
   return true;
 }
 
 export default {
   allocateCode,
+  elapsedMsOf,
+  syncActiveTime,
+  reconcileHost,
+  earliestJoined,
   currentOccurrence,
   joinWindow,
   evaluateJoin,

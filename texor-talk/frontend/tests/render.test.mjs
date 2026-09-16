@@ -137,9 +137,13 @@ console.log('\n── nothing in the document becomes markup ──');
 console.log('\n── the meeting timer ──');
 {
   const { MeetingTimer } = await import('@/components/MeetingTimer');
-  const start = new Date(Date.now() - 65_000).toISOString();
 
-  const running = render('a running timer', h(MeetingTimer, { startedAt: start }));
+  // The clock is fed banked time plus the stretch currently running, not a
+  // start time — an empty room must not keep counting.
+  const since = new Date(Date.now() - 65_000).toISOString();
+
+  const running = render('a running timer', h(MeetingTimer, { activeSince: since }));
+  check('a running timer renders at all', running.html !== '', JSON.stringify(running.html));
   if (running.html) {
     check('a running timer', true);
     check('it shows a clock', /\d+:\d\d/.test(running.html), running.html);
@@ -149,14 +153,23 @@ console.log('\n── the meeting timer ──');
       !running.html.includes('meet__left'), running.html);
   }
 
-  // Before anyone joins there is no start time, and no clock to draw.
-  const idle = render('a meeting that has not started', h(MeetingTimer, { startedAt: null }));
+  // Before anyone joins there is nothing banked and nobody there, so no clock.
+  const idle = render('a meeting that has not started', h(MeetingTimer, { activeSince: null }));
   check('a meeting that has not started renders nothing', idle.html === '', JSON.stringify(idle.html));
 
+  /**
+   * An empty room that has already run is not the same thing. It holds its
+   * total rather than disappearing — a timer that blanked when the last person
+   * stepped out would read as the time having been lost rather than paused.
+   */
+  const held = render('an empty room that has run', h(MeetingTimer, { activeMs: 125_000, activeSince: null }));
+  check('an empty room still shows its total', /2:05/.test(held.html), held.html);
+
   const nearly = render('a meeting near its limit', h(MeetingTimer, {
-    startedAt: new Date(Date.now() - 55 * 60_000).toISOString(),
+    activeSince: new Date(Date.now() - 55 * 60_000).toISOString(),
     maxDurationMinutes: 60,
   }));
+  check('a meeting near its limit renders', nearly.html !== '', JSON.stringify(nearly.html));
   if (nearly.html) {
     check('a meeting near its limit', true);
     check('it warns', nearly.html.includes('meet__left'), nearly.html);
@@ -164,9 +177,10 @@ console.log('\n── the meeting timer ──');
   }
 
   const over = render('a meeting past its limit', h(MeetingTimer, {
-    startedAt: new Date(Date.now() - 90 * 60_000).toISOString(),
+    activeSince: new Date(Date.now() - 90 * 60_000).toISOString(),
     maxDurationMinutes: 60,
   }));
+  check('a meeting past its limit renders', over.html !== '', JSON.stringify(over.html));
   if (over.html) {
     check('a meeting past its limit', true);
     check('it says time is up', over.html.includes('Time is up'), over.html);

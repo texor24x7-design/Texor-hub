@@ -22,6 +22,7 @@
 import { Device } from 'mediasoup-client';
 import { API_ORIGIN } from '@/lib/api';
 import { readConnection } from '@/lib/stats';
+import { createPending } from '@/lib/pending';
 import {
   CAMERA_ENCODINGS, SCREEN_MODES, cameraBudget, cameraEncodings, screenConstraints, screenEncodings,
 } from '@/lib/encodings';
@@ -51,7 +52,8 @@ export class MeetingRoom {
     this.producers = new Map(); // source -> Producer
     this.consumers = new Map(); // consumerId -> { consumer, peerTexorId, source }
 
-    this.pending = new Map(); // request id -> { resolve, reject }
+    // Every request leaves this exactly once: reply, timeout, or abort.
+    this.pending = createPending({ timeout: 20_000 });
     this.nextRequestId = 1;
     this.closed = false;
     this.reconnecting = false;
@@ -70,22 +72,37 @@ export class MeetingRoom {
 
   /** One request, one reply, correlated by id. */
   request(action, data = {}) {
-    return new Promise((resolve, reject) => {
-      if (this.socket?.readyState !== WebSocket.OPEN) {
-        reject(new Error('Not connected to the meeting.'));
-        return;
-      }
+    if (this.socket?.readyState !== WebSocket.OPEN) {
+      return Promise.reject(Object.assign(
+        new Error('Not connected to the meeting.'),
+        { retryable: true, code: 'disconnected' },
+      ));
+    }
 
-      const id = this.nextRequestId++;
-      this.pending.set(id, { resolve, reject });
+    const id = this.nextRequestId++;
+    const settled = this.pending.add(id, action);
+
+    try {
       this.socket.send(JSON.stringify({ id, action, data }));
+    } catch (error) {
+      // Nothing left the machine, so nothing is going to reply to it. Settled
+      // here rather than left to the timeout, which would otherwise hold a
+      // request for twenty seconds that failed before it was sent.
+      this.pending.settle(id, { ok: false, error: { code: 'send_failed', message: error.message } });
+    }
 
-      // A request that never comes back would otherwise leave the UI waiting
-      // forever on a promise nothing will settle.
-      setTimeout(() => {
-        if (this.pending.delete(id)) reject(new Error(`${action} timed out.`));
-      }, 20_000);
-    });
+    return settled;
+  }
+
+  /**
+   * Reject everything still waiting for a reply, and forget it.
+   *
+   * Called when the socket goes away. `retryable` because a dropped socket is
+   * a reconnect, not an ended meeting — the same distinction `onclose` makes
+   * about the connection itself.
+   */
+  abortPending(reason) {
+    this.pending.abort(reason);
   }
 
   connect() {
@@ -117,6 +134,23 @@ export class MeetingRoom {
           new Error(event.reason || 'The meeting connection closed.'),
           { retryable: !DELIBERATE_CLOSE.includes(event.code) },
         ));
+
+        /**
+         * Nothing in flight is coming back.
+         *
+         * Every request waiting on this socket used to be left in `pending`
+         * with nothing able to settle it: the reply had nowhere to arrive, and
+         * the only thing left was its own twenty-second timer. The reconnect
+         * below would succeed, the meeting would carry on, and then long after
+         * everything was working again the abandoned timers fired and reported
+         * "consume timed out" for a socket that had closed twenty seconds
+         * earlier. The error was real; it was describing the past.
+         *
+         * Settling them here makes the failure land at the moment it happened,
+         * and marks it retryable so a caller treats it as the blip it is.
+         */
+        this.abortPending(event.reason || 'The meeting connection closed.');
+
         if (this.closed) return;
 
         /**
@@ -141,12 +175,7 @@ export class MeetingRoom {
 
         // A reply to something we asked.
         if (message.id !== undefined) {
-          const waiting = this.pending.get(message.id);
-          if (!waiting) return;
-          this.pending.delete(message.id);
-
-          if (message.ok) waiting.resolve(message.data);
-          else waiting.reject(Object.assign(new Error(message.error.message), { code: message.error.code }));
+          this.pending.settle(message.id, message);
           return;
         }
 
@@ -358,7 +387,26 @@ export class MeetingRoom {
         // Announced before consuming, so the indicator flips as soon as the
         // track exists rather than when its first packet has been negotiated.
         this.on.peerProducerAdded?.(data);
-        await this.consume(data.producerId);
+
+        /**
+         * The one consume that was not guarded, and the one most likely to
+         * fail: it runs the instant somebody turns a camera on, rather than
+         * during a setup the caller is already waiting on.
+         *
+         * A rejection here used to have nowhere to go and surfaced as an
+         * unhandled rejection — "consume timed out", twenty seconds after a
+         * connection blip that had already been recovered from.
+         *
+         * Losing the socket is not worth reporting, because reconnecting
+         * consumes every producer in the room again and this track comes back
+         * with the rest. Nor is `gone`, which only means the person stopped
+         * sending before we got to them. Anything else is a track that will
+         * not arrive on its own, and is worth saying out loud.
+         */
+        await this.consume(data.producerId).catch((error) => {
+          if (error?.retryable || error?.code === 'gone') return;
+          this.on.warning?.('A participant\u2019s video could not be played.');
+        });
         break;
 
       case 'producerClosed':

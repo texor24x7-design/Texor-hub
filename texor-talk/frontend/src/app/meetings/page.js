@@ -53,7 +53,9 @@ function MeetingsHome({ user }) {
     }
   }
 
-  const live = (list ?? []).filter((m) => m.status === 'live');
+  // Occupied rooms. `presentCount` comes from the live socket list, so an
+  // abandoned meeting is not one of them however its status reads.
+  const live = (list ?? []).filter((m) => (m.presentCount ?? 0) > 0);
 
   /**
    * Which day the list is showing.
@@ -231,14 +233,16 @@ function MeetingRow({ meeting, router }) {
   return (
     <div className="list__item">
       <span
-        className={`status-dot ${meeting.status === 'live' ? 'status-dot--live' : ''}`}
+        className={`status-dot ${(meeting.presentCount ?? 0) > 0 ? 'status-dot--live' : ''}`}
         aria-hidden="true"
       />
 
       <div className="grow">
         <strong>{meeting.title}</strong>
         <div className="meta">
-          {meeting.status === 'live' ? 'Happening now' : when ? formatTimestamp(when) : 'Any time'}
+          {(meeting.presentCount ?? 0) > 0
+            ? 'Happening now'
+            : when ? formatTimestamp(when) : 'Any time'}
           {repeats ? ` · repeats ${meeting.recurrence.freq}` : ''}
           {meeting.status === 'cancelled' ? ' · cancelled' : ''}
           {' · '}
@@ -258,7 +262,7 @@ function MeetingRow({ meeting, router }) {
             Details
           </Button>
           <Button size="sm" onClick={() => router.push(`/meetings/${meeting.code}`)}>
-            {meeting.status === 'live' ? 'Join' : 'Open'}
+            {(meeting.presentCount ?? 0) > 0 ? 'Join' : 'Open'}
           </Button>
         </>
       )}

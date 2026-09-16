@@ -120,7 +120,7 @@ export const updateMeetingSchema = z.object({
 });
 
 export const listMeetingsSchema = z.object({
-  scope: z.enum(['upcoming', 'past', 'live', 'all']).default('upcoming'),
+  scope: z.enum(['upcoming', 'joined', 'past', 'live', 'all']).default('upcoming'),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
@@ -220,6 +220,17 @@ function presentMeeting(meeting, user, { policy } = {}) {
     startedAt: meeting.startedAt,
     endedAt: meeting.endedAt,
     maxDurationMinutes: meeting.maxDurationMinutes,
+
+    /**
+     * The timer's inputs, rather than a number computed here.
+     *
+     * The client ticks once a second and the server is asked for a meeting
+     * once; sending an elapsed figure would be stale before it was drawn. These
+     * two describe the clock — banked time, and when the current stretch
+     * started — so the browser can run it without asking again.
+     */
+    activeMs: meeting.activeMs ?? 0,
+    activeSince: meeting.activeSince ?? null,
     maxParticipants: meeting.maxParticipants,
 
     quality: effectiveTier(meeting.quality, policy?.maxQuality),
@@ -247,6 +258,17 @@ function presentMeeting(meeting, user, { policy } = {}) {
       joinedAt: entry.firstJoinedAt,
     })),
     participantCount: meeting.liveAttendance().length,
+
+    /**
+     * Who is connected *right now*, which is not the same question.
+     *
+     * `participantCount` comes from the attendance rows, and those lag: a row
+     * stays open until somebody says goodbye or until the reaper notices the
+     * silence ninety seconds later. An open socket is the ground truth, so this
+     * is what "is anyone in there" has to be answered with — it is why a room
+     * everybody walked out of used to keep advertising itself as live.
+     */
+    presentCount: connectedTexorIds(meeting.code).length,
 
     attendance: isHost
       ? meeting.attendance.map((entry) => ({
@@ -332,6 +354,12 @@ export async function listMeetings(req, res) {
   const filters = {
     upcoming: { status: { $in: ['scheduled', 'live'] } },
     live: { status: 'live' },
+    /**
+     * Rooms this person has actually been inside, which is the set worth
+     * showing them as "happening now". Narrowed below to the ones somebody is
+     * in at this moment — a room is not live because a column says so.
+     */
+    joined: { 'attendance.texorId': req.user.texorId },
     past: { status: { $in: ['ended', 'cancelled'] } },
     all: {},
   };
@@ -341,7 +369,20 @@ export async function listMeetings(req, res) {
     .limit(limit)
     .exec();
 
-  res.json({ meetings: meetings.map((meeting) => presentMeeting(meeting, req.user)) });
+  /**
+   * Presence cannot be a query.
+   *
+   * Who is connected lives in this process's memory, not in Mongo, so the
+   * occupied rooms have to be picked out after the fetch. This is also the
+   * sweep that `listMeetings` never had: it goes straight to `Meeting.find`
+   * rather than through `loadMeeting`, so nothing here ever reconciled status
+   * against reality and an abandoned meeting was listed as live indefinitely.
+   */
+  const rows = scope === 'joined' || scope === 'live'
+    ? meetings.filter((meeting) => connectedTexorIds(meeting.code).length > 0)
+    : meetings;
+
+  res.json({ meetings: rows.map((meeting) => presentMeeting(meeting, req.user)) });
 }
 
 export async function createMeeting(req, res) {

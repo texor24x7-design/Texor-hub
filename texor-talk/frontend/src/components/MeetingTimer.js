@@ -16,17 +16,27 @@ import { meetingTime } from '@/lib/duration';
  * be worse — but a countdown running the whole meeting is a pressure device,
  * and most meetings here have no limit at all.
  */
-export function MeetingTimer({ startedAt, maxDurationMinutes = 0 }) {
+export function MeetingTimer({ activeMs = 0, activeSince = null, maxDurationMinutes = 0 }) {
   const [now, setNow] = useState(() => Date.now());
 
+  /**
+   * The clock only ticks while somebody is in the room.
+   *
+   * `activeSince` is null exactly when it is empty, and an interval running
+   * against a total that cannot change is a re-render a second for nothing.
+   */
   useEffect(() => {
-    if (!startedAt) return undefined;
+    if (!activeSince) return undefined;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [startedAt]);
+  }, [activeSince]);
 
-  const time = meetingTime({ startedAt, maxDurationMinutes, now });
-  if (!time.running) return null;
+  const time = meetingTime({ activeMs, activeSince, maxDurationMinutes, now });
+
+  // Hidden only before the meeting has run at all. An empty room that has
+  // already run shows its total, held — going blank would read as the time
+  // having been lost rather than paused.
+  if (!time.elapsed) return null;
 
   return (
     <>
