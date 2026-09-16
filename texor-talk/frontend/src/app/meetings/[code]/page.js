@@ -157,7 +157,7 @@ function MeetingEntry({ code }) {
   }
 
   return (
-    <div className="greenroom">
+    <div className="greenroom greenroom--slim">
       <div className="greenroom__card">
         <h1>This meeting is not available</h1>
         <Alert kind="error">{state.message}</Alert>
@@ -198,7 +198,7 @@ function GuestEntry({ code, preview, onJoined }) {
   }
 
   return (
-    <div className="greenroom">
+    <div className="greenroom greenroom--slim">
       <div className="greenroom__card">
         <Logo />
 
@@ -2303,7 +2303,15 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
           >
             {isHost && meeting?.status !== 'live' ? 'Start the meeting' : 'Join now'}
           </Button>
-          <Button variant="ghost" onClick={onBack}>Back</Button>
+          <button
+            type="button"
+            className="gr__back"
+            onClick={onBack}
+            aria-label="Back to meetings"
+            title="Back to meetings"
+          >
+            <ChevronIcon />
+          </button>
         </div>
       </div>
     </div>

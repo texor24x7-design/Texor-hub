@@ -975,6 +975,23 @@ p { margin: 0; }
   padding: 2rem 1.25rem;
   background: var(--bg);
 }
+
+/*
+ * Inside the shell, this page already has a height: the top bar takes its own
+ * row and this takes the rest of it. Asking for a further 100dvh on top of
+ * that made the page taller than the window, so the card's centre sat below
+ * the window's by exactly the height of the bar — it read as "not centred"
+ * without looking obviously broken.
+ *
+ * The standalone rule above keeps its viewport height for guests, who arrive
+ * with no shell around them and so have nothing to fill.
+ */
+.shell__main > .greenroom {
+  min-height: 100%;
+  /* `.shell__main` already provides the gutter; two would push it off centre
+     again, downward, because only the top one is above the card. */
+  padding: 0;
+}
 .greenroom__card {
   width: 100%;
   max-width: 58rem;
@@ -1119,7 +1136,35 @@ p { margin: 0; }
 .gr__you strong { font-size: 0.9375rem; font-weight: 600; }
 .gr__you span { font-size: 0.8125rem; color: var(--text-subtle); }
 
-.gr__go { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.25rem; }
+.gr__go { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-top: 0.25rem; }
+
+/*
+ * Leaving is not what anybody came here to do, so it reads as a symbol beside
+ * the action that is: quiet until pointed at, and never competing with the
+ * button next to it. The name is still on it for anyone not reading by eye.
+ */
+.gr__back {
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 140ms, color 140ms, border-color 140ms;
+}
+.gr__back:hover {
+  background: var(--surface-muted);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.gr__back:focus-visible { outline: 2px solid var(--brand-600); outline-offset: 2px; }
+/* The chevron in this set points down; a quarter turn aims it back the way
+   the reader came. */
+.gr__back svg { transform: rotate(90deg); }
 
 @media (max-width: 56rem) {
   /* Stacked, the preview still comes first — it is why anybody is here. */
@@ -1128,6 +1173,25 @@ p { margin: 0; }
 }
 
 @media (max-width: 40rem) {
+  /*
+   * The full-bleed treatment below is for the green room, which is a screen in
+   * its own right — a video preview, controls and devices fill it. A short
+   * form is not: stretched to the window it becomes a field floating at the
+   * top of an empty sheet, which is what a guest was being shown. So the slim
+   * variant stays a card, with the page's gutter around it.
+   */
+  /* Both classes, so this does not depend on sitting after the rule for the
+     full-bleed card further down: on one class each they would tie, and the
+     later one would silently win. */
+  .greenroom.greenroom--slim { padding: 1.25rem; align-items: center; }
+  .greenroom--slim .greenroom__card {
+    min-height: 0;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+  }
+
   /*
    * A phone holds the card, not the other way round.
    *
@@ -1147,6 +1211,13 @@ p { margin: 0; }
     align-content: start;
   }
 
+  /*
+   * "Fills the screen" means the screen it is given. A guest has the whole
+   * window; a signed-in member has what is left under the top bar, and asking
+   * for the whole window there just pushes the start button below the fold.
+   */
+  .shell__main > .greenroom > .greenroom__card { min-height: 100%; }
+
   .gr__preview { border-radius: 12px; }
   .gr__off-face { width: 4.25rem; height: 4.25rem; }
   .gr__off-face--letter { font-size: 1.6rem; }
@@ -1157,9 +1228,13 @@ p { margin: 0; }
   .gr__title { font-size: 1.35rem; }
   .gr__agenda { font-size: 0.875rem; padding: 0.6rem 0.75rem; }
 
-  /* The two actions are the point of the screen; give them the full width. */
-  .gr__go { margin-top: 0.5rem; }
-  .gr__go .btn { flex: 1 1 100%; justify-content: center; }
+  /*
+   * One action and one way out, not two actions. The button takes the row it
+   * used to share and the symbol sits at the end of it, rather than dropping
+   * onto a line of its own where it reads as something left over.
+   */
+  .gr__go { margin-top: 0.5rem; flex-wrap: nowrap; }
+  .gr__go .btn { flex: 1 1 auto; justify-content: center; }
 }
 
 /* ── reactions ────────────────────────────────────────────────────────────── */
@@ -1394,6 +1469,19 @@ p { margin: 0; }
 }
 
 /* Signing in is offered beside the guest form, not buried under it. */
+/*
+ * One question does not need the width of a two-column stage.
+ *
+ * `.greenroom__card` is sized for the green room, where a video preview sits
+ * beside the meeting's details. The guest door and the "not available" card
+ * are a single column of short text, and at 58rem the label, the box and the
+ * hint under it end up so far apart that the form stops reading as one thing.
+ *
+ * 26rem is what `.auth-card` uses for the same shape of screen, so the form a
+ * guest meets and the one a member meets are the same width.
+ */
+.greenroom--slim .greenroom__card { max-width: 26rem; }
+
 .greenroom__alt {
   display: flex;
   align-items: center;
