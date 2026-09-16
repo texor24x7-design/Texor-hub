@@ -27,6 +27,12 @@ export const metadata = {
   title: 'Texor Talk — Meet. Collaborate. Move Forward.',
   description:
     'Secure, high-quality video meetings for modern teams. Built for productivity, designed for people.',
+
+  // Resolved against `metadataBase`. Stated per page rather than once in the
+  // layout, because `og:url` says "this is the canonical address of what you
+  // just fetched" — and a page that names somebody else's address is telling a
+  // scraper to cache it under theirs.
+  openGraph: { url: '/' },
 };
 
 /**

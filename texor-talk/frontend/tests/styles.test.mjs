@@ -244,6 +244,62 @@ console.log('\n── the card a shared link shows ──');
     check('and no local address is hard-coded into it',
       !/localhost|127\.0\.0\.1/.test(text.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')),
       'a literal localhost origin');
+
+    /**
+     * `og:url` is a canonical claim, and scrapers cache a preview under it.
+     * Set in the root layout it is inherited by every page, so each one says
+     * it is the site root — and every meeting link then shares one cached
+     * preview instead of being fetched on its own. Each shareable page states
+     * its own instead.
+     */
+    check('the layout claims no canonical URL on behalf of every page',
+      !/\burl:/.test(text), 'an inherited og:url collapses every page onto one');
+
+    const meeting = join(SRC, 'app', 'meetings', '[code]', 'layout.js');
+    check('a meeting link carries its own canonical URL', existsSync(meeting));
+    if (existsSync(meeting)) {
+      const m = read(meeting, 'utf8');
+      check('built from the code in the path',
+        /`\/meetings\/\$\{/.test(m) && /openGraph[\s\S]{0,80}\burl\b/.test(m),
+        'the canonical URL is not derived from the code');
+      check('and only when that looks like a real code, since it is untrusted input',
+        /test\(clean\)|CODE\.test/.test(m), 'reflects any path segment');
+
+      /**
+       * The trap that cost a build: `openGraph` in a child segment replaces
+       * the parent's rather than merging, which detaches the
+       * `opengraph-image.js` file convention. Declaring a URL and nothing else
+       * silently strips the picture from the one link that gets shared.
+       */
+      check('it re-declares an image, which a child segment otherwise loses',
+        /openGraph:\s*\{[\s\S]{0,400}?images:/.test(m), 'og:image is dropped on meeting links');
+      check('for Twitter too, which loses it the same way',
+        /twitter:\s*\{[\s\S]{0,300}?images:/.test(m), 'twitter:image is dropped');
+
+      /**
+       * A chat app lays a link out as a compact row with a small tile beside
+       * it, and picks that layout from a square image. Handed a 1200×630
+       * banner it crops to a sliver or shows no picture at all — which is what
+       * a pasted meeting link was doing.
+       */
+      const w = Number(m.match(/width:\s*(\d+)/)?.[1]);
+      const h = Number(m.match(/height:\s*(\d+)/)?.[1]);
+      check('the tile it names is square, which is what selects the compact card',
+        w > 0 && w === h, `${w}x${h}`);
+      check('and big enough not to be discarded', w >= 200, `${w}px`);
+      check('the card type matches the shape, rather than asking for a banner',
+        /card:\s*'summary'/.test(m), 'summary_large_image with a square tile');
+
+      // Two files stating the same size drift; this is the cheap tie.
+      const tile = join(SRC, 'app', 'share-icon.png', 'route.js');
+      check('the tile it points at exists', existsSync(tile));
+      if (existsSync(tile)) {
+        const t = read(tile, 'utf8');
+        const size = Number(t.match(/const SIZE = (\d+)/)?.[1]);
+        check('at the size the layout claims it is', size === w, `route ${size}, layout ${w}`);
+        check('drawn from the real brand mark', t.includes('talk-icon.svg'));
+      }
+    }
   }
 
   if (existsSync(card)) {

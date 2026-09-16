@@ -34,8 +34,17 @@ export const metadata = {
     siteName: TITLE,
     title: TITLE,
     description: DESCRIPTION,
-    url: ORIGIN,
     locale: 'en',
+
+    /**
+     * No `url` here on purpose.
+     *
+     * A value set at this level is inherited by every page, so each one
+     * declared itself to be the site root. `og:url` is a canonical claim —
+     * scrapers key their cached preview on it — so every meeting link
+     * collapsed onto one entry rather than being fetched on its own merits.
+     * Each page that is worth sharing states its own below.
+     */
     // The image itself comes from `opengraph-image.js` beside this file; Next
     // adds it, with its dimensions, from the file convention.
   },
