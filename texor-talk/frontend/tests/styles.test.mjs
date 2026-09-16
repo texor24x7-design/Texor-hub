@@ -233,8 +233,17 @@ console.log('\n── the card a shared link shows ──');
     check('the card is described for Open Graph', text.includes('openGraph'));
     check('and for Twitter, as a large image',
       /summary_large_image/.test(text), 'summary card crops to a thumbnail');
-    check('the base follows the deployment rather than being hard-coded',
-      text.includes('NEXT_PUBLIC_TALK_ORIGIN'), 'hard-coded origin');
+    /**
+     * Resolved, not read. The variable is inlined with a fallback at build
+     * time, so it is never absent — only sometimes localhost, which is how a
+     * production card came to name its image on a laptop. Checking the file
+     * merely mentions the variable would pass on a comment.
+     */
+    check('the base is resolved rather than read straight from the environment',
+      /resolveOrigin\s*\(/.test(text), 'reads the raw variable, which may say localhost');
+    check('and no local address is hard-coded into it',
+      !/localhost|127\.0\.0\.1/.test(text.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')),
+      'a literal localhost origin');
   }
 
   if (existsSync(card)) {

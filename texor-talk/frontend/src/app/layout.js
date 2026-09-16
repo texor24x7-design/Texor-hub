@@ -1,6 +1,18 @@
 import '@/styles/globals.css';
 
-const ORIGIN = process.env.NEXT_PUBLIC_TALK_ORIGIN ?? 'http://localhost:3002';
+import { resolveOrigin } from '@/lib/origin.mjs';
+
+/**
+ * Resolved rather than read straight from `NEXT_PUBLIC_TALK_ORIGIN`, because
+ * that variable is inlined with a fallback at build time and so is never
+ * absent — only, sometimes, wrong. A deployment that never set it advertised
+ * its preview image at `http://localhost:3002`, which no crawler can fetch, so
+ * a pasted meeting link showed words and no picture.
+ *
+ * This runs server-side, so it can still ask the platform at request time even
+ * if the build was handed nothing useful.
+ */
+const ORIGIN = resolveOrigin();
 
 const TITLE = 'Texor Talk';
 const DESCRIPTION = 'Secure, high-quality video meetings for modern teams. Part of Texor.';
