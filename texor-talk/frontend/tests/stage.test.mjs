@@ -14,7 +14,7 @@
  * **grid carries no feature, and everything else carries one.**
  */
 const FE = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
-const { chooseStage, showInviteInstead } = await import(`${FE}/src/lib/stage.js`);
+const { chooseStage, promptToInvite } = await import(`${FE}/src/lib/stage.js`);
 
 let pass = 0, fail = 0;
 const check = (l, ok, x = '') => { ok ? (pass++, console.log(`  ok   ${l}`)) : (fail++, console.log(`  FAIL ${l} ${x}`)); };
@@ -138,13 +138,19 @@ console.log('\n── nothing sensible to work with ──');
 
 console.log('\n── when the link replaces the stage ──');
 {
-  check('alone, camera off, in the call', showInviteInstead({ peerCount: 0, cameraOn: false, status: 'live' }));
+  check('alone in the call', promptToInvite({ peerCount: 0, status: 'live' }));
   // Camera on and there is something to look at; the tile takes over.
-  check('not once the camera is on', !showInviteInstead({ peerCount: 0, cameraOn: true, status: 'live' }));
-  check('not once somebody else is here', !showInviteInstead({ peerCount: 1, cameraOn: false, status: 'live' }));
+  /**
+   * The camera no longer decides this. The link used to replace the stage, so
+   * it had to stand down as soon as there was a picture; it is a card over the
+   * stage now and the two do not compete.
+   */
+  check('still offered with the camera on, because it no longer hides anything',
+    promptToInvite({ peerCount: 0, cameraOn: true, status: 'live' }));
+  check('not once somebody else is here', !promptToInvite({ peerCount: 1, status: 'live' }));
   check('and not before the call is up',
-    !showInviteInstead({ peerCount: 0, cameraOn: false, status: 'connecting' }));
-  check('no arguments is not "show it"', !showInviteInstead());
+    !promptToInvite({ peerCount: 0, status: 'connecting' }));
+  check('no arguments is not "show it"', !promptToInvite());
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

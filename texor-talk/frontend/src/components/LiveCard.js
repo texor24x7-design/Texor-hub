@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { meetings as meetingApi } from '@/lib/api';
-import { startedAgo } from '@/lib/duration';
+import { activeFor } from '@/lib/duration';
+import { ClockIcon, CloseIcon, PeopleIcon, ShieldIcon, VideoPlusIcon } from '@/components/icons';
 
 /**
  * A meeting happening right now, on the meetings list.
@@ -54,13 +55,46 @@ export function LiveCard({ meeting, onOpen, onEnded, onError }) {
   return (
     <div className="dash__card">
       <button type="button" className="dash__card-main" onClick={onOpen}>
+        {/*
+          * A pulse rather than a static dot. The card is green whether or not
+          * anybody is in the room, so the colour alone never said "right now" —
+          * movement is the only part of it that cannot be mistaken for decoration.
+          */}
+        <span className="dash__pulse" aria-hidden="true" />
+
         <strong>{meeting.title}</strong>
-        <span className="meta">
-          {inCall} in the call
-          {meeting.viewer?.isHost ? ' · you host' : ` · ${meeting.host?.name ?? 'someone else'}`}
-          {meeting.startedAt ? ` · ${startedAgo(meeting.startedAt)}` : ''}
+
+        {/*
+          * The facts as separate items rather than one sentence joined by
+          * middots. Each is a different kind of thing — how many, who is in
+          * charge, how long — and an icon apiece lets them be picked out
+          * without reading the whole line.
+          */}
+        <span className="dash__facts">
+          <span className="dash__fact">
+            <PeopleIcon />
+            {inCall} in the call
+          </span>
+
+          <span className="dash__fact">
+            <ShieldIcon />
+            {meeting.viewer?.isHost ? 'You host' : (meeting.host?.name ?? 'Someone else')}
+          </span>
+
+          {/* Occupied time, not time since it began — a room that sat empty
+              over lunch should not claim to have been meeting for three hours. */}
+          {activeFor(meeting) ? (
+            <span className="dash__fact">
+              <ClockIcon />
+              {activeFor(meeting)}
+            </span>
+          ) : null}
         </span>
-        <span className="dash__card-join">Join</span>
+
+        <span className="dash__card-join">
+          <VideoPlusIcon />
+          Join
+        </span>
       </button>
 
       {/*
@@ -75,6 +109,7 @@ export function LiveCard({ meeting, onOpen, onEnded, onError }) {
           aria-label={`Close ${meeting.title}`}
           onClick={end}
         >
+          <CloseIcon />
           {ending ? 'Closing…' : 'Close'}
         </button>
       ) : null}

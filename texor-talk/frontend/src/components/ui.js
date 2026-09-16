@@ -10,28 +10,33 @@
  * meant the letterforms were whatever the interface font happened to be and
  * drifted every time that changed.
  *
- * The file sets its wordmark and the microphone's outline in black, which
- * disappears on a dark surface, so `talk-logo-dark.svg` carries the same
- * artwork with those three fills lightened and nothing else touched. The
- * browser picks between them, so this follows the reader's theme without any
- * JavaScript and without a flash of the wrong one.
- *
  * `size` is a height; the width follows the artwork's own 372:110.
+ *
+ * ── Why there is no dark variant here any more ──
+ *
+ * There was one: the supplied file sets its wordmark in black, so a copy with
+ * those fills lightened was offered beside it and the browser chose between
+ * them on `prefers-color-scheme`.
+ *
+ * That choice is made by the browser from the *operating system*, not from
+ * this product's stylesheet — so once the app was pinned to light, a machine
+ * in dark mode got the light-on-dark logo on a white page, which is the one
+ * combination neither cut is drawn for. The surfaces this sits on are light on
+ * every machine now, so the supplied file is simply correct.
+ * `public/brand/talk-logo-dark.svg` is kept for whenever there is a dark
+ * surface to put it on.
  */
 const LOGO_RATIO = 372 / 110;
 
 export function Logo({ size = 34 }) {
   return (
-    <picture className="logo">
-      <source srcSet="/brand/talk-logo-dark.svg" media="(prefers-color-scheme: dark)" />
-      <img
-        className="logo__lockup"
-        src="/brand/talk-logo.svg"
-        alt="Texor Talk"
-        width={Math.round(size * LOGO_RATIO)}
-        height={size}
-      />
-    </picture>
+    <img
+      className="logo logo__lockup"
+      src="/brand/talk-logo.svg"
+      alt="Texor Talk"
+      width={Math.round(size * LOGO_RATIO)}
+      height={size}
+    />
   );
 }
 

@@ -6,7 +6,7 @@ import { AppShell } from '@/components/AppShell';
 import { Alert, Button, Field, Loading, formatTimestamp } from '@/components/ui';
 import { meetings as meetingApi, notes as notesApi } from '@/lib/api';
 import { LockIcon, PlusIcon, ShareIcon } from '@/components/icons';
-import { durationBetween, startedAgo } from '@/lib/duration';
+import { activeFor, durationBetween, formatDuration } from '@/lib/duration';
 
 /**
  * Everything about a meeting that is not the call itself: when it is, who is
@@ -83,11 +83,18 @@ function MeetingDetails({ code }) {
                 * Duration, in the tense the meeting is actually in. A finished
                 * meeting's length is the thing people come back here to find.
                 */}
-              {meeting.startedAt && meeting.endedAt
-                ? ` · ran for ${durationBetween(meeting.startedAt, meeting.endedAt)}`
+              {/*
+                * Occupied time in both tenses. `endedAt - startedAt` counted
+                * every minute the room sat empty, so a meeting people were in
+                * for ten minutes either side of lunch was reported as two
+                * hours long — and that figure is the thing people come back
+                * here to find.
+                */}
+              {meeting.endedAt && meeting.activeMs
+                ? ` · ran for ${formatDuration(meeting.activeMs)}`
                 : ''}
-              {meeting.startedAt && !meeting.endedAt && meeting.status === 'live'
-                ? ` · ${startedAgo(meeting.startedAt)}`
+              {!meeting.endedAt && activeFor(meeting)
+                ? ` · ${activeFor(meeting)}`
                 : ''}
             </p>
           </div>

@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { Alert, Button, Field, Loading, formatTimestamp } from '@/components/ui';
 import { CalendarIcon, ChevronIcon, VideoPlusIcon } from '@/components/icons';
 import { meetings as meetingApi } from '@/lib/api';
+import { usePoll } from '@/lib/use-poll';
 import { LiveCard } from '@/components/LiveCard';
 
 /** Start one, join one, or look at what is coming. */
@@ -21,18 +22,38 @@ function MeetingsHome({ user }) {
   const [busy, setBusy] = useState(false);
   const [scheduling, setScheduling] = useState(false);
 
+  // Whether anything has ever arrived, so a failed *refresh* is not
+  // mistaken for a failed *load*.
+  const loaded = useRef(false);
+
   const load = useCallback(async () => {
     try {
       const { meetings } = await meetingApi.list(scope);
+      loaded.current = true;
       setList(meetings);
       setError(null);
     } catch (loadError) {
+      /**
+       * A refresh that fails leaves what is on screen alone.
+       *
+       * This runs every few seconds now, and the first version of it blanked
+       * the page and put up an error on any failure — so one flaky request, a
+       * sleeping laptop or a moment of no signal would replace a perfectly good
+       * agenda with "network error". The reader is only told when there was
+       * never anything to show them.
+       */
+      if (loaded.current) return;
       setError(loadError.message);
       setList([]);
     }
   }, [scope]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Who is in a meeting changes while this page is open. Ten seconds is short
+  // enough that a room filling up or emptying is noticed, and long enough that
+  // an idle agenda is not a stream of requests.
+  usePoll(load, 10_000);
 
   async function startInstant() {
     setBusy(true);

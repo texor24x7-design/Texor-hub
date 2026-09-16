@@ -309,6 +309,14 @@ export const GridDotsIcon = (props) => (
   </Icon>
 );
 
+/** A clock face, for "how long this has been running". */
+export const ClockIcon = (props) => (
+  <Icon {...props}>
+    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z" />
+    <path d="M12.75 7h-1.5v5.44l4.2 2.52.75-1.24-3.45-2.07V7Z" />
+  </Icon>
+);
+
 export const ShieldIcon = (props) => (
   <Icon {...props}>
     <path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4Zm-1.2 15L7 12.2l1.4-1.4 2.4 2.4 5-5 1.4 1.4-6.4 6.4Z" />

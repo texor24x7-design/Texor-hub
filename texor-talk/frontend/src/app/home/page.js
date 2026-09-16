@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { Alert } from '@/components/ui';
@@ -8,7 +8,8 @@ import { CalendarIcon, NotesIcon, PlusIcon, VideoPlusIcon } from '@/components/i
 import { HeroDoodle } from '@/components/HeroDoodle';
 import { meetings as meetingApi, notes as notesApi } from '@/lib/api';
 import { accentFor } from '@/lib/accent';
-import { greetingFor, startedAgo, whenParts } from '@/lib/duration';
+import { usePoll } from '@/lib/use-poll';
+import { activeFor, greetingFor, whenParts } from '@/lib/duration';
 
 /**
  * The first screen after signing in.
@@ -30,6 +31,10 @@ function Home({ user }) {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState(null);
 
+  // Whether anything has ever arrived, so a failed *refresh* is not
+  // mistaken for a failed *load*.
+  const loaded = useRef(false);
+
   const load = useCallback(async () => {
     try {
       /**
@@ -47,14 +52,31 @@ function Home({ user }) {
         meetingApi.list('upcoming'),
       ]);
 
+      loaded.current = true;
       setList({ live: live.meetings, upcoming: upcoming.meetings });
+      setError(null);
     } catch (loadError) {
+      /**
+       * A refresh that fails leaves what is on screen alone.
+       *
+       * This runs every few seconds now, and the first version of it blanked
+       * the page and put up an error on any failure — so one flaky request, a
+       * sleeping laptop or a moment of no signal would replace a perfectly good
+       * agenda with "network error". The reader is only told when there was
+       * never anything to show them.
+       */
+      if (loaded.current) return;
       setError(loadError.message);
       setList({ live: [], upcoming: [] });
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Who is in a meeting changes while this page is open. Ten seconds is short
+  // enough that a room filling up or emptying is noticed, and long enough that
+  // an idle agenda is not a stream of requests.
+  usePoll(load, 10_000);
 
   useEffect(() => {
     let cancelled = false;
@@ -288,7 +310,7 @@ function Card({ meeting, onOpen }) {
             <span className="mcard__dot" aria-hidden="true" />
             Live
             <span className="mcard__sep" aria-hidden="true">·</span>
-            {startedAgo(meeting.startedAt)}
+            {activeFor(meeting)}
           </>
         ) : (
           <>

@@ -122,6 +122,40 @@ export function meetingTime({
  * Deliberately coarse. A meeting list is read at a glance and refreshed rarely,
  * so a number precise to the second would just be wrong most of the time.
  */
+/**
+ * How long a meeting has been running, for a list.
+ *
+ * The same occupied-time figure the in-call clock uses, phrased for a card.
+ * `startedAgo` below counts from the moment the meeting first began, which on a
+ * room that sat empty over lunch reads "3h in" for a call that has had people
+ * in it for five minutes — the number was true and told nobody anything.
+ *
+ * Returns '' for a meeting that has not run at all, so a card can leave the
+ * line out rather than print "0 min in".
+ */
+export function activeFor({ activeMs = 0, activeSince = null, now = Date.now() } = {}) {
+  const banked = Number(activeMs);
+  if (!Number.isFinite(banked) || banked < 0) return '';
+
+  const since = activeSince === null || activeSince === undefined
+    ? null
+    : new Date(activeSince).getTime();
+
+  if (since !== null && !Number.isFinite(since)) return '';
+  if (banked === 0 && since === null) return '';
+
+  const ms = banked + (since === null ? 0 : Math.max(0, now - since));
+
+  if (ms < MINUTE) return 'just started';
+
+  const minutes = Math.floor(ms / MINUTE);
+  if (minutes < 60) return `${minutes} min in`;
+
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h in` : `${hours}h ${rest}m in`;
+}
+
 export function startedAgo(startedAt, now = Date.now()) {
   if (!startedAt) return '';
 

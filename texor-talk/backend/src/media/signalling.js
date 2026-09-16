@@ -162,6 +162,9 @@ async function handleConnection(socket, request) {
     }),
   );
 
+  // Who was running the room before this person walked in.
+  const hostBefore = meeting.actingHostTexorId;
+
   await markJoined({ meeting, user, role });
 
   /**
@@ -176,6 +179,18 @@ async function handleConnection(socket, request) {
    */
   if (meeting.actingHostTexorId === user.texorId && peer.role !== 'host') {
     peer.role = 'host';
+  }
+
+  /**
+   * The owner coming back takes the room off whoever was standing in.
+   *
+   * That demotion happens inside `markJoined`, and used to happen silently:
+   * the stand-in kept a host badge in every roster on screen, so the call
+   * appeared to have two hosts until somebody reloaded. They are a co-host now
+   * and everyone is told so — including them, since their own controls change.
+   */
+  if (hostBefore && hostBefore !== meeting.actingHostTexorId && hostBefore !== user.texorId) {
+    updatePeerRole(code, hostBefore, meeting.cohostTexorIds.includes(hostBefore) ? 'cohost' : 'participant');
   }
 
   // Read by the room ticker, which sweeps by meeting rather than by socket.
@@ -239,6 +254,17 @@ async function onDisconnect({ room, peer, user, code }) {
 
   const meeting = await Meeting.findOne({ code }).exec();
   if (meeting) {
+    /**
+     * Read before anything moves it.
+     *
+     * `markLeft` reconciles custody itself, so by the time it returns the room
+     * may already have a new host — and asking the *second* reconcile below
+     * whether anything changed then answers "no", because it did not: it had
+     * changed a moment earlier. Comparing against who was hosting before the
+     * departure is the only way to know whether to announce one.
+     */
+    const hostBefore = meeting.actingHostTexorId;
+
     const left = await markLeft({ meeting, texorId: user.texorId });
     if (left) await record({ action: ACTIONS.MEETING_LEFT, actor: user, meeting });
 
@@ -264,12 +290,30 @@ async function onDisconnect({ room, peer, user, code }) {
     /**
      * Tell the stand-in they are running the room now.
      *
-     * Without this the promotion is real on the server and invisible in the
+     * Without this the promotion is real on the server and invisible in every
      * browser: the admit button stays hidden, the person in the lobby keeps
-     * waiting, and nobody can tell why.
+     * waiting, the roster still shows the old host, and nobody can tell why.
+     *
+     * Keyed off who was hosting before the departure rather than off the last
+     * reconcile's return value, for the reason given above.
      */
-    if (custody && meeting.actingHostTexorId) {
+    if (meeting.actingHostTexorId && meeting.actingHostTexorId !== hostBefore) {
       updatePeerRole(code, meeting.actingHostTexorId, 'host');
+    }
+
+    /**
+     * And tell everyone the person who left is no longer hosting.
+     *
+     * The roster each client keeps is built from peers, and the one who left
+     * has already been dropped from it — but a client that still holds their
+     * row, or that rebuilds from a roster broadcast, would otherwise keep
+     * showing two hosts.
+     */
+    if (hostBefore && hostBefore !== meeting.actingHostTexorId) {
+      broadcastAll(room, {
+        type: 'peerRoleChanged',
+        data: { texorId: hostBefore, role: meeting.cohostTexorIds.includes(hostBefore) ? 'cohost' : 'participant' },
+      });
     }
   }
 

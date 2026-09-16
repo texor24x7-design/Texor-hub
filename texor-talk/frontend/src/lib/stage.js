@@ -70,15 +70,20 @@ export function chooseStage({
 }
 
 /**
- * Whether to show the joining link rather than the stage at all.
+ * Whether to offer the joining link.
  *
  * Separate from `chooseStage` because it is a different question: that one asks
  * *how* to arrange people, this one asks whether there is anybody to arrange.
  * Folding it into the mode was the bug — switching the grid off sent an empty
  * room down the spotlight path, which reads a feature that was never there.
+ *
+ * The camera used to be part of this: the link took over the whole stage, so it
+ * had to stand down the moment there was a picture worth looking at. It is a
+ * card over the stage now, and a card does not compete with the video behind
+ * it — being alone is the whole of the question.
  */
-export function showInviteInstead({ peerCount = 0, cameraOn = false, status = 'connecting' } = {}) {
-  return peerCount === 0 && !cameraOn && status === 'live';
+export function promptToInvite({ peerCount = 0, status = 'connecting' } = {}) {
+  return peerCount === 0 && status === 'live';
 }
 
-export default { chooseStage, showInviteInstead };
+export default { chooseStage, promptToInvite };

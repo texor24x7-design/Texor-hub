@@ -24,7 +24,7 @@ import { MeetingNotes } from '@/components/MeetingNotes';
 import { MeetingTimer } from '@/components/MeetingTimer';
 import { ConnectionInfo } from '@/components/ConnectionInfo';
 import { createChimes } from '@/lib/sounds';
-import { chooseStage, showInviteInstead } from '@/lib/stage';
+import { chooseStage, promptToInvite } from '@/lib/stage';
 import { MeetingRoom } from '@/lib/room';
 import { describeMediaError } from '@/lib/media-errors';
 import { bestTileLayout } from '@/lib/tile-layout';
@@ -446,6 +446,15 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
    * have updated it.
    */
   const leavingRef = useRef(false);
+
+  /**
+   * Closed for the rest of the call, not until the next render.
+   *
+   * It reappearing every time somebody joins and leaves again would be worse
+   * than never showing it: the one thing a dismissible card must do is stay
+   * dismissed.
+   */
+  const [inviteClosed, setInviteClosed] = useState(false);
 
   const [peers, setPeers] = useState(() => new Map());
   const [localCamera, setLocalCamera] = useState(null);
@@ -1143,7 +1152,10 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   }, [everyone.length, settings.leaveEmpty]);
   const tileCount = everyone.length + 1;
   const alone = everyone.length === 0;
-  const inviteInstead = showInviteInstead({ peerCount: everyone.length, cameraOn, status });
+
+  // Being alone is not quite enough on its own: there is nobody to invite into
+  // a call that has not connected yet.
+  const offerInvite = promptToInvite({ peerCount: everyone.length, status });
 
   /**
    * Tile size is computed, not guessed.
@@ -1246,33 +1258,7 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           </div>
         ) : null}
 
-        {/*
-          * Alone, with nothing to look at.
-          *
-          * A single dark tile of your own face is a poor answer to "did this
-          * work?". The link is the one thing somebody in an empty room needs,
-          * so it is the thing on the screen. Once the camera is on there *is*
-          * something to look at, and the tile takes over.
-          */}
-        {inviteInstead ? (
-          <div className="meet__alone">
-            <span className="meet__alone-art" aria-hidden="true"><CameraIcon /></span>
-            <h2>You&rsquo;re the first one here</h2>
-            <p>Share this meeting link to invite others</p>
-
-            <div className="meet__alone-link">
-              <span>{meeting?.joinUrl}</span>
-              <button type="button" onClick={copyInvite} aria-label="Copy meeting link">
-                {copied ? <CheckIcon /> : <CopyIcon />}
-              </button>
-            </div>
-
-            <button type="button" className="meet__alone-cta" onClick={copyInvite}>
-              <PeopleIcon />
-              {copied ? 'Link copied' : 'Invite people'}
-            </button>
-          </div>
-        ) : stage.mode === 'grid' ? (
+        {stage.mode === 'grid' ? (
           <div
             className={`meet__grid ${tiles.scrolls ? 'meet__grid--scrolls' : ''}`}
             ref={gridRef}
@@ -1355,7 +1341,45 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           />
         )}
 
-        {/* Remote audio is played, never shown. One element per peer so one
+        {/*
+        * Alone in the room.
+        *
+        * This used to be the stage: the link filled it and the video did not
+        * exist, which answered "did this work?" at the cost of the one thing
+        * that answers it best — your own picture. It is a card over the corner
+        * now, and it closes, because after the first look it is in the way of
+        * the meeting somebody came here to have.
+        */}
+      {offerInvite && !inviteClosed ? (
+        <div className="meet__invite" role="dialog" aria-label="Invite people">
+          <button
+            type="button"
+            className="meet__invite-close"
+            onClick={() => setInviteClosed(true)}
+            aria-label="Dismiss"
+          >
+            <CloseIcon />
+          </button>
+
+          <span className="meet__invite-art" aria-hidden="true"><PeopleIcon /></span>
+          <h2>You&rsquo;re the first one here</h2>
+          <p>Share this meeting link to invite others</p>
+
+          <div className="meet__alone-link">
+            <span>{meeting?.joinUrl}</span>
+            <button type="button" onClick={copyInvite} aria-label="Copy meeting link">
+              {copied ? <CheckIcon /> : <CopyIcon />}
+            </button>
+          </div>
+
+          <button type="button" className="meet__alone-cta" onClick={copyInvite}>
+            <PeopleIcon />
+            {copied ? 'Link copied' : 'Invite people'}
+          </button>
+        </div>
+      ) : null}
+
+      {/* Remote audio is played, never shown. One element per peer so one
             failing track cannot silence everybody else. */}
         {everyone.map((peer) => (
           <Fragment key={`${peer.texorId}-audio`}>

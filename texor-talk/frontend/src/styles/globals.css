@@ -51,31 +51,21 @@
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --brand-500: #a78bfa;
-    --brand-600: #8b5cf6;
-    --brand-700: #c4b5fd;
-    --brand-050: #241d3d;
-
-    --bg: #0e0f13;
-    --surface: #16171d;
-    --surface-muted: #1d1f27;
-    --border: #262832;
-    --border-strong: #363945;
-
-    --text: #f0f0f4;
-    --text-muted: #a2a5b4;
-    --text-subtle: #767a8a;
-
-    --danger: #ef7189;
-    --danger-bg: #2a1620;
-    --success: #4bbf97;
-    --success-bg: #10241e;
-
-    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 30%);
-  }
-}
+/**
+ * This product is light, on every machine.
+ *
+ * There used to be a `prefers-color-scheme: dark` block here redefining every
+ * token. It went because a half-built dark theme is worse than none: the call
+ * screen is dark by design whatever the setting, the brand mark has a light
+ * and a dark cut that are chosen by the *browser* rather than by these tokens,
+ * and the meeting UI carries its own palette — so a system in dark mode
+ * produced a page assembled from three different ideas of what dark meant.
+ *
+ * `color-scheme: light` is the other half of saying so. Without it the browser
+ * still paints its own furniture dark — form controls, scrollbars, the canvas
+ * behind the page — against a light document.
+ */
+:root { color-scheme: light; }
 
 * { box-sizing: border-box; }
 
@@ -1841,11 +1831,65 @@ p { margin: 0; }
   position: relative;
 }
 .dash__card-main:hover { background: color-mix(in srgb, var(--success) 8%, transparent); }
-.dash__card strong { font-weight: 570; padding-right: 3.5rem; }
+/* Room for the pulse on the left and the join control on the right. */
+.dash__card-main { padding-left: 2.5rem; }
+.dash__card strong { font-weight: 570; padding-right: 4.5rem; }
+
+/**
+ * The live pulse.
+ *
+ * Two rings: a solid dot that stays put, and a copy of it expanding and fading
+ * behind. The expanding half is decoration and stops for anybody who has asked
+ * for less motion — the dot underneath carries the meaning on its own, so
+ * nothing is lost when it does.
+ */
+.dash__pulse {
+  position: absolute;
+  left: 1rem;
+  top: 1.35rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--success);
+}
+.dash__pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--success);
+  animation: dash-pulse 2s ease-out infinite;
+}
+
+@keyframes dash-pulse {
+  0%   { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash__pulse::after { animation: none; opacity: 0; }
+}
+
+.dash__facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.85rem;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.dash__fact { display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
+/* Optically a shade lighter than the words, so the row reads as text with
+   marks beside it rather than as a row of icons. */
+.dash__fact svg { font-size: 0.9375rem; opacity: 0.65; flex: none; }
+
 .dash__card-join {
-  position: absolute; top: 1rem; right: 1rem;
+  position: absolute; top: 0.9rem; right: 1rem;
+  display: inline-flex; align-items: center; gap: 0.3rem;
   font-size: 0.8125rem; font-weight: 600; color: var(--success);
 }
+.dash__card-join svg { font-size: 1rem; }
 
 .dash__card-end {
   flex: none;
@@ -1860,6 +1904,10 @@ p { margin: 0; }
   cursor: pointer;
   white-space: nowrap;
 }
+/* Icon and word on one line. Stacked, the cross sat above the word saying the
+   same thing twice and made the bar taller to do it. */
+.dash__card-end { grid-auto-flow: column; gap: 0.35rem; }
+.dash__card-end svg { font-size: 0.95rem; opacity: 0.8; }
 .dash__card-end:hover:not(:disabled) { background: var(--danger-bg); }
 .dash__card-end:disabled { opacity: 0.5; cursor: default; }
 
@@ -3099,29 +3147,87 @@ p { margin: 0; }
  * the end of the file on purpose: it is the last thing appended, so nothing
  * after it can slice it out by accident.
  */
-.meet__alone {
-  height: 100%;
+/**
+ * The invite card.
+ *
+ * It used to be the stage — `height: 100%`, centred, with the video nowhere to
+ * be seen. Somebody alone in a room got a link and no picture of themselves,
+ * which is the one thing that answers "is my camera working?" before anybody
+ * else arrives. Now it sits in a corner over the stage and can be closed.
+ *
+ * Bottom-left rather than centred: the controls own the bottom middle, the
+ * panels open on the right, and the top of the stage is where a presenter's
+ * screen goes.
+ */
+.meet__invite {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 5;
+  width: min(23rem, calc(100% - 2rem));
   display: grid;
-  justify-items: center;
-  align-content: center;
+  /**
+   * `minmax(0, 1fr)`, not the default `auto` track.
+   *
+   * An `auto` track cannot go below the min-content of what is in it, and the
+   * link holds a URL that will not wrap — so the column was floored at the
+   * width of the whole address and pushed itself past the card's padding. The
+   * zero minimum lets the track shrink to the card, and the ellipsis inside
+   * the link then does its job. Measured: a 345px card with 18.75px padding
+   * was handing its column 339.9px.
+   */
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
   gap: 0.35rem;
-  padding: 2rem 1.5rem;
-  text-align: center;
-  min-height: 0;
+  padding: 1.25rem;
+  border-radius: 14px;
+  background: #202124;
+  border: 1px solid rgb(232 234 237 / 12%);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+  text-align: left;
 }
-.meet__alone-art {
-  width: 5.5rem;
-  height: 5.5rem;
+
+.meet__invite-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #9aa0a6;
+  cursor: pointer;
+}
+.meet__invite-close:hover { background: rgb(232 234 237 / 12%); color: #e8eaed; }
+.meet__invite-close svg { width: 1.05rem; height: 1.05rem; }
+
+.meet__invite-art {
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: rgb(138 180 248 / 14%);
-  color: var(--meet-blue, #8ab4f8);
-  margin-bottom: 1.1rem;
+  color: #8ab4f8;
+  margin-bottom: 0.35rem;
 }
-.meet__alone-art svg { width: 2.2rem; height: 2.2rem; }
-.meet__alone h2 { font-size: 1.4rem; font-weight: 500; color: #e8eaed; }
-.meet__alone p { color: #9aa0a6; font-size: 0.9375rem; margin-bottom: 1.5rem; }
+.meet__invite-art svg { width: 1.3rem; height: 1.3rem; }
+
+.meet__invite h2 { font-size: 1.05rem; font-weight: 500; color: #e8eaed; }
+.meet__invite p { color: #9aa0a6; font-size: 0.875rem; margin-bottom: 0.9rem; }
+.meet__invite .meet__alone-link { width: auto; }
+.meet__invite .meet__alone-cta { margin-top: 0.75rem; justify-self: start; }
+.meet__invite-art { justify-self: start; }
+
+@media (max-width: 40rem) {
+  /* Full width above the controls, where a narrow screen has no corner to
+     spare. */
+  .meet__invite { left: 0.75rem; right: 0.75rem; width: auto; bottom: 0.75rem; }
+}
+
 
 .meet__alone-link {
   display: flex;

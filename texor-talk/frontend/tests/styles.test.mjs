@@ -160,10 +160,18 @@ console.log('\n── no layout class is defined twice ──');
 
 console.log('\n── the pieces the deleted block covered ──');
 {
-  // Named individually, because these are the ones that actually went missing
-  // and a count would not have noticed.
+  /**
+   * Named individually, because these are the ones that actually went missing
+   * and a count would not have noticed.
+   *
+   * `meet__alone` and `meet__alone-art` have since been removed on purpose —
+   * the invite panel stopped being the whole stage and became a card, so the
+   * container and its big circular icon have no markup left. The two pieces
+   * the card still uses stay on this list.
+   */
   for (const name of [
-    'meet__alone', 'meet__alone-link', 'meet__alone-cta', 'meet__alone-art',
+    'meet__alone-link', 'meet__alone-cta',
+    'meet__invite', 'meet__invite-close',
     'meet__search', 'meet__search-input', 'meet__code',
   ]) {
     check(`.${name} is styled`, defined.has(name));

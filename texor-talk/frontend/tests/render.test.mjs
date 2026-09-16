@@ -194,8 +194,13 @@ console.log('\n── the live meeting card ──');
     code: 'abc-defg-hij',
     title: 'Q3 review',
     participantCount: 3,
+    presentCount: 3,
     host: { name: 'Hana Host' },
     startedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
+    // Occupied time, which is what the card shows. `startedAt` above is older
+    // than this on purpose: a room that sat empty must not claim the gap.
+    activeMs: 0,
+    activeSince: new Date(Date.now() - 12 * 60_000).toISOString(),
   };
 
   const asHost = render('the host sees it', h(LiveCard, {
@@ -205,6 +210,23 @@ console.log('\n── the live meeting card ──');
     check('the host sees it', true);
     check('with an End control', asHost.html.includes('dash__card-end'), asHost.html);
     check('and how long it has been running', asHost.html.includes('12 min in'), asHost.html);
+
+    /**
+     * The figure is occupied time, not time since it began. A room that ran
+     * ten minutes, sat empty for two hours and was reopened used to report
+     * itself as two hours old on the card.
+     */
+    const rested = render('a reopened meeting', h(LiveCard, {
+      meeting: {
+        ...base,
+        viewer: { isHost: true },
+        startedAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString(),
+        activeMs: 10 * 60_000,
+        activeSince: null,
+      },
+    }));
+    check('an empty stretch is not counted',
+      rested.html.includes('10 min in') && !rested.html.includes('3h'), rested.html);
     // The reason the card stopped being a <button>.
     check('no button is nested inside another',
       !/<button[^>]*>(?:(?!<\/button>)[\s\S])*<button/.test(asHost.html), asHost.html);
@@ -402,15 +424,15 @@ console.log('\n── every other component renders ──');
     check('and is not rebuilt out of text', !logo.html.includes('logo__main'), logo.html);
 
     /**
-     * The file sets its wordmark and the microphone's outline in black, which
-     * disappears on the dark surfaces this component sits on. The same artwork
-     * with those fills lightened is offered beside it and the browser chooses,
-     * so the logo follows the reader's theme with no JavaScript.
+     * No dark variant any more.
+     *
+     * One was offered here and chosen by `prefers-color-scheme` — but that
+     * reads the operating system, not this product's stylesheet, so once the
+     * app was pinned to light a machine in dark mode got the light-on-dark cut
+     * on a white page. The surfaces this sits on are light everywhere now.
      */
-    check('a dark-surface variant is offered',
-      logo.html.includes('/brand/talk-logo-dark.svg'), logo.html);
-    check('chosen by the reader\'s theme rather than guessed',
-      /media="\(prefers-color-scheme: dark\)"/.test(logo.html), logo.html);
+    check('it does not follow the operating system\'s theme',
+      !/prefers-color-scheme/.test(logo.html), logo.html);
 
     check('and the whole mark reads as one name', logo.html.includes('Texor Talk'), logo.html);
   }
