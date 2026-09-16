@@ -19,6 +19,21 @@
  */
 export const ACCENTS = ['blue', 'violet', 'orange', 'yellow'];
 
+/**
+ * A small, stable string hash.
+ *
+ * Nothing depends on it being a good one, only on it being the same
+ * everywhere — the same person has to come out the same colour in your browser
+ * and in theirs, with nothing stored and nothing agreed.
+ */
+function hashOf(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) % 100_000;
+  }
+  return hash;
+}
+
 /** Live outranks the hash — it is a fact about the meeting, not decoration. */
 export function accentFor(seed, { live = false } = {}) {
   if (live) return 'live';
@@ -26,14 +41,32 @@ export function accentFor(seed, { live = false } = {}) {
   const text = String(seed ?? '');
   if (!text) return ACCENTS[0];
 
-  // A small, stable string hash. Nothing depends on it being a good one, only
-  // on it being the same everywhere.
-  let hash = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    hash = (hash * 31 + text.charCodeAt(i)) % 100_000;
-  }
-
-  return ACCENTS[hash % ACCENTS.length];
+  return ACCENTS[hashOf(text) % ACCENTS.length];
 }
 
-export default { ACCENTS, accentFor };
+/**
+ * Who said it, as a colour.
+ *
+ * A separate palette from `ACCENTS` because it is used on a different ground:
+ * those four are chosen to sit on the app's white, and the call is nearly
+ * black. These are picked for contrast against it, and there are eight rather
+ * than four because a chat is the one place where two people coming out the
+ * same colour is actually confusing — it is the thing the reader is using to
+ * tell one block of text from the next.
+ *
+ * Deliberately not tied to a person's identity beyond their id: no attempt to
+ * be "their" colour anywhere else in the product, only to be the same colour
+ * for everybody in this call.
+ */
+export const CHAT_COLORS = [
+  'sky', 'mint', 'amber', 'rose', 'violet', 'teal', 'coral', 'lime',
+];
+
+export function chatColorFor(seed) {
+  const text = String(seed ?? '');
+  if (!text) return CHAT_COLORS[0];
+
+  return CHAT_COLORS[hashOf(text) % CHAT_COLORS.length];
+}
+
+export default { ACCENTS, accentFor, CHAT_COLORS, chatColorFor };

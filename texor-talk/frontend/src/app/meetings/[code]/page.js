@@ -29,6 +29,7 @@ import {
 } from '@/lib/pip';
 import { ConnectionInfo } from '@/components/ConnectionInfo';
 import { createChimes } from '@/lib/sounds';
+import { chatColorFor } from '@/lib/accent';
 import { captureSurface, chooseStage, mirrorsItself, promptToInvite } from '@/lib/stage';
 import { MeetingRoom } from '@/lib/room';
 import { describeMediaError } from '@/lib/media-errors';
@@ -1966,7 +1967,7 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
             room={room} onError={onError} onDecide={onDecide} onSetRole={onSetRole}
           />
         ) : null}
-        {panel === 'chat' ? <ChatPanel chat={chat} room={room} user={user} /> : null}
+        {panel === 'chat' ? <ChatPanel chat={chat} room={room} user={user} peers={peers} /> : null}
         {panel === 'notes' ? (
           <MeetingNotes code={meeting.code} livePeople={peers} onError={onError} />
         ) : null}
@@ -2124,11 +2125,41 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecid
   );
 }
 
-function ChatPanel({ chat, room, user }) {
+/**
+ * In-call chat.
+ *
+ * ── The shape, and why ──
+ *
+ * A column of avatar-and-text, not bubbles. The panel is about three hundred
+ * pixels wide; bubbles spend a third of that on alignment and rounding, and
+ * what is scarce here is room for the words.
+ *
+ * Three things carry the hierarchy, and none of them is size alone — the
+ * previous version set the name and the message a sixteenth of a rem apart in
+ * the same grey, so a wall of chat read as one undifferentiated block:
+ *
+ *   · **colour**, per person, so a glance tells you who is speaking before you
+ *     have read a word. Derived from their id, so it is the same colour in
+ *     everybody's call with nothing stored and nothing agreed.
+ *   · **an avatar**, which is the thing the eye actually scans down.
+ *   · **weight and tone** — the name is small and coloured, the message is
+ *     larger and near-white, so the message is what you read and the name is
+ *     what you glance at.
+ *
+ * Consecutive messages from one person keep the column and drop the heading,
+ * the way every chat client people already use does it.
+ */
+function ChatPanel({ chat, room, user, peers = [] }) {
   const [draft, setDraft] = useState('');
   const end = useRef(null);
 
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }); }, [chat.length]);
+
+  // Their picture if we have one — chat messages carry a name and an id, and
+  // the roster is where the faces are.
+  const pictureOf = (texorId) => (texorId === user.texorId
+    ? user.picture
+    : peers.find((peer) => peer.texorId === texorId)?.picture);
 
   return (
     <div className="meet__chat">
@@ -2136,24 +2167,57 @@ function ChatPanel({ chat, room, user }) {
         <p className="meet__chat-note">
           Messages can be seen only by people in the call, and are lost when it ends.
         </p>
+
         {chat.map((entry, index) => {
-          // Consecutive messages from one person read as one block, the way
-          // every chat client people already use does it.
+          const mine = entry.texorId === user.texorId;
           const grouped = index > 0 && chat[index - 1].texorId === entry.texorId;
+          const name = mine ? 'You' : entry.from;
+          const picture = pictureOf(entry.texorId);
+
+          // The label reads "You"; the initial should still be yours, or the
+          // avatar column spells out Y-Y-Y down the side of your own messages.
+          const initial = ((mine ? user.displayName : entry.from) ?? '?').trim().charAt(0).toUpperCase();
+
+          /**
+           * Your own messages take one colour rather than a hashed one.
+           *
+           * You are the one person in the list you never have to identify, and
+           * giving yourself a colour from the same palette would mean competing
+           * with somebody who happened to draw it.
+           */
+          const tone = mine ? 'self' : chatColorFor(entry.texorId);
+
           return (
-            <div className={`meet__chat-msg ${grouped ? 'meet__chat-msg--grouped' : ''}`} key={index}>
-              {!grouped ? (
-                <div className="meet__chat-meta">
-                  <strong>{entry.texorId === user.texorId ? 'You' : entry.from}</strong>
-                  <span>
-                    {new Date(entry.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-              ) : null}
-              <div className="meet__chat-body">{entry.body}</div>
+            <div
+              className={`meet__msg ${grouped ? 'meet__msg--grouped' : ''} ${mine ? 'meet__msg--mine' : ''}`}
+              data-tone={tone}
+              key={index}
+            >
+              {grouped ? (
+                <span className="meet__msg-gutter" aria-hidden="true" />
+              ) : picture ? (
+                <img className="meet__msg-face" src={picture} alt="" />
+              ) : (
+                <span className="meet__msg-face meet__msg-face--letter" aria-hidden="true">
+                  {initial}
+                </span>
+              )}
+
+              <div className="meet__msg-main">
+                {!grouped ? (
+                  <div className="meet__msg-head">
+                    <span className="meet__msg-who">{name}</span>
+                    <time className="meet__msg-at" dateTime={new Date(entry.at).toISOString()}>
+                      {new Date(entry.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                    </time>
+                  </div>
+                ) : null}
+                <p className="meet__msg-body">{entry.body}</p>
+              </div>
             </div>
           );
         })}
+
         <div ref={end} />
       </div>
 
@@ -2174,7 +2238,12 @@ function ChatPanel({ chat, room, user }) {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <button type="submit" className="meet__tool" disabled={!draft.trim()} aria-label="Send">
+        <button
+          type="submit"
+          className="meet__chat-send"
+          disabled={!draft.trim()}
+          aria-label="Send"
+        >
           <SendIcon />
         </button>
       </form>

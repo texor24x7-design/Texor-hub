@@ -862,15 +862,107 @@ p { margin: 0; }
 
 /* ── in-call chat ─────────────────────────────────────────────────────────── */
 .meet__chat { display: grid; grid-template-rows: 1fr auto; height: 100%; min-height: 0; }
-.meet__chat-log { overflow-y: auto; padding: 1rem; display: grid; gap: 0.75rem; align-content: start; }
+.meet__chat-log { overflow-y: auto; padding: 1rem; display: grid; gap: 0.9rem; align-content: start; }
 .meet__chat-note { color: #9aa0a6; font-size: 0.75rem; }
-.meet__chat-msg { display: grid; padding: 0.35rem 0; }
-/* Consecutive messages from one person close up into a single block. */
-.meet__chat-msg--grouped { margin-top: -0.55rem; }
-.meet__chat-meta { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.15rem; }
-.meet__chat-meta strong { font-size: 0.8125rem; font-weight: 500; color: #e8eaed; }
-.meet__chat-meta span { font-size: 0.7rem; color: #9aa0a6; }
-.meet__chat-body { font-size: 0.875rem; color: #e8eaed; word-break: break-word; }
+/**
+ * One message.
+ *
+ * A face column and a text column. The face is what the eye runs down, so it
+ * keeps its own track and grouped messages leave it empty rather than
+ * reflowing underneath it — the block stays a block.
+ */
+.meet__msg {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: start;
+}
+
+/* Consecutive messages from one person close up and lose their heading — they
+   are one person talking, not three separate events. */
+.meet__msg--grouped { margin-top: -0.55rem; }
+.meet__msg-gutter { display: block; }
+
+.meet__msg-face {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  margin-top: 0.1rem;
+}
+.meet__msg-face--letter {
+  display: grid;
+  place-items: center;
+  /* Their colour, at a weight that carries a white letter. */
+  background: var(--tone);
+  color: #10131a;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.meet__msg-head { display: flex; align-items: baseline; gap: 0.45rem; margin-bottom: 0.1rem; }
+
+/**
+ * The name is small and coloured; the message is larger and near-white.
+ *
+ * The two used to be a sixteenth of a rem apart in the same grey, which is why
+ * a screenful of chat read as one undifferentiated block — nothing told the
+ * eye where one person stopped and the next began.
+ */
+.meet__msg-who {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--tone);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meet__msg-at { font-size: 0.6875rem; color: #80868b; flex: none; }
+
+.meet__msg-body {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #e8eaed;
+  /* `anywhere`, not `break-word`: a pasted URL with no spaces in it has to
+     wrap inside a column this narrow rather than widen the panel. */
+  overflow-wrap: anywhere;
+}
+
+/**
+ * Per-person colour.
+ *
+ * Eight hues chosen for a nearly black ground — the app's own four accents are
+ * picked to sit on white and go muddy here. Which one somebody gets is hashed
+ * from their id in `lib/accent.js`, so it is the same in everybody's call with
+ * nothing stored and nothing agreed.
+ */
+.meet__msg[data-tone="sky"]    { --tone: #8ab4f8; }
+.meet__msg[data-tone="mint"]   { --tone: #6dd58c; }
+.meet__msg[data-tone="amber"]  { --tone: #fdd663; }
+.meet__msg[data-tone="rose"]   { --tone: #ff8bab; }
+.meet__msg[data-tone="violet"] { --tone: #c58af9; }
+.meet__msg[data-tone="teal"]   { --tone: #4ecdc4; }
+.meet__msg[data-tone="coral"]  { --tone: #ff9e7d; }
+.meet__msg[data-tone="lime"]   { --tone: #c3e88d; }
+
+/* You are the one person nobody has to identify, so you are not in the
+   palette — a neutral that cannot compete with whoever drew the same hue. */
+.meet__msg[data-tone="self"] { --tone: #bdc1c6; }
+
+/**
+ * Your own messages, marked without being shouted.
+ *
+ * A tinted rail rather than an alignment flip or a bubble: in a column this
+ * narrow, right-aligning half the messages costs more in ragged edges than it
+ * buys in clarity, and the label already says "You".
+ */
+.meet__msg--mine .meet__msg-main {
+  border-left: 2px solid rgb(138 180 248 / 45%);
+  padding-left: 0.6rem;
+  margin-left: -0.15rem;
+}
 
 .meet__chat-form {
   display: flex; align-items: center; gap: 0.35rem;
@@ -889,6 +981,30 @@ p { margin: 0; }
 }
 .meet__chat-input::placeholder { color: #9aa0a6; }
 .meet__chat-input:focus { outline: none; border-color: var(--meet-blue, #8ab4f8); }
+
+/**
+ * Send.
+ *
+ * Blue once there is something to send and flat when there is not, so the
+ * button reports the state of the box beside it rather than sitting there
+ * looking equally pressable either way.
+ */
+.meet__chat-send {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #9aa0a6;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.meet__chat-send:not(:disabled) { background: var(--meet-blue, #8ab4f8); color: #10131a; }
+.meet__chat-send:not(:disabled):hover { background: #a6c8ff; }
+.meet__chat-send:disabled { cursor: default; }
 
 /* ── overlays ─────────────────────────────────────────────────────────────── */
 .meet__toast {
