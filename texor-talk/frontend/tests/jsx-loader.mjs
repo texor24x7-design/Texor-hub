@@ -16,7 +16,30 @@ const SRC = join(HERE, '..', 'src');
 const require = createRequire(import.meta.url);
 const { transformSync } = require('next/dist/build/swc');
 
+/**
+ * `next/navigation` outside a Next request has no router to give.
+ *
+ * Components that navigate are otherwise untestable here, which would exempt
+ * exactly the ones with the most wiring in them. The stub records nothing and
+ * does nothing — this suite asks whether a component renders, not where its
+ * buttons go.
+ */
+const NAVIGATION_STUB = `
+  const noop = () => {};
+  export const useRouter = () => ({
+    push: noop, replace: noop, back: noop, forward: noop, refresh: noop, prefetch: noop,
+  });
+  export const usePathname = () => '/';
+  export const useSearchParams = () => new URLSearchParams();
+  export const useParams = () => ({});
+  export const redirect = noop;
+  export const notFound = noop;
+`;
+
 export async function resolve(specifier, context, next) {
+  if (specifier === 'next/navigation') {
+    return { url: 'stub:next-navigation', format: 'module', shortCircuit: true };
+  }
   if (specifier.startsWith('@/')) {
     const base = join(SRC, specifier.slice(2));
     // The app writes `@/lib/api`, not `@/lib/api.js`.
@@ -27,6 +50,10 @@ export async function resolve(specifier, context, next) {
 }
 
 export async function load(url, context, next) {
+  if (url === 'stub:next-navigation') {
+    return { format: 'module', source: NAVIGATION_STUB, shortCircuit: true };
+  }
+
   if (url.startsWith('file://') && url.includes(`${SRC}/`) && url.endsWith('.js')) {
     const source = readFileSync(fileURLToPath(url), 'utf8');
     const { code } = transformSync(source, {

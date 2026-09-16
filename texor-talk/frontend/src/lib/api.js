@@ -57,7 +57,7 @@ export async function api(path, { method = 'GET', body } = {}) {
 }
 
 /** Sign-in is a full browser navigation, not a fetch — see the backend notes. */
-export const signInWithTexor = (returnTo = '/channels') => {
+export const signInWithTexor = (returnTo = '/home') => {
   window.location.href = `${API_ORIGIN}/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`;
 };
 

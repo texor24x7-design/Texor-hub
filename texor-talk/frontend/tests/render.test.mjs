@@ -217,6 +217,149 @@ console.log('\n── the live meeting card ──');
   }
 }
 
+console.log('\n── the landing page ──');
+{
+  const { Landing } = await import('@/components/Landing');
+  const { html } = render('the landing page', h(Landing, {}));
+
+  if (html) {
+    check('the landing page', true);
+    check('the headline is there', html.includes('Collaborate.'), html.slice(0, 160));
+    check('and the line that carries the accent colour',
+      html.includes('lp__title-accent'), html.slice(0, 160));
+    check('the wordmark reads Texor TALK',
+      html.includes('Texor') && html.includes('TALK'));
+    // The supplied brand asset, not a drawing of it. The mark was hand-drawn
+    // for a while and had the wrong colours — the real file has red and orange
+    // level bars where the mockup showed blue.
+    check('the brand mark is the real asset',
+      /<img[^>]*class="lp__logo"[^>]*src="\/brand\/talk-icon\.svg"/.test(html), html.slice(0, 400));
+    check('every navigation item is present',
+      ['Product', 'Solutions', 'Resources'].every((item) => html.includes(item)));
+    check('both calls to action are there',
+      html.includes('Start a Meeting') && html.includes('Join with a Code'));
+    check('all four features are listed',
+      ['HD Video', 'Secure &amp; Encrypted', 'Screen Sharing', 'Team Collaboration']
+        .every((item) => html.includes(item)), html.slice(0, 400));
+    check('the floating card is drawn', html.includes('lp__badge'));
+    check('and the handwritten line', html.includes('Talk beyond boundaries'));
+    check('the hero is drawn, not photographed',
+      html.includes('lp__doodle') && !html.includes('<img class="lp__photo'), html.slice(0, 400));
+    check('and describes itself to a screen reader',
+      /class="lp__doodle"[^>]*role="img"[^>]*aria-label="[^"]{15,}"/.test(html)
+      || /role="img"[\s\S]{0,120}aria-label="[^"]{15,}"/.test(html), html.slice(0, 700));
+
+    // It belongs to a family, and says so.
+    check('the Texor mark is on the page', html.includes('/brand/texor.svg'), html.slice(0, 400));
+    check('and links to the account that spans the family',
+      /class="lp__family"[^>]*href="[^"]+"/.test(html), html.slice(0, 600));
+
+    // Pricing was removed: there is no billing behind it.
+    check('there is no Pricing link', !html.includes('Pricing'), 'Pricing is back');
+  }
+}
+
+console.log('\n── the landing illustration ──');
+{
+  const { LandingDoodle } = await import('@/components/LandingDoodle');
+  const { HeroDoodle } = await import('@/components/HeroDoodle');
+  const landing = render('LandingDoodle', h(LandingDoodle, { className: 'lp__doodle' }));
+  const dash = render('HeroDoodle for comparison', h(HeroDoodle, {}));
+
+  if (landing.html && dash.html) {
+    check('LandingDoodle', true);
+    check('HeroDoodle for comparison', true);
+    // Two pages, two drawings. The same one twice would say the landing page
+    // and the dashboard are the same screen.
+    check('it is a different drawing from the dashboard\u2019s',
+      landing.html !== dash.html, 'they are identical');
+
+    check('it says what it is', /aria-label="[^"]{15,}"/.test(landing.html));
+    check('it scales', landing.html.includes('viewBox'));
+    // The colours come from the page's variables, so the drawing cannot drift
+    // away from the brand.
+    check('its colours are the family\u2019s, by reference',
+      landing.html.includes('var(--tx-'), landing.html.slice(0, 300));
+
+    for (const hook of ['dd-float', 'dd-flow', 'dd-wave', 'dd-spark']) {
+      check(`the ${hook} parts are there to animate`, landing.html.includes(hook));
+    }
+  }
+}
+
+console.log('\n── the dashboard illustration ──');
+{
+  const { HeroDoodle } = await import('@/components/HeroDoodle');
+  const { html } = render('HeroDoodle', h(HeroDoodle, { className: 'hero__doodle' }));
+
+  if (html) {
+    check('HeroDoodle', true);
+    check('it is drawn, not fetched', html.startsWith('<svg') && !html.includes('<img'));
+    check('it scales rather than being pinned to a size',
+      html.includes('viewBox') && !/<svg[^>]*\swidth="/.test(html), html.slice(0, 120));
+    // Decorative to look at, but it still has to say what it is.
+    check('it describes itself', /role="img"/.test(html) && /aria-label="[^"]{8,}"/.test(html));
+
+    // The four the brand actually uses, two of them straight off the logo file.
+    for (const [name, hex] of [
+      ['red', '#fb0102'], ['orange', '#fa5908'], ['green', '#12a05f'], ['yellow', '#f5b800'],
+    ]) {
+      check(`it carries the brand ${name}`, html.toLowerCase().includes(hex), hex);
+    }
+    check('and the logo blue', html.toLowerCase().includes('#6187ce'));
+  }
+}
+
+console.log('\n── the home dashboard ──');
+{
+  const { default: HomePage } = await import('@/app/home/page');
+  // The page wraps itself in AppShell, which fetches the signed-in user, so
+  // only the pieces below it can be rendered here. What this asserts instead is
+  // that nothing non-functional came back.
+  const source = (await import('node:fs')).readFileSync(
+    new URL('../src/app/home/page.js', import.meta.url), 'utf8',
+  );
+
+  check('the page exists', typeof HomePage === 'function');
+
+  /**
+   * Things removed for not working, named so they cannot quietly return.
+   *
+   * Each was on this page and did nothing: a setup step that could never be
+   * completed, a day column that printed "No meetings" eight times, a static
+   * tip, and three links of which two pointed at the same wrong page.
+   */
+  for (const gone of ['Check your microphone', 'Read the docs', 'Explore settings', 'Pro Tip']) {
+    check(`"${gone}" is gone`, !source.includes(gone), 'it is back');
+  }
+
+  check('nothing links to /notes pretending to be settings',
+    !/Explore settings[\s\S]{0,80}\/notes/.test(source));
+}
+
+console.log('\n── a section that is not built yet ──');
+{
+  const { Soon } = await import('@/components/Soon');
+  const { CalendarIcon } = await import('@/components/icons');
+  const { html } = render('Soon', h(Soon, {
+    title: 'Calendar',
+    icon: h(CalendarIcon, {}),
+    blurb: 'Your meetings laid out by day and week.',
+    instead: 'See your meetings',
+    insteadHref: '/meetings',
+  }));
+
+  if (html) {
+    check('Soon', true);
+    check('it names the section', html.includes('Calendar'));
+    check('it says what the section will do', html.includes('day and week'));
+    // The point of the page: it is honest rather than a dead end.
+    check('it admits it is not built', /not built yet/i.test(html), html.slice(0, 300));
+    check('and always offers a way back to something that works',
+      html.includes('See your meetings'));
+  }
+}
+
 console.log('\n── every other component renders ──');
 {
   const { SettingsDialog } = await import('@/components/SettingsDialog');
@@ -228,6 +371,20 @@ console.log('\n── every other component renders ──');
     peer: { texorId: 'tx-a', name: 'Ana', picture: '', muted: false, role: 'host' },
   }));
   if (tile.html) check('VideoTile', true);
+
+  const { Logo, LogoIcon } = await import('@/components/ui');
+  const logo = render('the app logo', h(Logo, {}));
+  if (logo.html) {
+    check('the app logo', true);
+    check('it uses the brand asset too',
+      logo.html.includes('/brand/talk-icon.svg'), logo.html);
+    // Text, not the wordmark image: black type vanishes on the dark call bar.
+    check('the wordmark is text so it works on dark',
+      logo.html.includes('TALK') && logo.html.includes('logo__main'), logo.html);
+    check('and the whole mark reads as one name', logo.html.includes('Texor Talk'), logo.html);
+  }
+  const icon = render('the logo on its own', h(LogoIcon, {}));
+  if (icon.html) check('the logo on its own', true);
 
   const ui = await import('@/components/ui');
   const bits = render('the UI kit', h('div', null,

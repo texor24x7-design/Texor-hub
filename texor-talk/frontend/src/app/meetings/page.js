@@ -285,6 +285,7 @@ function JoinByCode({ onJoin }) {
         }}
       >
         <input
+          id="join-code"
           className="input"
           placeholder="abc-defg-hij"
           aria-label="Meeting code"

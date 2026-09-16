@@ -1,0 +1,518 @@
+/**
+ * The public landing page.
+ *
+ * Every rule here is under `.lp`, and nothing in it touches the application's
+ * tokens. The app is purple and dense; this is blue and airy, and neither
+ * should be able to break the other by being redesigned.
+ */
+
+.lp {
+  /* The logo's own blue, deepened enough to carry white text. */
+  --lp-blue: #3b72ce;
+  --lp-blue-deep: #2e5cab;
+  --lp-ink: #0b1b3e;
+  --lp-body: #5b6675;
+  --lp-muted: #98a1b0;
+  --lp-bg: #f6f7fa;
+  --lp-surface: #ffffff;
+  --lp-tile: #eef0f5;
+  --lp-line: #e4e7ee;
+
+  /*
+   * The thirteen stops of the globe in `Texor logo First Cap SVG.svg`, read
+   * out of the file rather than matched by eye. They are the family's colours
+   * — Talk's own red and orange are two of them — and they appear here on
+   * decoration only: a wash, four icon tiles, nothing that can be pressed.
+   */
+  --tx-red: #fb0102;
+  --tx-orange: #fa5908;
+  --tx-amber: #faa813;
+  --tx-yellow: #f3f21b;
+  --tx-lime: #a9ee25;
+  --tx-green: #36e13b;
+  --tx-mint: #50dd7d;
+  --tx-aqua: #4addb1;
+  --tx-cyan: #52d8d8;
+  --tx-sky: #5dafd0;
+  --tx-blue: #6187ce;
+  --tx-indigo: #6766cc;
+
+  --lp-sans-stack: var(--lp-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --lp-script-stack: var(--lp-script), "Segoe Script", cursive;
+
+  min-height: 100dvh;
+  background: var(--lp-bg);
+  color: var(--lp-ink);
+  font-family: var(--lp-sans-stack);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+.lp *, .lp *::before, .lp *::after { box-sizing: border-box; }
+
+/* ── header ───────────────────────────────────────────────────────────────── */
+
+.lp__header {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 1.75rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.lp__brand { display: flex; align-items: center; gap: 0.6rem; text-decoration: none; flex: none; }
+.lp__logo { display: block; flex: none; }
+
+/* ── the family this product belongs to ── */
+.lp__family {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.85rem 0.35rem 0.6rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--lp-line);
+  border-radius: 999px;
+  background: var(--lp-surface);
+  text-decoration: none;
+  width: fit-content;
+  transition: border-color 140ms;
+}
+.lp__family:hover { border-color: var(--lp-muted); }
+.lp__family img { display: block; height: 1.05rem; width: auto; }
+.lp__family span { font-size: 0.8125rem; font-weight: 500; color: var(--lp-body); }
+
+/* ── who is looking ── */
+/* Same footprint as the two buttons it replaces, so the header holds still. */
+.lp__pending { display: block; width: 11rem; height: 2.75rem; }
+
+.lp__me {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.3rem 0.9rem 0.3rem 0.3rem;
+  border: 1px solid var(--lp-line);
+  border-radius: 999px;
+  background: var(--lp-surface);
+  cursor: pointer;
+  font: 500 0.9375rem var(--lp-sans-stack);
+  color: var(--lp-ink);
+  transition: border-color 140ms, box-shadow 140ms;
+}
+.lp__me:hover { border-color: var(--lp-blue); box-shadow: 0 4px 14px rgb(11 27 62 / 8%); }
+.lp__me-face {
+  width: 2rem; height: 2rem;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  flex: none;
+}
+.lp__me-face--letter {
+  background: var(--lp-blue);
+  color: #fff;
+  display: grid; place-items: center;
+  font-size: 0.8125rem; font-weight: 700;
+}
+.lp__me-name { max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── the footer ── */
+.lp__foot {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--lp-line);
+}
+.lp__foot-brand { display: block; flex: none; }
+.lp__foot-brand img { display: block; height: 1.35rem; width: auto; }
+.lp__foot p { font-size: 0.875rem; color: var(--lp-body); }
+
+.lp__wordmark { display: grid; line-height: 1; }
+.lp__wordmark-top {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--lp-body);
+  letter-spacing: 0.01em;
+  margin-bottom: 0.1rem;
+}
+.lp__wordmark-main {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--lp-ink);
+  letter-spacing: -0.01em;
+}
+
+.lp__nav { display: flex; gap: 2.25rem; margin: 0 auto; }
+.lp__nav-link {
+  color: var(--lp-body);
+  text-decoration: none;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: color 120ms;
+}
+.lp__nav-link:hover { color: var(--lp-ink); }
+
+.lp__actions { display: flex; align-items: center; gap: 1.5rem; flex: none; }
+
+.lp__signin {
+  border: 0;
+  background: none;
+  color: var(--lp-body);
+  font: 500 1rem var(--lp-sans-stack);
+  cursor: pointer;
+  padding: 0;
+}
+.lp__signin:hover { color: var(--lp-ink); }
+
+.lp__cta {
+  border: 0;
+  border-radius: 10px;
+  background: var(--lp-blue);
+  color: #fff;
+  font: 600 1rem var(--lp-sans-stack);
+  padding: 0.85rem 1.7rem;
+  cursor: pointer;
+  transition: background 140ms, transform 140ms;
+}
+.lp__cta:hover { background: var(--lp-blue-deep); transform: translateY(-1px); }
+
+/* ── hero ─────────────────────────────────────────────────────────────────── */
+
+.lp__hero {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 1.5rem 2rem 5.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4rem;
+  align-items: center;
+}
+
+/* The left column of the hero. Its own rule so the grid track can shrink. */
+.lp__copy { min-width: 0; }
+
+.lp__title {
+  font-size: clamp(3rem, 5.9vw, 5.1rem);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  margin: 0 0 1.4rem;
+}
+.lp__title-accent { color: var(--lp-blue); }
+
+.lp__sub {
+  font-size: clamp(1rem, 1.35vw, 1.2rem);
+  line-height: 1.65;
+  color: var(--lp-body);
+  margin: 0 0 2.4rem;
+}
+
+.lp__ctas { display: flex; flex-wrap: wrap; gap: 0.85rem; margin-bottom: 2.75rem; }
+
+.lp__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  border-radius: 10px;
+  font: 600 1.05rem var(--lp-sans-stack);
+  padding: 1.05rem 2rem;
+  cursor: pointer;
+  transition: background 140ms, border-color 140ms, transform 140ms, box-shadow 140ms;
+}
+.lp__btn--primary {
+  border: 0;
+  background: var(--lp-blue);
+  color: #fff;
+  box-shadow: 0 10px 24px rgb(59 114 206 / 26%);
+}
+.lp__btn--primary:hover { background: var(--lp-blue-deep); transform: translateY(-1px); }
+.lp__btn--ghost {
+  border: 1.5px solid var(--lp-line);
+  background: var(--lp-surface);
+  color: var(--lp-ink);
+}
+.lp__btn--ghost:hover { border-color: var(--lp-muted); transform: translateY(-1px); }
+
+.lp__join {
+  display: flex;
+  align-items: stretch;
+  border: 1.5px solid var(--lp-blue);
+  border-radius: 10px;
+  background: var(--lp-surface);
+  overflow: hidden;
+}
+.lp__join-input {
+  border: 0;
+  outline: none;
+  padding: 1.05rem 1.2rem;
+  font: 500 1.05rem var(--lp-sans-stack);
+  color: var(--lp-ink);
+  width: 11rem;
+  background: transparent;
+}
+.lp__join-input::placeholder { color: var(--lp-muted); }
+.lp__join-go {
+  border: 0;
+  background: var(--lp-blue);
+  color: #fff;
+  font: 600 1rem var(--lp-sans-stack);
+  padding: 0 1.4rem;
+  cursor: pointer;
+}
+.lp__join-go:disabled { background: var(--lp-muted); cursor: default; }
+
+/* ── the feature row ──────────────────────────────────────────────────────── */
+
+/*
+ * The band the features sit in.
+ *
+ * Full width, centred, and clear of the script line that hangs below the
+ * drawing. It reads as the page's second beat rather than as the tail of the
+ * first column.
+ */
+.lp__strip {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 2rem 4.5rem;
+}
+
+/*
+ * Four pills, icon beside label.
+ *
+ * Stacked, the two long labels wrapped while the two short ones did not, and
+ * the row read as ragged. Side by side they are four even objects, and the row
+ * tells you what the product does at a glance instead of making you read it.
+ */
+.lp__features {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 1.5rem 0 0;
+  border-top: 1px solid var(--lp-line);
+}
+.lp__feature {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.95rem 0.5rem 0.5rem;
+  border: 1px solid var(--lp-line);
+  border-radius: 999px;
+  background: var(--lp-surface);
+}
+.lp__feature-tile {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  background: var(--tile-bg);
+  color: var(--tile-ink);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.lp__feature-tile svg { width: 1rem; height: 1rem; }
+.lp__feature-label { font-size: 0.875rem; font-weight: 500; color: var(--lp-ink); white-space: nowrap; }
+
+/* One stop of the globe each. */
+.lp__feature--red   { --tile-bg: #fdeaea; --tile-ink: #c62222; }
+.lp__feature--amber { --tile-bg: #fef2df; --tile-ink: #a96a05; }
+.lp__feature--green { --tile-bg: #e6f9e7; --tile-ink: #1a8c2f; }
+.lp__feature--teal  { --tile-bg: #e3f7f4; --tile-ink: #11897a; }
+
+/* ── the artwork ──────────────────────────────────────────────────────────── */
+
+/* Room on the left for the card that overlaps, and below for the script. */
+.lp__art { position: relative; margin-left: 1.5rem; }
+
+/**
+ * The photograph.
+ *
+ * The gradient underneath is not a fallback to be replaced — it is what fills
+ * the shape while the image decodes, so the hero never lays out as a white gap
+ * and then jumps.
+ */
+/*
+ * The illustration sits on the page, not in a frame.
+ *
+ * A photograph needed a rounded card and a shadow to stop it looking dropped
+ * on; line art does not, and the frame was only ever there to hide that.
+ */
+.lp__doodle {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 34rem;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+/*
+ * The wash: the family's spectrum, blurred into a field behind the picture.
+ *
+ * Sized larger than the frame and offset, so colour shows past two corners
+ * rather than haloing evenly — an even halo reads as a mistake, an offset one
+ * reads as light.
+ */
+.lp__wash {
+  position: absolute;
+  inset: -12% -8% -6% -10%;
+  z-index: 0;
+  border-radius: 40%;
+  background:
+    radial-gradient(38% 46% at 18% 24%, var(--tx-orange) 0%, transparent 70%),
+    radial-gradient(40% 44% at 82% 18%, var(--tx-cyan) 0%, transparent 70%),
+    radial-gradient(44% 48% at 74% 86%, var(--tx-indigo) 0%, transparent 72%),
+    radial-gradient(36% 42% at 22% 82%, var(--tx-lime) 0%, transparent 70%);
+  filter: blur(46px);
+  opacity: 0.38;
+  pointer-events: none;
+}
+
+/*
+ * The card overlaps the picture's lower-left corner.
+ *
+ * It used to sit half off the right edge, which read as a mistake. Overlapping
+ * a corner by a third is the shape that reads as deliberate.
+ */
+.lp__badge {
+  position: absolute;
+  left: -1.5rem;
+  bottom: 2.5rem;
+  z-index: 2;
+  background: var(--lp-surface);
+  border: 1px solid var(--lp-line);
+  border-radius: 16px;
+  padding: 0.9rem 1.25rem;
+  box-shadow: 0 16px 40px rgb(11 27 62 / 14%);
+  display: grid;
+  gap: 0.05rem;
+}
+.lp__badge-top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.1rem; }
+.lp__badge-wave { color: var(--lp-blue); flex: none; }
+.lp__badge-faint { color: var(--lp-muted); font-size: 0.9375rem; font-weight: 500; }
+.lp__badge-line { color: var(--lp-ink); font-size: 1.05rem; font-weight: 640; line-height: 1.3; }
+
+/* Tucked under the picture's right edge, where a caption would sit. */
+.lp__script {
+  position: absolute;
+  right: 0.5rem;
+  bottom: -3.25rem;
+  z-index: 2;
+  margin: 0;
+  font-family: var(--lp-script-stack);
+  font-size: 1.85rem;
+  line-height: 1.1;
+  color: var(--lp-ink);
+  transform: rotate(-3deg);
+  white-space: nowrap;
+}
+.lp__swoosh {
+  display: block;
+  width: 100%;
+  height: 0.7rem;
+  color: var(--lp-blue);
+  margin-top: 0.15rem;
+}
+
+/* ── the drawing moves ───────────────────────────────────────────────────── */
+/*
+ * Slow and small, deliberately.
+ *
+ * This sits beside the sentence the page most wants read. Motion that competes
+ * with reading has got the balance wrong, so nothing here is fast, nothing
+ * travels far, and the four drifts are on different durations — matched ones
+ * pulse in unison and read as a loading state rather than as life.
+ */
+@keyframes dd-drift {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-9px); }
+}
+@keyframes dd-dash { to { stroke-dashoffset: -28; } }
+@keyframes dd-breathe {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.9; }
+}
+@keyframes dd-twinkle {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.dd-float { animation: dd-drift 4.5s ease-in-out infinite alternate; }
+/* Prime numbers of seconds, so the four never come back into step. */
+.dd-float--a { animation-duration: 4.3s; }
+.dd-float--b { animation-duration: 5.9s; animation-delay: -1.2s; }
+.dd-float--c { animation-duration: 5.1s; animation-delay: -2.4s; }
+.dd-float--d { animation-duration: 6.7s; animation-delay: -0.6s; }
+
+.dd-flow path {
+  stroke-dasharray: 7 9;
+  animation: dd-dash 2.2s linear infinite;
+}
+.dd-flow path:nth-child(2) { animation-duration: 2.9s; }
+.dd-flow path:nth-child(3) { animation-duration: 3.4s; }
+.dd-flow path:nth-child(4) { animation-duration: 2.6s; }
+
+/* The arcs light outward, the way a level meter does. */
+.dd-waves { transform-box: fill-box; }
+.dd-wave { animation: dd-breathe 2.4s ease-in-out infinite; }
+.dd-wave--1, .dd-wave--3 { animation-delay: 0s; }
+.dd-wave--2, .dd-wave--4 { animation-delay: 0.35s; }
+
+.dd-spark circle { animation: dd-twinkle 3.6s ease-in-out infinite; }
+.dd-spark circle:nth-of-type(2) { animation-delay: -1.1s; }
+.dd-spark circle:nth-of-type(3) { animation-delay: -2.2s; }
+.dd-spark circle:nth-of-type(4) { animation-delay: -0.7s; }
+
+/*
+ * Somebody who has asked for less motion gets none of it.
+ *
+ * Not slower, and not smaller — off. The drawing is complete standing still;
+ * the movement was only ever the last five per cent.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .dd-float,
+  .dd-flow path,
+  .dd-wave,
+  .dd-spark circle { animation: none; }
+  .dd-wave { opacity: 0.75; }
+}
+
+/* ── narrower ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 68rem) {
+  .lp__nav { display: none; }
+  .lp__hero { grid-template-columns: 1fr; gap: 3.5rem; padding-bottom: 7rem; }
+  .lp__features { justify-content: flex-start; }
+  .lp__art { margin-left: 0; }
+  .lp__badge { left: 0; bottom: -1.5rem; }
+  .lp__script { bottom: -5.5rem; right: 0; }
+}
+
+@media (max-width: 40rem) {
+  .lp__header { padding: 1.25rem 1.25rem; gap: 1rem; }
+  .lp__hero { padding: 1rem 1.25rem 7rem; }
+  .lp__wordmark-main { font-size: 1.3rem; }
+  .lp__cta { padding: 0.7rem 1.2rem; font-size: 0.9rem; }
+  .lp__signin { font-size: 0.9rem; }
+  .lp__ctas { margin-bottom: 2.75rem; }
+  .lp__btn { flex: 1 1 100%; }
+  .lp__join { flex: 1 1 100%; }
+  .lp__join-input { width: 100%; }
+  /* Left over from when this was a grid; it is a flex row now. */
+  .lp__strip { padding: 0 1.25rem 3rem; }
+  .lp__features { gap: 0.5rem; padding-top: 1.25rem; }
+  .lp__feature { padding: 0.4rem 0.8rem 0.4rem 0.4rem; }
+  .lp__feature-label { font-size: 0.8125rem; }
+  /* One offset, not two fighting: the card tucks under the drawing's left. */
+  .lp__badge { left: 0; right: auto; bottom: -1.25rem; padding: 0.75rem 1rem; }
+  .lp__badge-line { font-size: 0.95rem; }
+  .lp__script { font-size: 1.45rem; right: 0; bottom: -5.5rem; }
+}

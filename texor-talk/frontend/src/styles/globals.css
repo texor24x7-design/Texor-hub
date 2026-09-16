@@ -6,10 +6,22 @@
  * component code. Colours are defined once in light and remapped for dark.
  */
 :root {
-  --brand-500: #7c3aed;
-  --brand-600: #6d28d9;
-  --brand-700: #5b21b6;
-  --brand-050: #f3f0ff;
+  /*
+   * The scale is built from the logo, not chosen beside it.
+   *
+   * `Talk Icon SVG.svg` draws its microphone in #6187CE. That is the product's
+   * blue, so it is `--brand-400` here and every other step is the same hue at a
+   * different lightness — which is why the interface and the mark look like one
+   * thing rather than two blues that nearly agree.
+   *
+   * The mark's red and orange are its own. They are not repeated in the
+   * interface, where they would read as errors and warnings.
+   */
+  --brand-400: #6187ce;
+  --brand-500: #3b72ce;
+  --brand-600: #2e5cab;
+  --brand-700: #24488f;
+  --brand-050: #eff4fc;
 
   --bg: #f7f7f9;
   --surface: #ffffff;
@@ -120,18 +132,24 @@ p { margin: 0; }
 .grow { flex: 1; min-width: 0; }
 
 /* ── brand ────────────────────────────────────────────────────────────────── */
-.logo { display: inline-flex; align-items: center; gap: 0.55rem; font-weight: 640; letter-spacing: -0.02em; }
-.logo__mark {
-  width: 28px; height: 28px;
-  display: grid; place-items: center;
-  border-radius: 8px;
-  background: linear-gradient(140deg, var(--brand-500), var(--brand-700));
-  color: #fff;
-  font-size: 0.875rem;
-  font-weight: 700;
+.logo { display: inline-flex; align-items: center; gap: 0.5rem; }
+.logo__icon { display: block; flex: none; }
+/* Stacked, the way the supplied logo sets it: "Texor" small over "TALK". */
+.logo__words { display: grid; line-height: 1; }
+.logo__top {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text-muted);
+  margin-bottom: 0.1rem;
 }
-.logo__text { font-size: 1rem; }
-.logo__text span { color: var(--text-muted); font-weight: 500; }
+.logo__main {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  /* `currentColor`, so the same component works on the dark in-call bar. */
+  color: currentColor;
+}
 
 /* ── forms ────────────────────────────────────────────────────────────────── */
 .field { display: grid; gap: 0.375rem; }
@@ -428,6 +446,8 @@ p { margin: 0; }
   --meet-red: #ea4335;
   --meet-red-hover: #f05343;
   --meet-blue: #8ab4f8;
+  /* The logo's blue, dark enough to carry white text on a filled button. */
+  --meet-blue-solid: #3b72ce;
   --meet-line: #3c4043;
 }
 
@@ -466,7 +486,7 @@ p { margin: 0; }
 /* Past the legible floor the block stops shrinking and scrolls instead. */
 .meet__grid--scrolls { align-content: flex-start; overflow-y: auto; padding: 0.25rem; }
 
-.tile { max-height: calc((100vh - 12rem) / var(--rows)); }
+.tile { max-height: calc((100dvh - 12rem) / var(--rows)); }
 
 /* Column and row counts per headcount — the arrangement people expect from
    every other video product, rather than whatever auto-fit happens to pick. */
@@ -620,7 +640,27 @@ p { margin: 0; }
   justify-self: end;
 }
 .meet__divider { width: 1px; height: 1rem; background: #5f6368; }
-.meet__code { font-family: var(--mono); letter-spacing: 0.02em; color: #bdc1c6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A button now, not a span: it copies the joining link. */
+.meet__code {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 0;
+  border-radius: 7px;
+  background: rgb(232 234 237 / 8%);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  color: #bdc1c6;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meet__code:hover { background: rgb(232 234 237 / 14%); color: #e8eaed; }
+.meet__code svg { width: 0.85rem; height: 0.85rem; opacity: 0.7; flex: none; }
 .meet__time { font-variant-numeric: tabular-nums; }
 
 /**
@@ -820,6 +860,8 @@ p { margin: 0; }
 .meet__chat { display: grid; grid-template-rows: 1fr auto; height: 100%; min-height: 0; }
 .meet__chat-log { overflow-y: auto; padding: 1rem; display: grid; gap: 0.75rem; align-content: start; }
 .meet__chat-note { color: #9aa0a6; font-size: 0.75rem; }
+.meet__chat-msg { display: grid; padding: 0.35rem 0; }
+/* Consecutive messages from one person close up into a single block. */
 .meet__chat-msg--grouped { margin-top: -0.55rem; }
 .meet__chat-meta { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.15rem; }
 .meet__chat-meta strong { font-size: 0.8125rem; font-weight: 500; color: #e8eaed; }
@@ -923,6 +965,15 @@ p { margin: 0; }
 }
 
 /* ── the green room ───────────────────────────────────────────────────────── */
+/*
+ * Two columns: what you will look like, and what you are joining.
+ *
+ * It was one narrow column — a preview, then a title, then a form, then a
+ * button — which on a laptop meant scrolling past your own face to reach the
+ * control that starts the meeting. Side by side, the whole decision is on the
+ * screen at once and the preview gets the room it deserves, because the
+ * preview is the thing people are actually looking at.
+ */
 .greenroom {
   min-height: 100dvh;
   display: grid;
@@ -932,14 +983,188 @@ p { margin: 0; }
 }
 .greenroom__card {
   width: 100%;
-  max-width: 30rem;
+  max-width: 58rem;
+  padding: 1.5rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 2rem;
   display: grid;
   gap: 1.25rem;
+}
+
+.gr {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 1.75rem;
+  align-items: start;
+}
+
+.gr__stage { display: grid; gap: 0.75rem; min-width: 0; }
+
+.gr__preview {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #16181d;
+  display: grid;
+  place-items: center;
+}
+.gr__video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  /* Your own preview is a mirror; everybody else sees you the right way round. */
+  transform: scaleX(-1);
+}
+
+/* Camera off shows your picture, which is what others will see. */
+.gr__off { display: grid; justify-items: center; gap: 0.9rem; }
+.gr__off-face {
+  width: 5.5rem; height: 5.5rem;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+.gr__off-face--letter {
+  background: var(--brand-500);
+  color: #fff;
+  display: grid; place-items: center;
+  font-size: 2rem; font-weight: 600;
+}
+.gr__off-label { color: #9aa0a6; font-size: 0.875rem; }
+
+/* Over the picture, where the same controls sit inside the call. */
+.gr__controls {
+  position: absolute;
+  left: 50%; bottom: 1rem;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.6rem;
+}
+.gr__toggle {
+  width: 2.9rem; height: 2.9rem;
+  border: 0; border-radius: 50%;
+  background: rgb(255 255 255 / 16%);
+  color: #fff;
+  display: grid; place-items: center;
+  font-size: 1.15rem;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 140ms, transform 140ms;
+}
+.gr__toggle:hover { background: rgb(255 255 255 / 26%); transform: translateY(-1px); }
+.gr__toggle--off { background: var(--danger); }
+.gr__toggle--off:hover { background: #a82a40; }
+
+/* Device pickers sit under the picture they change. */
+.gr__devices { display: grid; gap: 0.5rem; }
+.gr__device {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+.gr__device:focus-within { border-color: var(--brand-500); }
+.gr__device svg { flex: none; font-size: 1.05rem; }
+.gr__device select {
+  flex: 1; min-width: 0;
+  border: 0; background: transparent; outline: none;
+  font: inherit; font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* ── the right-hand column ── */
+.gr__side { display: grid; gap: 0.85rem; align-content: start; min-width: 0; }
+
+.gr__state {
+  justify-self: start;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--brand-700);
+  background: var(--brand-050);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+}
+.gr__state--live {
+  color: #0e7c49;
+  background: #e8f6ef;
+}
+
+.gr__title {
+  font-size: clamp(1.4rem, 2.4vw, 1.85rem);
+  font-weight: 680;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin: 0;
+}
+.gr__host { color: var(--text-muted); font-size: 0.9375rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.gr__sep { color: var(--border-strong); }
+.gr__agenda {
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  padding: 0.75rem 0.9rem;
+  background: var(--surface-muted);
+  border-radius: 10px;
+}
+
+.gr__you {
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.gr__you div { display: grid; line-height: 1.3; min-width: 0; }
+.gr__you strong { font-size: 0.9375rem; font-weight: 600; }
+.gr__you span { font-size: 0.8125rem; color: var(--text-subtle); }
+
+.gr__go { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.25rem; }
+
+@media (max-width: 56rem) {
+  /* Stacked, the preview still comes first — it is why anybody is here. */
+  .gr { grid-template-columns: 1fr; gap: 1.25rem; }
+  .greenroom__card { padding: 1.1rem; }
+}
+
+@media (max-width: 40rem) {
+  /*
+   * A phone holds the card, not the other way round.
+   *
+   * The page padding and the card's shadow and radius are all chrome around
+   * something that already fills the screen, so they go — the card becomes the
+   * screen. `100dvh` rather than `vh`, or the browser's own bar covers the
+   * button that starts the meeting.
+   */
+  .greenroom { padding: 0; align-items: stretch; min-height: 100dvh; }
+  .greenroom__card {
+    max-width: none;
+    min-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0.9rem 0.9rem calc(0.9rem + env(safe-area-inset-bottom, 0px));
+    align-content: start;
+  }
+
+  .gr__preview { border-radius: 12px; }
+  .gr__off-face { width: 4.25rem; height: 4.25rem; }
+  .gr__off-face--letter { font-size: 1.6rem; }
+  /* Thumb-sized, and clear of the very bottom edge. */
+  .gr__toggle { width: 3.25rem; height: 3.25rem; font-size: 1.25rem; }
+  .gr__controls { bottom: 0.75rem; gap: 0.75rem; }
+
+  .gr__title { font-size: 1.35rem; }
+  .gr__agenda { font-size: 0.875rem; padding: 0.6rem 0.75rem; }
+
+  /* The two actions are the point of the screen; give them the full width. */
+  .gr__go { margin-top: 0.5rem; }
+  .gr__go .btn { flex: 1 1 100%; justify-content: center; }
 }
 
 /* ── reactions ────────────────────────────────────────────────────────────── */
@@ -1043,53 +1268,6 @@ p { margin: 0; }
 }
 .tile__badge--hand { background: #f9ab00; color: #202124; }
 .tile--compact .tile__badge { width: 1.4rem; height: 1.4rem; font-size: 0.75rem; }
-
-/* ── the green room ───────────────────────────────────────────────────────── */
-.greenroom__card { max-width: 34rem; }
-
-.greenroom__preview {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: #202124;
-  display: grid;
-}
-.greenroom__video {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  /* Mirrored, because a preview of yourself is a mirror — text will read
-     backwards, which is correct and what everyone expects here. */
-  transform: scaleX(-1);
-}
-.greenroom__off {
-  display: grid; place-content: center; justify-items: center; gap: 0.5rem;
-  color: #9aa0a6; font-size: 0.875rem;
-}
-.greenroom__off svg { font-size: 2rem; }
-
-.greenroom__controls {
-  position: absolute;
-  inset: auto 0 0.75rem 0;
-  display: flex;
-  justify-content: center;
-  gap: 0.5rem;
-}
-/* The call's control tokens are scoped to .meet, so the green room restates
-   the few it borrows rather than reaching into that scope. */
-.greenroom__preview .meet__control {
-  width: 2.75rem; height: 2.75rem;
-  border-radius: 50%;
-  border: 0;
-  display: grid; place-items: center;
-  cursor: pointer;
-  font-size: 1.2rem;
-  background: #3c4043;
-  color: #e8eaed;
-}
-.greenroom__preview .meet__control:hover { background: #4d5155; }
-.greenroom__preview .meet__control--off { background: #ea4335; color: #fff; }
-.greenroom__preview .meet__control--off:hover { background: #f05343; }
 
 .meet__connecting { gap: 0.4rem; }
 
@@ -1232,22 +1410,12 @@ p { margin: 0; }
 }
 
 /* ── the shell: top bar, rail, content ────────────────────────────────────── */
-.shell { min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; background: var(--bg); }
+/* ── the shell ─────────────────────────────────────────────────────────────
+ * The layout itself lives further down, with the sidebar. Only the pieces
+ * still shared with it are here.
+ */
 
-.shell__top {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.7rem 1rem;
-}
-.shell__brand { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
-.shell__logo { display: inline-flex; color: inherit; }
-.shell__logo:hover { text-decoration: none; }
-.shell__account { display: flex; align-items: center; justify-content: flex-end; gap: 0.35rem; }
-
-.shell__icon-btn,
-.shell__burger {
+.shell__icon-btn {
   width: 2.5rem; height: 2.5rem;
   display: grid; place-items: center;
   border: 0; border-radius: 50%;
@@ -1256,11 +1424,16 @@ p { margin: 0; }
   font-size: 1.25rem;
   cursor: pointer;
 }
-.shell__icon-btn:hover, .shell__burger:hover { background: var(--surface-muted); color: var(--text); }
-.shell__burger { display: none; }
+.shell__icon-btn:hover { background: var(--surface-muted); color: var(--text); }
 
 /* ── join by code, and start one ──────────────────────────────────────────── */
-.shell__centre { display: flex; align-items: center; gap: 0.75rem; }
+/*
+ * `flex: 1` on the wrapper, not only on the field inside it.
+ *
+ * The field was told to flex but its parent was sized by content, so on a
+ * phone it stayed at its natural width and the row ran out of room instead.
+ */
+.shell__centre { display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 0; }
 
 .joinbar {
   display: flex;
@@ -1313,74 +1486,17 @@ p { margin: 0; }
 .shell__new:hover { background: var(--brand-700); }
 .shell__new svg { font-size: 1.2rem; }
 
-/* ── the rail ─────────────────────────────────────────────────────────────── */
-.shell__body { display: grid; grid-template-columns: auto 1fr; min-height: 0; }
 
-.rail {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.5rem 0.6rem;
-  width: 5.5rem;
-}
-.rail__item {
-  display: grid;
-  justify-items: center;
-  gap: 0.3rem;
-  padding: 0.6rem 0.25rem;
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  text-align: center;
-}
-.rail__item:hover { background: var(--surface-muted); color: var(--text); text-decoration: none; }
-.rail__icon {
-  width: 3rem; height: 1.9rem;
-  display: grid; place-items: center;
-  border-radius: 999px;
-  font-size: 1.3rem;
-  transition: background 120ms ease, color 120ms ease;
-}
-/* The pill marks the section, the way the rest of the ecosystem marks a tab. */
-.rail__item[aria-current='page'] { color: var(--brand-700); }
-.rail__item[aria-current='page'] .rail__icon { background: var(--brand-050); color: var(--brand-700); }
-
-.rail__label { line-height: 1.2; }
-.rail__scrim { display: none; }
-
-.shell__main { min-width: 0; padding: 0.5rem 1.5rem 3rem; }
-
+/*
+ * The narrow-screen rules for the shell live with the sidebar further down.
+ * Only the join bar's own shrinking is here, next to the join bar.
+ */
 @media (max-width: 52rem) {
-  .shell__top { grid-template-columns: auto 1fr auto; gap: 0.5rem; padding: 0.6rem 0.75rem; }
-  .shell__burger { display: grid; }
-  .shell__logo .logo__text { display: none; }
   .shell__centre { gap: 0.4rem; }
   .joinbar { width: auto; flex: 1; padding-left: 0.7rem; }
   .joinbar__icon { display: none; }
   .shell__new span { display: none; }
   .shell__new { padding: 0.6rem; }
-
-  .shell__body { grid-template-columns: 1fr; }
-  /* The rail slides over the content rather than squeezing it. */
-  .rail {
-    position: fixed;
-    inset: 0 auto 0 0;
-    z-index: 30;
-    width: 13rem;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    transform: translateX(-100%);
-    transition: transform 160ms ease;
-  }
-  .rail--open { transform: none; }
-  .rail__item { grid-template-columns: auto 1fr; justify-items: start; align-items: center; gap: 0.75rem; font-size: 0.9rem; }
-  .rail__icon { width: 2.25rem; height: 2.25rem; }
-  .rail__scrim {
-    display: block;
-    position: fixed; inset: 0; z-index: 29;
-    border: 0; background: rgb(0 0 0 / 35%);
-  }
-  .shell__main { padding: 0.5rem 0.9rem 3rem; }
 }
 
 /* ── the account control ──────────────────────────────────────────────────── */
@@ -2376,4 +2492,691 @@ p { margin: 0; }
   font-size: 0.75rem;
   line-height: 1.5;
   color: var(--text-subtle);
+}
+
+/* ── The shell: a sidebar and a top bar ───────────────────────────────────── */
+.shell {
+  display: grid;
+  /* Both axes stated. An earlier version set only the columns, and a stale
+     `grid-template-rows: auto 1fr` from the rail layout kept applying, making
+     this a 2x2 grid holding two children — which put the top bar beside the
+     page instead of above it. The stale rule is gone; do not reintroduce a
+     second definition of this class. */
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 100dvh;
+  background: var(--bg);
+}
+
+.side {
+  width: 15rem;
+  flex: none;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  align-content: start;
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow-y: auto;
+}
+.side__brand { display: block; padding: 1.35rem 1.25rem; text-decoration: none; color: var(--text); }
+.side__nav { display: grid; gap: 0.15rem; padding: 0.25rem 0.75rem 1.5rem; align-content: start; }
+.side__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font: 500 0.9375rem var(--font);
+  text-decoration: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.side__item:hover { background: var(--surface-muted); color: var(--text); }
+.side__item--on { background: var(--brand-050); color: var(--brand-700); font-weight: 600; }
+.side__icon { display: grid; place-items: center; flex: none; }
+.side__icon svg { width: 1.15rem; height: 1.15rem; }
+.side__scrim { display: none; }
+
+.shell__body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.topbar__burger {
+  display: none;
+  border: 0; background: transparent; color: var(--text-muted);
+  width: 2.25rem; height: 2.25rem; border-radius: 8px; cursor: pointer;
+  place-items: center;
+}
+.topbar__right { display: flex; align-items: center; gap: 0.6rem; margin-left: auto; }
+.shell__main { padding: 1.75rem; min-width: 0; }
+
+@media (max-width: 60rem) {
+  .shell { grid-template-columns: 1fr; }
+  .side {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    box-shadow: var(--shadow);
+  }
+  .side--open { transform: none; }
+  .side__scrim {
+    display: block;
+    position: fixed; inset: 0; z-index: 55;
+    border: 0; background: rgb(15 18 30 / 40%);
+  }
+  .topbar__burger { display: grid; }
+  .topbar { padding: 0.75rem 1rem; }
+  .shell__main { padding: 1rem; }
+}
+
+/* ── the navigation, on a phone ───────────────────────────────────────────── */
+@media (max-width: 40rem) {
+  /*
+   * The drawer takes most of the screen and respects the notch.
+   *
+   * A fixed 15rem panel on a 360px phone leaves a sliver of content behind it
+   * that invites a mis-tap; most of the width, with the scrim taking the rest,
+   * is unambiguous.
+   */
+  .side {
+    width: min(17rem, 82vw);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .side__brand { padding: 1rem 1.1rem; }
+  /* Comfortably past the 44px tap target every phone guideline asks for. */
+  .side__item { padding: 0.8rem 0.85rem; font-size: 1rem; }
+
+  .topbar {
+    padding: 0.55rem 0.75rem;
+    gap: 0.5rem;
+    padding-top: calc(0.55rem + env(safe-area-inset-top, 0px));
+  }
+  .topbar__right { gap: 0.25rem; }
+  .shell__centre { gap: 0.4rem; }
+
+  .joinbar { padding: 0.25rem 0.25rem 0.25rem 0.75rem; }
+  .joinbar__input { font-size: 1rem; min-width: 0; }
+  .joinbar__go { padding: 0.4rem 0.7rem; }
+
+  /*
+   * Everything stays; the icons get smaller instead.
+   *
+   * Hiding the apps menu was tempting and wrong — it is the only way to the
+   * other Texor products, and a phone is exactly where somebody would want to
+   * hop between them. Shrinking the two icon buttons frees the same width.
+   */
+  .shell__icon-btn { width: 2.2rem; height: 2.2rem; font-size: 1.1rem; }
+  .account__trigger img, .account__trigger .avatar { width: 2.1rem; height: 2.1rem; }
+
+  .shell__main { padding: 0.85rem 0.75rem calc(1.5rem + env(safe-area-inset-bottom, 0px)); }
+}
+
+/*
+ * Very narrow.
+ *
+ * The join field keeps the row — pressing Enter submits it, so the visible
+ * "Join" is the one thing here that can go without losing the action.
+ */
+@media (max-width: 24rem) {
+  .joinbar__go { display: none; }
+  .shell__new { padding: 0.55rem; }
+}
+
+/* ── nothing pushes the page sideways ─────────────────────────────────────── */
+/*
+ * A meeting code, a joining URL and an email address are all unbroken strings
+ * that a phone cannot fit, and any one of them will widen the whole document
+ * and leave every screen scrolling horizontally. They break instead.
+ */
+.code,
+.meet__join-link,
+.mcard__code,
+.account__email,
+.note-mention { overflow-wrap: anywhere; }
+
+@media (max-width: 40rem) {
+  html, body { overflow-x: hidden; }
+}
+
+/* ── Home ─────────────────────────────────────────────────────────────────── */
+/*
+ * One spacing scale, used everywhere on this page.
+ *
+ * The previous version set its gaps ad hoc — a hero at 2rem, cards at 0.85rem,
+ * panels at 1.25rem — and nothing lined up with anything. Three values, and
+ * every margin on the page is one of them.
+ */
+.home {
+  --gap: 1.25rem;       /* between things inside a section */
+  --gap-lg: 2rem;       /* between sections */
+  --pad: 1.5rem;        /* inside a panel */
+
+  display: grid;
+  gap: var(--gap-lg);
+  /* Long measures are hard to read and make a dashboard feel unfinished. */
+  max-width: 78rem;
+}
+
+/* ── the hero ── */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  align-items: stretch;
+  gap: var(--gap-lg);
+  padding: var(--pad);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(115deg, var(--brand-050) 0%, #f8fafe 55%, #f4f7fd 100%);
+}
+.hero__copy { display: grid; align-content: center; gap: 0.6rem; padding: 0.75rem 0.25rem; }
+.hero__greet { color: var(--text-muted); font-size: 0.9375rem; }
+.hero__title {
+  font-size: clamp(1.65rem, 2.8vw, 2.25rem);
+  font-weight: 680;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+.hero__sub { color: var(--text-muted); line-height: 1.6; max-width: 30rem; }
+.hero__actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.6rem; }
+
+/*
+ * The photograph.
+ *
+ * A fixed ratio and a hard crop, so the panel's height never depends on the
+ * image and the two columns stay level. It used to carry a handwritten line
+ * and a quote card on top of it; both sat over the subject's face and neither
+ * said anything.
+ */
+.hero__figure {
+  margin: 0;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+/*
+ * Sized by its own aspect, not stretched to the column.
+ *
+ * Line art distorts visibly where a photograph only crops, so this keeps its
+ * proportions and centres in whatever space the grid gives it.
+ */
+.hero__doodle { width: 100%; max-width: 26rem; height: auto; display: block; }
+
+/* ── the four ── */
+/*
+ * Four explicit tracks, then two, then one.
+ *
+ * `auto-fit` put three on one row and left the fourth alone beside a hole,
+ * which is what wrapping does when the count and the track size disagree.
+ */
+.quick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); }
+.quick__card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms, box-shadow 140ms;
+}
+.quick__card:hover:not(:disabled) { border-color: var(--tint-line, var(--brand-500)); box-shadow: var(--shadow); }
+.quick__card:disabled { opacity: 0.6; cursor: default; }
+.quick__icon {
+  width: 2.5rem; height: 2.5rem; flex: none;
+  border-radius: 10px;
+  background: var(--tint-bg, var(--brand-050));
+  color: var(--tint-ink, var(--brand-600));
+  display: grid; place-items: center;
+}
+
+/*
+ * Four colours, and they are the logo's own — periwinkle, red and orange come
+ * off `Talk Icon SVG.svg`, with green and yellow completing the set.
+ *
+ * They colour an icon tile and a hover border, and nothing else. On a button or
+ * a status, red means destructive and orange means warning; those meanings are
+ * worth more than the decoration would be.
+ */
+.quick__card--blue   { --tint-bg: #eaf0fb; --tint-ink: #2e5cab; --tint-line: #6187ce; }
+.quick__card--green  { --tint-bg: #e8f6ef; --tint-ink: #0e7c49; --tint-line: #12a05f; }
+.quick__card--orange { --tint-bg: #fdeee6; --tint-ink: #c1450a; --tint-line: #fa5908; }
+.quick__card--yellow { --tint-bg: #fdf4dd; --tint-ink: #96690a; --tint-line: #f5b800; }
+.quick__icon svg { width: 1.15rem; height: 1.15rem; }
+.quick__text { display: grid; gap: 0.1rem; min-width: 0; }
+.quick__text strong { font-size: 0.9375rem; font-weight: 600; }
+.quick__text span { font-size: 0.8125rem; color: var(--text-muted); }
+
+/* ── lists of meetings ── */
+/* ── what is on, and what came of it ──────────────────────────────────────── */
+/*
+ * Two panels, side by side.
+ *
+ * The meetings panel had a page to itself and two cards to put in it. These
+ * two are the same question asked twice — what is happening, and what was
+ * written down — so they belong next to each other.
+ */
+.home__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr);
+  gap: var(--gap);
+  align-items: start;
+}
+
+/* ── the agenda ───────────────────────────────────────────────────────────── */
+.agenda {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+.agenda__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 1rem 1.25rem 0.75rem;
+}
+.agenda__head h2 { font-size: 1rem; font-weight: 640; }
+.agenda__more { font-size: 0.875rem; font-weight: 500; color: var(--brand-600); text-decoration: none; }
+.agenda__more:hover { text-decoration: underline; }
+.agenda__quiet { color: var(--text-subtle); font-size: 0.875rem; padding: 0 1.25rem 1.1rem; }
+.agenda__empty {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 0.75rem;
+  padding: 0 1.25rem 1.1rem;
+}
+.agenda__empty p { color: var(--text-muted); font-size: 0.9375rem; }
+
+/*
+ * Cards, sized to their content.
+ *
+ * Left-packed and capped, so two meetings sit at the left rather than being
+ * stretched across the page — stretching is what produced the hole between the
+ * title and the button in every earlier version of this.
+ */
+/*
+ * Cards are capped, not stretched.
+ *
+ * `minmax(14rem, 1fr)` let a single card grow to the width of the panel — nine
+ * hundred pixels holding two hundred of content, with the button stranded in
+ * the far corner. That is the same hole this design was meant to close, moved
+ * inside the card.
+ *
+ * A ceiling keeps a card the size of what it holds. One meeting looks like one
+ * meeting and leaves the rest of the panel alone, which is what a panel that is
+ * not full is supposed to look like.
+ */
+.agenda__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 19rem));
+  justify-content: start;
+  gap: 0.75rem;
+  padding: 0 1.25rem 1.25rem;
+}
+
+.mcard {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 0.35rem;
+  justify-items: start;
+  padding: 0.9rem 1rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms, box-shadow 140ms, transform 140ms;
+}
+.mcard:hover { border-color: var(--acc); box-shadow: var(--shadow); transform: translateY(-2px); }
+.mcard:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+/*
+ * A band of the card's colour along the top.
+ *
+ * Enough to tell two cards apart at a glance without tinting the whole surface,
+ * which made text sit on colour and read worse.
+ */
+.mcard::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--acc);
+}
+
+/* The motif: texture, not a control. Clipped by the card's own corner. */
+.mcard__motif {
+  position: absolute;
+  top: -0.6rem; right: -0.9rem;
+  width: 5.5rem; height: 5.5rem;
+  color: var(--acc);
+  opacity: 0.1;
+  pointer-events: none;
+}
+.mcard:hover .mcard__motif { opacity: 0.16; }
+
+/*
+ * The eyebrow: small, heavy, and spaced.
+ *
+ * At this size letter-spacing is what stops it reading as shrunken body text.
+ */
+.mcard__when {
+  display: flex; align-items: center; gap: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--acc-ink);
+}
+.mcard__sep { opacity: 0.45; font-weight: 400; }
+
+.mcard__title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mcard__sub {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--text-subtle);
+  max-width: 100%;
+}
+.mcard__code {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.01em;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border-radius: 5px;
+  padding: 0.1rem 0.4rem;
+}
+
+.mcard__foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+/* ── who is in it ── */
+.faces { display: flex; align-items: center; }
+.faces__one {
+  width: 1.65rem; height: 1.65rem;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--acc-bg);
+  color: var(--acc-ink);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  display: grid; place-items: center;
+  overflow: hidden;
+}
+.faces__one + .faces__one { margin-left: -0.5rem; }
+.faces__one img { width: 100%; height: 100%; object-fit: cover; }
+.mcard__who { font-size: 0.75rem; color: var(--text-subtle); }
+.faces__more {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+
+.mcard__go {
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 0.35rem 0.95rem;
+  font-size: 0.8125rem; font-weight: 600;
+  color: var(--text-muted);
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.mcard:hover .mcard__go { border-color: var(--acc); color: var(--acc-ink); }
+
+/*
+ * A colour per meeting, from the code — so the same meeting is the same colour
+ * everywhere, and somebody can say "the orange one". Green is reserved: it
+ * means live, and a scheduled meeting must not borrow it.
+ */
+.mcard--blue   { --acc: #6187ce; --acc-ink: #2e5cab; --acc-bg: #eaf0fb; }
+.mcard--violet { --acc: #8b6ae8; --acc-ink: #5b3ec2; --acc-bg: #f1ecfd; }
+.mcard--orange { --acc: #fa5908; --acc-ink: #c1450a; --acc-bg: #fdeee6; }
+.mcard--yellow { --acc: #f5b800; --acc-ink: #96690a; --acc-bg: #fdf4dd; }
+.mcard--live   { --acc: #12a05f; --acc-ink: #0e7c49; --acc-bg: #e8f6ef; }
+/*
+ * A live card is not outlined in green.
+ *
+ * The band along the top, the dot and the filled button already say it three
+ * times. A green border round the whole card was a fourth, and it made the
+ * card shout where the others murmur.
+ */
+.mcard--live { border-color: var(--border); }
+.mcard--live:hover { border-color: var(--acc); }
+
+.mcard__dot {
+  width: 0.45rem; height: 0.45rem; border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 0 3px rgb(18 160 95 / 18%);
+  flex: none;
+}
+.mcard--live .mcard__go { background: var(--acc); border-color: var(--acc); color: #fff; }
+.mcard--live:hover .mcard__go { background: var(--acc-ink); border-color: var(--acc-ink); color: #fff; }
+
+/* ── recent notes ─────────────────────────────────────────────────────────── */
+.recent {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+.recent__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 1rem 1.25rem 0.75rem;
+}
+.recent__head h2 { font-size: 1rem; font-weight: 640; }
+.recent__quiet {
+  color: var(--text-subtle); font-size: 0.875rem; line-height: 1.6;
+  padding: 0 1.25rem 1.25rem;
+}
+.recent__list { list-style: none; margin: 0; padding: 0 0.75rem 0.75rem; display: grid; gap: 0.15rem; }
+.recent__item {
+  display: grid; gap: 0.1rem; justify-items: start;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 0; border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.recent__item:hover { background: var(--surface-muted); }
+.recent__item strong {
+  font-size: 0.875rem; font-weight: 600;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.recent__item span {
+  font-size: 0.75rem; color: var(--text-subtle);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+@media (max-width: 68rem) {
+  .quick { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home__cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 52rem) {
+  .hero { grid-template-columns: 1fr; }
+  .hero__figure { min-height: 11rem; order: -1; }
+}
+@media (max-width: 40rem) {
+  .home { --gap-lg: 1.25rem; --pad: 1.1rem; }
+  .quick { grid-template-columns: 1fr; }
+  .agenda__grid { grid-template-columns: 1fr; padding: 0 1rem 1rem; }
+}
+
+/* ── An empty meeting ─────────────────────────────────────────────────────── */
+/*
+ * What somebody sees when they are the first to arrive.
+ *
+ * This block was deleted once by a careless edit and the panel fell back to
+ * browser defaults — unstyled text pinned to the top-left corner. It sits at
+ * the end of the file on purpose: it is the last thing appended, so nothing
+ * after it can slice it out by accident.
+ */
+.meet__alone {
+  height: 100%;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.35rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  min-height: 0;
+}
+.meet__alone-art {
+  width: 5.5rem;
+  height: 5.5rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgb(138 180 248 / 14%);
+  color: var(--meet-blue, #8ab4f8);
+  margin-bottom: 1.1rem;
+}
+.meet__alone-art svg { width: 2.2rem; height: 2.2rem; }
+.meet__alone h2 { font-size: 1.4rem; font-weight: 500; color: #e8eaed; }
+.meet__alone p { color: #9aa0a6; font-size: 0.9375rem; margin-bottom: 1.5rem; }
+
+.meet__alone-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: min(30rem, 100%);
+  padding: 0.65rem 0.65rem 0.65rem 1rem;
+  border-radius: 10px;
+  background: rgb(232 234 237 / 8%);
+  border: 1px solid rgb(232 234 237 / 12%);
+}
+.meet__alone-link span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: #e8eaed;
+  font-size: 0.875rem;
+}
+.meet__alone-link button {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: #9aa0a6;
+  width: 2rem; height: 2rem;
+  border-radius: 6px;
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+.meet__alone-link button:hover { background: rgb(232 234 237 / 12%); color: #e8eaed; }
+.meet__alone-link svg { width: 1rem; height: 1rem; }
+
+.meet__alone-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--meet-blue-solid, #3b72ce);
+  color: #fff;
+  font: 500 0.9375rem var(--font);
+  padding: 0.75rem 1.5rem;
+  cursor: pointer;
+}
+.meet__alone-cta:hover { background: #2e5cab; }
+.meet__alone-cta svg { width: 1.05rem; height: 1.05rem; }
+
+/* ── Search within the people panel ───────────────────────────────────────── */
+.meet__search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: rgb(232 234 237 / 8%);
+  color: #9aa0a6;
+}
+.meet__search svg { width: 0.9rem; height: 0.9rem; flex: none; }
+.meet__search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  color: #e8eaed;
+  font: inherit;
+  font-size: 0.875rem;
+}
+.meet__search-input::placeholder { color: #9aa0a6; }
+
+/* ── Structural hooks that had no rule of their own ───────────────────────── */
+/*
+ * Each of these is a layout anchor the markup already used. A class in the
+ * markup with nothing behind it is a rule somebody deleted, or one they meant
+ * to write — either way it is worth stating rather than leaving to chance.
+ */
+.welcome__copy { min-width: 0; }
+.note-page { display: grid; gap: 0.25rem; }
+.note--read { padding-top: 0.25rem; }
+
+/* ── A section that is not built yet ──────────────────────────────────────── */
+.soon { display: grid; justify-items: center; gap: 0.5rem; text-align: center; padding: 5rem 1rem; }
+.soon__icon {
+  width: 4rem; height: 4rem; border-radius: 50%;
+  background: var(--brand-050); color: var(--brand-600);
+  display: grid; place-items: center; margin-bottom: 0.5rem;
+}
+.soon__icon svg { width: 1.6rem; height: 1.6rem; }
+.soon h1 { font-size: 1.5rem; font-weight: 640; }
+.soon p { color: var(--text-muted); max-width: 30rem; line-height: 1.6; }
+.soon__note {
+  font-size: 0.8125rem;
+  color: var(--text-subtle);
+  background: var(--surface-muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.9rem;
+  margin: 0.5rem 0 0.75rem;
 }

@@ -1,0 +1,247 @@
+/**
+ * Every class the app asks for exists in the stylesheet.
+ *
+ * ── Why ──
+ *
+ * Twice now a scripted edit has removed CSS that was still in use. The second
+ * time took out the whole empty-meeting panel: the markup rendered, the build
+ * passed, and what reached the browser was unstyled text jammed into the
+ * top-left corner. Nothing could catch it but looking at the page.
+ *
+ * A missing rule is a static fact, so it does not need a browser. This walks
+ * every `className` in the source, collects the names, and checks each one has
+ * at least one rule somewhere in the stylesheets.
+ *
+ * It also flags a *layout* class defined twice, which was the first of the two
+ * breakages: appending a second `.shell` rule left a stale
+ * `grid-template-rows` applying underneath the new one and folded the page in
+ * half.
+ */
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
+const HERE = import.meta.dirname;
+const SRC = join(HERE, '..', 'src');
+
+let pass = 0, fail = 0;
+const check = (l, ok, x = '') => { ok ? (pass++, console.log(`  ok   ${l}`)) : (fail++, console.log(`  FAIL ${l} ${x}`)); };
+
+function walk(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) out.push(...walk(path));
+    else out.push(path);
+  }
+  return out;
+}
+
+const files = walk(SRC);
+const source = files.filter((f) => f.endsWith('.js'));
+const sheets = files.filter((f) => f.endsWith('.css'));
+
+check('there are stylesheets to check against', sheets.length > 0, String(sheets.length));
+check('and source files to check', source.length > 5, String(source.length));
+
+/* ── what the stylesheets define ──────────────────────────────────────────── */
+
+const css = sheets.map((f) => readFileSync(f, 'utf8')).join('\n');
+const defined = new Set();
+for (const match of css.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) defined.add(match[1]);
+
+/* ── what the source asks for ─────────────────────────────────────────────── */
+
+/**
+ * Only string literals are read.
+ *
+ * `className={someVariable}` is skipped rather than guessed at — a check that
+ * invents class names produces false alarms, and a test people learn to ignore
+ * is worse than no test.
+ */
+const used = new Map();
+
+/**
+ * Split a literal into class names, dropping `${...}` holes.
+ *
+ * Removing a hole from `door--${tint}` leaves `door--`, which is half a name
+ * rather than a name. A stem ending in a BEM separator is the interpolation's
+ * remains and is skipped — the full class only exists once the value is known,
+ * and this check cannot know it.
+ */
+function collect(piece, file) {
+  for (const name of piece.replace(/\$\{[^}]*\}/g, ' ').split(/\s+/)) {
+    if (!name || !/^-?[_a-zA-Z][\w-]*$/.test(name)) continue;
+    if (/(--|__|-)$/.test(name)) continue;
+    if (!used.has(name)) used.set(name, file);
+  }
+}
+
+for (const file of source) {
+  const text = readFileSync(file, 'utf8');
+  const short = file.slice(SRC.length + 1);
+
+  /**
+   * Braces nest, so a regex cannot find the end of the expression.
+   *
+   * `className={`a--${x ?? 'yellow'}`}` contains a `}` that closes the
+   * interpolation, not the attribute. Matching to the first one truncated the
+   * expression and left `yellow` looking like a class name. This counts depth.
+   */
+  for (const at of [...text.matchAll(/className=/g)].map((m) => m.index)) {
+    const after = text.slice(at + 'className='.length);
+
+    if (after.startsWith('"')) {
+      const end = after.indexOf('"', 1);
+      if (end > 0) collect(after.slice(1, end), short);
+      continue;
+    }
+    if (!after.startsWith('{')) continue;
+
+    let depth = 0;
+    let end = -1;
+    for (let i = 0; i < after.length; i += 1) {
+      if (after[i] === '{') depth += 1;
+      else if (after[i] === '}') {
+        depth -= 1;
+        if (depth === 0) { end = i; break; }
+      }
+    }
+    if (end === -1) continue;
+
+    /**
+     * Comparison operands are values, not class names.
+     *
+     * `label === 'screen' ? 'tile--screen' : ''` mentions two strings and only
+     * one of them is a class. Blanking the right-hand side of a comparison
+     * keeps `tile--screen` and drops `screen`, which is the difference between
+     * a check people trust and one they learn to ignore.
+     */
+    const expression = after.slice(1, end)
+      .replace(/(===|!==|==|!=)\s*(['"`])(?:\\.|(?!\2)[^\\])*\2/g, '$1 0');
+
+    for (const literal of expression.matchAll(/`([^`]*)`|'([^']*)'|"([^"]*)"/g)) {
+      collect(literal[1] ?? literal[2] ?? literal[3] ?? '', short);
+    }
+  }
+}
+
+check('class names were actually found', used.size > 50, String(used.size));
+
+console.log('\n── every class the app uses has a rule ──');
+{
+  const missing = [...used].filter(([name]) => !defined.has(name));
+
+  for (const [name, file] of missing.slice(0, 20)) {
+    console.log(`       ${name}  (${file})`);
+  }
+
+  check(`no class is used without a rule (${used.size} checked)`,
+    missing.length === 0, `${missing.length} missing`);
+}
+
+console.log('\n── no layout class is defined twice ──');
+{
+  /**
+   * Only the ones that lay out the page.
+   *
+   * A second `.badge` rule is a style being refined. A second `.shell` rule is
+   * a stale `grid-template-rows` surviving underneath a new
+   * `grid-template-columns`, which is what folded the app in half.
+   */
+  const LAYOUT = ['shell', 'shell__body', 'shell__main', 'side', 'topbar', 'meet', 'meet__stage', 'lp', 'lp__hero'];
+
+  const twice = LAYOUT.filter((name) => {
+    const rule = new RegExp(`^\\.${name.replace(/[_-]/g, '[_-]')}\\s*\\{`, 'gm');
+    return (css.match(rule) ?? []).length > 1;
+  });
+
+  check('each layout class has exactly one rule', twice.length === 0, twice.join(', '));
+}
+
+console.log('\n── the pieces the deleted block covered ──');
+{
+  // Named individually, because these are the ones that actually went missing
+  // and a count would not have noticed.
+  for (const name of [
+    'meet__alone', 'meet__alone-link', 'meet__alone-cta', 'meet__alone-art',
+    'meet__search', 'meet__search-input', 'meet__code',
+  ]) {
+    check(`.${name} is styled`, defined.has(name));
+  }
+}
+
+console.log('\n── it works on a phone ──');
+{
+  /**
+   * Not "does it look right" — that needs eyes. These are the structural
+   * mistakes that make a layout unusable on a phone and are visible in the
+   * stylesheet: a screen the browser chrome can cover, a fixed width wider
+   * than a phone, a tap target below the size every guideline asks for.
+   */
+  const sheets = walk(SRC).filter((f) => f.endsWith('.css'));
+  const all = sheets.map((f) => readFileSync(f, 'utf8')).join('\n');
+
+  check('there are phone-width rules at all',
+    /@media[^{]*max-width:\s*(40rem|24rem|640px)/.test(all), 'none found');
+
+  /*
+   * `100vh` on a phone is taller than the visible page: the browser's own bar
+   * sits over the bottom of it, which is where the primary button usually is.
+   */
+  const viewportHeights = [...all.matchAll(/(?:min-)?height:\s*100vh/g)];
+  check('no full-screen surface is measured in vh rather than dvh',
+    viewportHeights.length === 0, `${viewportHeights.length} uses of 100vh`);
+
+  // A notch or a home indicator will cover anything that ignores the inset.
+  check('the safe area is respected somewhere',
+    all.includes('env(safe-area-inset'), 'never mentioned');
+
+  // Horizontal scrolling on a phone is almost always one unbreakable string.
+  check('long unbroken strings are allowed to break',
+    all.includes('overflow-wrap: anywhere'), 'nothing breaks');
+
+  /*
+   * A `min-width` wider than a small phone forces the whole document sideways.
+   * 22rem is 352px — narrower than any phone in use.
+   */
+  const wide = [...all.matchAll(/min-width:\s*(\d+(?:\.\d+)?)rem/g)]
+    .map((m) => Number(m[1]))
+    .filter((n) => n > 22);
+  check('nothing declares a min-width wider than a phone',
+    wide.length === 0, wide.join(', '));
+}
+
+console.log('\n── the tab icon ──');
+{
+  /**
+   * Next builds these from files at fixed paths, so the check is that the
+   * files are there and are what they claim. A missing one fails silently —
+   * the browser simply shows its blank page glyph and nobody notices until a
+   * tab is open next to a competitor's.
+   */
+  const { existsSync, readFileSync, statSync: stat } = await import('node:fs');
+  const app = join(SRC, 'app');
+
+  const svg = join(app, 'icon.svg');
+  check('there is a tab icon', existsSync(svg));
+  if (existsSync(svg)) {
+    const markup = readFileSync(svg, 'utf8');
+    check('it is really an SVG', markup.includes('<svg'));
+    // The supplied mark, not a redrawing of it: these are its own colours.
+    check('it is the brand mark', /#6187CE/i.test(markup) && /#FB0102/i.test(markup), 'wrong artwork');
+  }
+
+  const apple = join(app, 'apple-icon.png');
+  check('and one for a home screen', existsSync(apple));
+  if (existsSync(apple)) {
+    const bytes = readFileSync(apple);
+    const width = bytes.readUInt32BE(16);
+    const height = bytes.readUInt32BE(20);
+    check('it is a PNG', bytes.subarray(1, 4).toString() === 'PNG');
+    check('at the size Apple asks for', width === 180 && height === 180, `${width}x${height}`);
+    check('and is not an empty file', stat(apple).size > 500, String(stat(apple).size));
+  }
+}
+
+console.log(`\n  ${pass} passed, ${fail} failed\n`);
+process.exit(fail === 0 ? 0 : 1);

@@ -6,7 +6,8 @@
  */
 const FE = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
 const {
-  formatDuration, formatRemaining, meetingTime, startedAgo, durationBetween, SOON_MS, URGENT_MS,
+  formatDuration, formatRemaining, meetingTime, startedAgo, durationBetween, greetingFor,
+  whenParts, SOON_MS, URGENT_MS,
 } = await import(`${FE}/src/lib/duration.js`);
 
 let pass = 0, fail = 0;
@@ -170,6 +171,48 @@ console.log('\n── how long something lasted ──');
     durationBetween(new Date(from).toISOString(), 'whenever') === '');
   check('a long one grows an hours field',
     durationBetween(new Date(from).toISOString(), new Date(from + 2 * HOUR).toISOString()) === '2:00:00');
+}
+
+console.log('\n── the greeting ──');
+{
+  const at = (h) => { const d = new Date(2026, 8, 16); d.setHours(h, 30); return d; };
+
+  check('early is morning', greetingFor(at(6)) === 'Good morning', greetingFor(at(6)));
+  check('so is eleven', greetingFor(at(11)) === 'Good morning');
+  check('noon turns it over', greetingFor(at(12)) === 'Good afternoon', greetingFor(at(12)));
+  check('four is still afternoon', greetingFor(at(16)) === 'Good afternoon');
+  check('five is evening', greetingFor(at(17)) === 'Good evening', greetingFor(at(17)));
+  check('and so is midnight-ish', greetingFor(at(23)) === 'Good evening');
+  check('the small hours are morning, as English has it', greetingFor(at(1)) === 'Good morning');
+  check('called with nothing, it still greets', greetingFor().startsWith('Good'));
+  check('a nonsense date does not print "undefined"', greetingFor('whenever') === 'Hello');
+}
+
+console.log('\n── a meeting time, as two lines ──');
+{
+  const now = new Date(2026, 8, 16, 9, 0);
+  const on = (d, h, m = 0) => new Date(2026, 8, d, h, m).toISOString();
+
+  check('today says today', whenParts(on(16, 10, 30), now).secondary === 'Today',
+    whenParts(on(16, 10, 30), now).secondary);
+  check('and carries the time', /10/.test(whenParts(on(16, 10, 30), now).primary),
+    whenParts(on(16, 10, 30), now).primary);
+  check('tomorrow says tomorrow', whenParts(on(17, 9), now).secondary === 'Tomorrow');
+  check('yesterday says yesterday', whenParts(on(15, 9), now).secondary === 'Yesterday');
+
+  // Inside the week a weekday places it faster than a date does.
+  const soon = whenParts(on(19, 14), now).secondary;
+  check('later this week is a weekday', /day$/.test(soon), soon);
+  const far = whenParts(on(30, 14), now).secondary;
+  check('further out is a date', /\d/.test(far), far);
+
+  // Crossing midnight is a different day even an hour apart.
+  check('late tonight is still today', whenParts(on(16, 23, 30), now).secondary === 'Today');
+  check('just after midnight is tomorrow', whenParts(on(17, 0, 30), now).secondary === 'Tomorrow');
+
+  check('no time set says so', whenParts(null).secondary === 'No time set');
+  check('and shows a dash rather than a blank', whenParts(null).primary === '—');
+  check('a nonsense date is treated the same', whenParts('whenever').secondary === 'No time set');
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

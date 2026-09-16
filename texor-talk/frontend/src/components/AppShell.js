@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Avatar, Loading, Logo } from '@/components/ui';
 import {
-  CalendarIcon, ChatIcon, GridDotsIcon, MenuIcon, NotesIcon, SettingsIcon, ShieldIcon,
-  VideoPlusIcon,
+  CalendarIcon, ChatIcon, GridDotsIcon, GridIcon, HomeIcon, MenuIcon, NotesIcon, PeopleIcon,
+  RecordIcon, SettingsIcon, ShieldIcon, VideoPlusIcon,
 } from '@/components/icons';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { auth } from '@/lib/api';
@@ -45,67 +45,78 @@ export function AppShell({ children }) {
 
   if (user === undefined) return <Loading label="Loading Texor Talk" />;
 
+  /**
+   * The sidebar.
+   *
+   * Four of these have no feature behind them yet and go to a page that says
+   * so. They are here because the product's design calls for them and a
+   * navigation that appears later is a navigation that moves under people —
+   * but a link that 404s would be worse than either, so none of them do.
+   */
   const destinations = [
+    { href: '/home', label: 'Home', icon: <HomeIcon /> },
     { href: '/meetings', label: 'Meetings', icon: <CalendarIcon /> },
-    { href: '/channels', label: 'Channels', icon: <ChatIcon /> },
     { href: '/notes', label: 'Notes', icon: <NotesIcon /> },
+    { href: '/channels', label: 'Channels', icon: <ChatIcon /> },
+    { href: '/calendar', label: 'Calendar', icon: <CalendarIcon /> },
+    { href: '/recordings', label: 'Recordings', icon: <RecordIcon /> },
+    { href: '/contacts', label: 'Contacts', icon: <PeopleIcon /> },
+    { href: '/integrations', label: 'Integrations', icon: <GridIcon /> },
     ...(user.isAdmin ? [{ href: '/admin', label: 'Admin', icon: <ShieldIcon /> }] : []),
   ];
 
   return (
     <div className="shell">
-      <header className="shell__top">
-        <div className="shell__brand">
-          {/* On a phone the rail is gone, so this is what opens it. */}
+      <aside className={`side ${menuOpen ? 'side--open' : ''}`}>
+        <a href="/home" className="side__brand" aria-label="Texor Talk"><Logo /></a>
+
+        <nav className="side__nav" aria-label="Sections">
+          {destinations.map(({ href, label, icon }) => {
+            const on = pathname === href || (href !== '/home' && pathname.startsWith(href));
+            return (
+              <a
+                key={href}
+                href={href}
+                className={`side__item ${on ? 'side__item--on' : ''}`}
+                aria-current={on ? 'page' : undefined}
+                onClick={() => setMenuOpen(false)}
+              >
+                <span className="side__icon">{icon}</span>
+                <span>{label}</span>
+              </a>
+            );
+          })}
+
+          <button type="button" className="side__item" onClick={() => setSettingsOpen(true)}>
+            <span className="side__icon"><SettingsIcon /></span>
+            <span>Settings</span>
+          </button>
+        </nav>
+      </aside>
+
+      {menuOpen ? (
+        <button type="button" className="side__scrim" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
+      ) : null}
+
+      <div className="shell__body">
+        <header className="topbar">
           <button
             type="button"
-            className="shell__burger"
+            className="topbar__burger"
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
           >
             <MenuIcon />
           </button>
-          <a href="/meetings" className="shell__logo" aria-label="Texor Talk"><Logo /></a>
-        </div>
 
-        <JoinBar onJoin={(code) => router.push(`/meetings/${code}`)} />
+          <JoinBar onJoin={(code) => router.push(`/meetings/${code}`)} />
 
-        <div className="shell__account">
-          <button
-            type="button"
-            className="shell__icon-btn"
-            aria-label="Settings"
-            title="Settings"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <SettingsIcon />
-          </button>
-          <AppsMenu />
-          <AccountMenu user={user} />
-        </div>
-      </header>
-
-      <div className="shell__body">
-        <nav className={`rail ${menuOpen ? 'rail--open' : ''}`} aria-label="Sections">
-          {destinations.map(({ href, label, icon }) => (
-            <a
-              key={href}
-              href={href}
-              className="rail__item"
-              aria-current={pathname.startsWith(href) ? 'page' : undefined}
-              onClick={() => setMenuOpen(false)}
-            >
-              <span className="rail__icon">{icon}</span>
-              <span className="rail__label">{label}</span>
-            </a>
-          ))}
-        </nav>
-
-        {/* Tapping away closes the rail on a phone, where it sits over content. */}
-        {menuOpen ? (
-          <button type="button" className="rail__scrim" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
-        ) : null}
+          <div className="topbar__right">
+            <AppsMenu />
+            <AccountMenu user={user} />
+          </div>
+        </header>
 
         <main className="shell__main">
           {typeof children === 'function' ? children(user) : children}
@@ -139,6 +150,7 @@ function JoinBar({ onJoin }) {
       >
         <span className="joinbar__icon" aria-hidden="true"><KeypadGlyph /></span>
         <input
+          id="joinbar-code"
           className="joinbar__input"
           placeholder="Enter a code or link"
           aria-label="Meeting code or link"

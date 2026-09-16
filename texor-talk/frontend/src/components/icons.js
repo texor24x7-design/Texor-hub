@@ -126,6 +126,19 @@ export const TuneIcon = (props) => (
   </Icon>
 );
 
+export const HomeIcon = (props) => (
+  <Icon {...props}>
+    <path d="M12 3 2.6 11l1.3 1.5L5 11.6V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-8.4l1.1.9 1.3-1.5L12 3Z" />
+  </Icon>
+);
+
+/** Recordings — a circle in a circle, the universal record dot. */
+export const RecordIcon = (props) => (
+  <Icon {...props}>
+    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2.2a7.8 7.8 0 1 1 0 15.6 7.8 7.8 0 0 1 0-15.6Zm0 3.3a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z" />
+  </Icon>
+);
+
 /** Notes — a page with lines on it. */
 export const NotesIcon = (props) => (
   <Icon {...props}>
@@ -309,5 +322,5 @@ export default {
   GridDotsIcon, HandIcon, MenuIcon, MoreIcon, PinIcon, SettingsIcon, VideoPlusIcon,
   ReactionIcon, RemovePersonIcon, ShieldIcon, TuneIcon, NotesIcon, BoldIcon, ItalicIcon,
   CodeIcon, HighlightIcon, HeadingIcon, BulletIcon, TodoIcon, QuoteIcon, TrashIcon,
-  LockIcon, ShareIcon, SearchIcon, PlusIcon,
+  LockIcon, ShareIcon, SearchIcon, PlusIcon, HomeIcon, RecordIcon,
 };

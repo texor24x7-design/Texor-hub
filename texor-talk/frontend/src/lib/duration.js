@@ -133,6 +133,54 @@ export function durationBetween(from, to, now = Date.now()) {
   return formatDuration(Math.max(0, end - start));
 }
 
+/**
+ * "Good morning" and friends.
+ *
+ * The boundaries are the ordinary English ones rather than anything clever:
+ * morning until noon, afternoon until five, evening after that. Takes a date so
+ * it can be tested at three in the afternoon without waiting for three in the
+ * afternoon.
+ */
+export function greetingFor(at = new Date()) {
+  const hour = at instanceof Date ? at.getHours() : new Date(at).getHours();
+  if (!Number.isFinite(hour)) return 'Hello';
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+/**
+ * A meeting's time, as two lines.
+ *
+ * A list reads down its left edge, so the time wants weight and a shape that
+ * repeats: something large and something small, every row the same. One long
+ * string like "Wed 16 Sept, 10:30" gives a row nothing to align to and nothing
+ * to scan.
+ */
+export function whenParts(start, now = new Date()) {
+  if (!start) return { primary: '—', secondary: 'No time set' };
+
+  const at = new Date(start);
+  if (Number.isNaN(at.getTime())) return { primary: '—', secondary: 'No time set' };
+
+  const time = at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+  const midnight = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.round((midnight(at) - midnight(now)) / (24 * 60 * MINUTE));
+
+  if (days === 0) return { primary: time, secondary: 'Today' };
+  if (days === 1) return { primary: time, secondary: 'Tomorrow' };
+  if (days === -1) return { primary: time, secondary: 'Yesterday' };
+
+  // Within the week ahead a weekday is easier to place than a date.
+  const secondary = days > 1 && days < 7
+    ? at.toLocaleDateString(undefined, { weekday: 'long' })
+    : at.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+  return { primary: time, secondary };
+}
+
 export default {
-  formatDuration, formatRemaining, meetingTime, startedAgo, durationBetween, SOON_MS, URGENT_MS,
+  formatDuration, formatRemaining, meetingTime, startedAgo, durationBetween, greetingFor,
+  whenParts, SOON_MS, URGENT_MS,
 };

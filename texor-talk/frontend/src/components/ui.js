@@ -2,12 +2,38 @@
  * Texor Talk UI primitives. Mirrors the Texor Account component set so the two
  * feel like one product family.
  */
-export function Logo() {
+/**
+ * The product mark.
+ *
+ * The icon is the real brand asset; the wordmark is text rather than the rest
+ * of that asset, deliberately. The supplied logo sets "TALK" in black, which
+ * disappears on the dark in-call bar — as text it inherits `currentColor` and
+ * works on both, while the icon keeps its own red, orange and periwinkle.
+ */
+export function Logo({ size = 34 }) {
   return (
     <span className="logo">
-      <span className="logo__mark" aria-hidden="true">T</span>
-      <span className="logo__text">Texor Talk</span>
+      <img
+        className="logo__icon"
+        src="/brand/talk-icon.svg"
+        alt=""
+        width={size}
+        height={size}
+        aria-hidden="true"
+      />
+      <span className="logo__words">
+        <span className="logo__top">Texor</span>
+        <span className="logo__main">TALK</span>
+      </span>
+      <span className="sr-only">Texor Talk</span>
     </span>
+  );
+}
+
+/** Just the mark, for places with no room for the name. */
+export function LogoIcon({ size = 28 }) {
+  return (
+    <img src="/brand/talk-icon.svg" alt="Texor Talk" width={size} height={size} className="logo__icon" />
   );
 }
 

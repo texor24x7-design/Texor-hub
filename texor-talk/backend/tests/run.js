@@ -181,7 +181,7 @@ for (const file of ['speaker.test.mjs', 'fullscreen.test.mjs', 'media-errors.tes
  */
 for (const file of [
   'render.test.mjs', 'autosave.test.mjs', 'duration.test.mjs', 'stats.test.mjs',
-  'sounds.test.mjs',
+  'sounds.test.mjs', 'stage.test.mjs', 'styles.test.mjs', 'accent.test.mjs',
 ]) {
   failures += (await runSuite(file, FRONTEND)) === 0 ? 0 : 1;
 }

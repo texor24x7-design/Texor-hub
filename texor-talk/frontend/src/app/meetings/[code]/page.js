@@ -12,6 +12,7 @@ import {
   ShieldIcon,
   TuneIcon,
   NotesIcon,
+  SearchIcon,
 } from '@/components/icons';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { loadPreferences } from '@/lib/preferences';
@@ -23,6 +24,7 @@ import { MeetingNotes } from '@/components/MeetingNotes';
 import { MeetingTimer } from '@/components/MeetingTimer';
 import { ConnectionInfo } from '@/components/ConnectionInfo';
 import { createChimes } from '@/lib/sounds';
+import { chooseStage, showInviteInstead } from '@/lib/stage';
 import { MeetingRoom } from '@/lib/room';
 import { describeMediaError } from '@/lib/media-errors';
 import { bestTileLayout } from '@/lib/tile-layout';
@@ -501,6 +503,8 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   const [qualityOptions, setQualityOptions] = useState(meeting?.qualityOptions ?? []);
   // Something happened that is worth saying but not worth interrupting for.
   const [notice, setNotice] = useState(null);
+  // Shared by the code chip and the empty-room panel, so the two agree.
+  const [copied, setCopied] = useState(false);
   const [role, setRole] = useState(grant.role);
   const [status, setStatus] = useState('connecting');
   const [error, setError] = useState(null);
@@ -945,6 +949,18 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     onLeave();
   }
 
+  const copyInvite = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(meeting?.joinUrl ?? '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard denied, or an insecure origin. The link is on screen either
+      // way, so this is a nudge rather than a failure.
+      setError('Could not copy \u2014 select the link and copy it by hand.');
+    }
+  }, [meeting?.joinUrl]);
+
   /**
    * The host clicking Leave.
    *
@@ -1053,41 +1069,27 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
    * `tiled` opts out entirely: some people want to see everybody all the time
    * and find a stage that rearranges itself when someone coughs unbearable.
    */
-  const stage = useMemo(() => {
-    const pinnedPeer = pinned === user.texorId
-      ? { texorId: user.texorId, name: user.displayName, picture: user.picture, isYou: true, track: localCamera }
-      : pinned
-        ? (() => {
-            const peer = peers.get(pinned);
-            return peer ? { ...peer, track: peer.tracks.camera } : null;
-          })()
-        : null;
-
-    if (pinnedPeer) return { mode: 'feature', feature: pinnedPeer, reason: 'pinned' };
-    if (presenting) return { mode: 'present', feature: presenting, reason: 'presenting' };
-    if (layout === 'tiled') return { mode: 'grid' };
-
-    if (layout === 'spotlight' || layout === 'auto') {
-      const id = speaking ?? [...peers.keys()][0] ?? user.texorId;
-      // In `auto`, a grid of two or three people is already a good view of
-      // everyone — promoting one of them gains nothing and loses the others.
-      if (layout === 'auto' && peers.size < 3) return { mode: 'grid' };
-
-      const feature = id === user.texorId
-        ? { texorId: user.texorId, name: user.displayName, picture: user.picture, isYou: true, track: localCamera }
-        : (() => {
-            const peer = peers.get(id);
-            return peer ? { ...peer, track: peer.tracks.camera } : null;
-          })();
-
-      if (feature) return { mode: 'feature', feature, reason: 'speaking' };
-    }
-
-    return { mode: 'grid' };
-  }, [pinned, presenting, layout, speaking, peers, localCamera, user.texorId, user.displayName]);
+  /**
+   * Which of the three views the stage is showing.
+   *
+   * The decision lives in `lib/stage.js` and is tested there over every
+   * combination of layout, room size, pin and speaker. It used to be inline,
+   * and a change to it reached a browser as a `TypeError` — the sort of thing
+   * this file cannot be tested for, and that file can.
+   */
+  const stage = useMemo(
+    () => chooseStage({
+      pinned, presenting, layout, speaking, peers, localCamera,
+      me: { texorId: user.texorId, displayName: user.displayName, picture: user.picture },
+    }),
+    [pinned, presenting, layout, speaking, peers, localCamera,
+      user.texorId, user.displayName, user.picture],
+  );
 
   const everyone = [...peers.values()];
   const tileCount = everyone.length + 1;
+  const alone = everyone.length === 0;
+  const inviteInstead = showInviteInstead({ peerCount: everyone.length, cameraOn, status });
 
   /**
    * Tile size is computed, not guessed.
@@ -1157,7 +1159,7 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
 
   return (
     <div className="meet">
-      <main className={`meet__stage ${panel ? 'meet__stage--panelled' : ''}`}>
+      <main className="meet__stage">
         {error ? (
           <div className="meet__toast" role="alert">
             {error}
@@ -1190,7 +1192,33 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           </div>
         ) : null}
 
-        {stage.mode === 'grid' ? (
+        {/*
+          * Alone, with nothing to look at.
+          *
+          * A single dark tile of your own face is a poor answer to "did this
+          * work?". The link is the one thing somebody in an empty room needs,
+          * so it is the thing on the screen. Once the camera is on there *is*
+          * something to look at, and the tile takes over.
+          */}
+        {inviteInstead ? (
+          <div className="meet__alone">
+            <span className="meet__alone-art" aria-hidden="true"><CameraIcon /></span>
+            <h2>You&rsquo;re the first one here</h2>
+            <p>Share this meeting link to invite others</p>
+
+            <div className="meet__alone-link">
+              <span>{meeting?.joinUrl}</span>
+              <button type="button" onClick={copyInvite} aria-label="Copy meeting link">
+                {copied ? <CheckIcon /> : <CopyIcon />}
+              </button>
+            </div>
+
+            <button type="button" className="meet__alone-cta" onClick={copyInvite}>
+              <PeopleIcon />
+              {copied ? 'Link copied' : 'Invite people'}
+            </button>
+          </div>
+        ) : stage.mode === 'grid' ? (
           <div
             className={`meet__grid ${tiles.scrolls ? 'meet__grid--scrolls' : ''}`}
             ref={gridRef}
@@ -1337,7 +1365,16 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
             maxDurationMinutes={meeting?.maxDurationMinutes}
           />
           <span className="meet__divider meet__divider--wide" aria-hidden="true" />
-          <span className="meet__code">{meeting?.code}</span>
+          <button
+            type="button"
+            className="meet__code"
+            onClick={copyInvite}
+            title="Copy the joining link"
+            aria-label={`Meeting code ${meeting?.code}. Copy the joining link.`}
+          >
+            {meeting?.code}
+            {copied ? <CheckIcon /> : <CopyIcon />}
+          </button>
         </div>
 
         <div className="meet__controls">
@@ -1646,8 +1683,36 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
 }
 
 function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecide, onSetRole }) {
+  const [query, setQuery] = useState('');
+
+  /**
+   * Filtering, not searching.
+   *
+   * Everybody in the room is already on the client, so this is a match against
+   * a list in memory — no request, and no empty pause while one is in flight.
+   * It earns its place in a meeting of forty, which is exactly when scrolling
+   * for one person stops working.
+   */
+  const needle = query.trim().toLowerCase();
+  const shown = needle
+    ? peers.filter((peer) => (peer.name ?? '').toLowerCase().includes(needle))
+    : peers;
+
   return (
     <>
+      {peers.length > 3 ? (
+        <label className="meet__search">
+          <SearchIcon />
+          <input
+            className="meet__search-input"
+            placeholder="Search people"
+            aria-label="Search people in this meeting"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+      ) : null}
+
       {isHost && knocks.length > 0 ? (
         <section className="meet__section">
           <h3>Waiting to join</h3>
@@ -1701,7 +1766,7 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecid
           </div>
         </div>
 
-        {peers.map((peer) => (
+        {shown.map((peer) => (
           <div className="meet__person" key={peer.texorId}>
             <Avatar user={{ displayName: peer.name, picture: peer.picture }} />
             <div className="grow">
@@ -1752,6 +1817,14 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecid
             ) : null}
           </div>
         ))}
+
+        {/* A filter that matches nobody has to say so, or the panel simply
+            looks broken. */}
+        {needle && shown.length === 0 ? (
+          <p className="meet__muted" style={{ padding: '0.5rem 0' }}>
+            Nobody here matches &ldquo;{query.trim()}&rdquo;.
+          </p>
+        ) : null}
       </section>
     </>
   );
@@ -2099,112 +2172,141 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
     (meeting.lobby === 'everyone' ||
       (meeting.lobby === 'external' && (meeting.viewer.isExternal || meeting.viewer.role === 'guest')));
 
+  const isHost = meeting?.viewer?.isHost;
+  const here = meeting?.participantCount ?? 0;
+
   return (
-    <>
-      <div className="greenroom__preview">
-        {cameraOn ? (
-          <video ref={video} autoPlay playsInline muted className="greenroom__video" />
-        ) : (
-          <div className="greenroom__off">
-            <CameraOffIcon />
-            <span>Camera is off</span>
+    <div className="gr">
+      {/* ── what you are about to look like ── */}
+      <div className="gr__stage">
+        <div className="gr__preview">
+          {cameraOn ? (
+            <video ref={video} autoPlay playsInline muted className="gr__video" />
+          ) : (
+            /*
+              * Your own face, not a crossed-out camera.
+              *
+              * This is the picture other people will see of you when your
+              * camera is off, so showing it here is both a better-looking
+              * empty state and an honest preview.
+              */
+            <div className="gr__off">
+              {user?.picture
+                ? <img src={user.picture} alt="" className="gr__off-face" />
+                : (
+                  <span className="gr__off-face gr__off-face--letter">
+                    {(user?.displayName ?? '?').trim().charAt(0).toUpperCase()}
+                  </span>
+                )}
+              <span className="gr__off-label">Your camera is off</span>
+            </div>
+          )}
+
+          {/* Over the picture, where they are in the call itself. */}
+          <div className="gr__controls">
+            <button
+              type="button"
+              className={`gr__toggle ${micOn ? '' : 'gr__toggle--off'}`}
+              aria-pressed={!micOn}
+              aria-label={micOn ? 'Join with microphone off' : 'Join with microphone on'}
+              onClick={() => setMicOn((on) => !on)}
+            >
+              {micOn ? <MicIcon /> : <MicOffIcon />}
+            </button>
+            <button
+              type="button"
+              className={`gr__toggle ${cameraOn ? '' : 'gr__toggle--off'}`}
+              aria-pressed={!cameraOn}
+              aria-label={cameraOn ? 'Join with camera off' : 'Join with camera on'}
+              onClick={() => setCameraOn((on) => !on)}
+            >
+              {cameraOn ? <CameraIcon /> : <CameraOffIcon />}
+            </button>
           </div>
-        )}
-
-        <div className="greenroom__controls">
-          <button
-            type="button"
-            className={`meet__control ${micOn ? '' : 'meet__control--off'}`}
-            aria-pressed={!micOn}
-            aria-label={micOn ? 'Join with microphone off' : 'Join with microphone on'}
-            onClick={() => setMicOn((on) => !on)}
-          >
-            {micOn ? <MicIcon /> : <MicOffIcon />}
-          </button>
-          <button
-            type="button"
-            className={`meet__control ${cameraOn ? '' : 'meet__control--off'}`}
-            aria-pressed={!cameraOn}
-            aria-label={cameraOn ? 'Join with camera off' : 'Join with camera on'}
-            onClick={() => setCameraOn((on) => !on)}
-          >
-            {cameraOn ? <CameraIcon /> : <CameraOffIcon />}
-          </button>
         </div>
+
+        {/* Device choice under the picture it changes, not in a form below. */}
+        {devices.mics.length > 1 || devices.cameras.length > 1 ? (
+          <div className="gr__devices">
+            {devices.mics.length > 1 ? (
+              <label className="gr__device">
+                <MicIcon />
+                <select
+                  aria-label="Microphone"
+                  value={chosen.mic}
+                  onChange={(event) => setChosen((c) => ({ ...c, mic: event.target.value }))}
+                >
+                  <option value="">Default microphone</option>
+                  {devices.mics.map((d) => (
+                    <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {devices.cameras.length > 1 ? (
+              <label className="gr__device">
+                <CameraIcon />
+                <select
+                  aria-label="Camera"
+                  value={chosen.camera}
+                  onChange={(event) => setChosen((c) => ({ ...c, camera: event.target.value }))}
+                >
+                  <option value="">Default camera</option>
+                  {devices.cameras.map((d) => (
+                    <option key={d.deviceId} value={d.deviceId}>{d.label || 'Camera'}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
-      <div>
-        <span className="badge">{meeting?.status === 'live' ? 'In progress' : 'Ready'}</span>
-        <h1 style={{ marginTop: '0.6rem' }}>{meeting?.title}</h1>
-        <p className="meta" style={{ marginTop: '0.35rem' }}>
+      {/* ── what you are about to join ── */}
+      <div className="gr__side">
+        <span className={`gr__state ${meeting?.status === 'live' ? 'gr__state--live' : ''}`}>
+          {meeting?.status === 'live' ? 'In progress' : 'Ready when you are'}
+        </span>
+
+        <h1 className="gr__title">{meeting?.title}</h1>
+
+        <p className="gr__host">
           Hosted by {meeting?.host?.name}
-          {meeting?.participantCount > 0
-            ? ` \u00b7 ${meeting.participantCount} already here`
-            : ' \u00b7 nobody here yet'}
+          <span className="gr__sep" aria-hidden="true">·</span>
+          {here > 0 ? `${here} already here` : 'nobody here yet'}
         </p>
-      </div>
 
-      {meeting?.agenda ? <p style={{ color: 'var(--text-muted)' }}>{meeting.agenda}</p> : null}
+        {meeting?.agenda ? <p className="gr__agenda">{meeting.agenda}</p> : null}
 
-      <Alert kind="error">{error ?? deviceError}</Alert>
-      {lobbyApplies ? (
-        <Alert kind="info">You will wait in the lobby until a host lets you in.</Alert>
-      ) : null}
+        <Alert kind="error">{error ?? deviceError}</Alert>
+        {lobbyApplies ? (
+          <Alert kind="info">You will wait in the lobby until a host lets you in.</Alert>
+        ) : null}
 
-      {devices.mics.length > 1 || devices.cameras.length > 1 ? (
-        <div className="stack stack--tight">
-          {devices.mics.length > 1 ? (
-            <Field label="Microphone" htmlFor="micPick">
-              <select
-                id="micPick" className="input" value={chosen.mic}
-                onChange={(event) => setChosen((c) => ({ ...c, mic: event.target.value }))}
-              >
-                <option value="">Default</option>
-                {devices.mics.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>
-                ))}
-              </select>
-            </Field>
-          ) : null}
-          {devices.cameras.length > 1 ? (
-            <Field label="Camera" htmlFor="camPick">
-              <select
-                id="camPick" className="input" value={chosen.camera}
-                onChange={(event) => setChosen((c) => ({ ...c, camera: event.target.value }))}
-              >
-                <option value="">Default</option>
-                {devices.cameras.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>{d.label || 'Camera'}</option>
-                ))}
-              </select>
-            </Field>
-          ) : null}
+        <div className="gr__you">
+          <Avatar user={user} />
+          <div>
+            <strong>{user.displayName}</strong>
+            <span>Joining as your Texor Account</span>
+          </div>
         </div>
-      ) : null}
 
-      <div className="row" style={{ gap: '0.6rem' }}>
-        <Avatar user={user} />
-        <div style={{ lineHeight: 1.25 }}>
-          <div style={{ fontWeight: 550 }}>{user.displayName}</div>
-          <span className="meta">Joining as your Texor Account</span>
+        <div className="gr__go">
+          <Button
+            onClick={() => {
+              // Hand the preview back before the call re-opens the same devices.
+              streamRef.current?.getTracks().forEach((track) => track.stop());
+              streamRef.current = null;
+              onJoin({ micOn, cameraOn, devices: chosen });
+            }}
+            loading={joining}
+          >
+            {isHost && meeting?.status !== 'live' ? 'Start the meeting' : 'Join now'}
+          </Button>
+          <Button variant="ghost" onClick={onBack}>Back</Button>
         </div>
       </div>
-
-      <div className="row" style={{ gap: '0.6rem' }}>
-        <Button
-          onClick={() => {
-            // Hand the preview back before the call re-opens the same devices.
-            streamRef.current?.getTracks().forEach((track) => track.stop());
-            streamRef.current = null;
-            onJoin({ micOn, cameraOn, devices: chosen });
-          }}
-          loading={joining}
-        >
-          {meeting?.viewer?.isHost && meeting?.status !== 'live' ? 'Start the meeting' : 'Join now'}
-        </Button>
-        <Button variant="ghost" onClick={onBack}>Back</Button>
-      </div>
-    </>
+    </div>
   );
 }
 
