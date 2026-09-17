@@ -33,7 +33,7 @@ Each product is its own repository, with the same three folders inside:
 | Repository | What it is | Ports (dev) |
 |---|---|---|
 | [`texor-accounts`](./texor-accounts) | Texor Account — the identity provider everything else depends on | api `4000`, web `3000` |
-| [`texor-finvoice`](./texor-finvoice) | Finvoice — invoicing | api `4001`, web `3001` |
+| [`texor-finvoice`](./texor-finvoice) | Finvoice — invoicing, inventory, warranties and staff, shaped per industry | api `4001`, web `3001` |
 | [`texor-talk`](./texor-talk) | Texor Talk — meetings (self-hosted SFU) and team messaging | api `4002`, web `3002` |
 | [`texor-payroll`](./texor-payroll) | Texor Payroll — payroll runs and payslips | api `4003`, web `3003` |
 

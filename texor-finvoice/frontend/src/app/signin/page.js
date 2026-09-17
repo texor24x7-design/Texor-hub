@@ -8,7 +8,7 @@ import { signInWithTexor } from '@/lib/api';
 function SignInContent() {
   const params = useSearchParams();
   const error = params.get('error');
-  const returnTo = params.get('returnTo') ?? '/invoices';
+  const returnTo = params.get('returnTo') ?? '/start';
 
   return (
     <div className="auth-shell">

@@ -1,0 +1,67 @@
+name: Deploy Texor Finvoice
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "texor-finvoice/**"
+      - ".github/workflows/deploy-finvoice.yml"
+
+concurrency:
+  group: texor-ec2-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Finvoice to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          passphrase: ${{ secrets.EC2_SSH_PASSPHRASE }}
+          command_timeout: 30m
+          script: |
+            set -e
+
+            echo "==> Starting Texor Finvoice deployment"
+            cd ~/Texor-hub
+            git fetch origin main
+            git checkout --detach ${{ github.sha }}
+
+            export NVM_DIR="$HOME/.nvm"
+            source "$NVM_DIR/nvm.sh"
+            nvm use 24.21.0
+
+            # The backend imports the shared tax, money and document renderer
+            # modules from frontend/src/lib/shared, so both sides must be on disk
+            # at the same commit. Puppeteer downloads its Chromium during npm ci;
+            # the EC2 image needs Chromium's system libraries (libnss3, libatk1.0,
+            # libgbm1, libasound2 …) or PDFs fail with a launch error.
+            echo "==> Installing backend dependencies"
+            cd texor-finvoice/backend
+            npm ci
+
+            echo "==> Running Finvoice tests"
+            npm test
+
+            echo "==> Building the frontend"
+            cd ../frontend
+            npm ci
+            npm run build
+
+            echo "==> Restarting Finvoice"
+            pm2 restart texor-finvoice-api
+            pm2 restart texor-finvoice-web
+
+            sleep 5
+            pm2 status
+            curl --fail --silent --show-error http://127.0.0.1:4001/api/health
+
+            echo ""
+            echo "==> Texor Finvoice deployment successful"

@@ -3,6 +3,7 @@ import env from './config/env.js';
 import logger from './utils/logger.js';
 import { connectDatabase, disconnectDatabase } from './config/db.js';
 import { createApp } from './app.js';
+import { closeBrowser } from './services/pdf.service.js';
 
 async function main() {
   await connectDatabase();
@@ -20,6 +21,7 @@ async function main() {
   const shutdown = async (signal) => {
     logger.info(`received ${signal}, shutting down`);
     server.close();
+    await closeBrowser();
     await disconnectDatabase();
     process.exit(0);
   };

@@ -2,8 +2,8 @@
  * A local projection of a Texor Account.
  *
  * Finvoice does not own identity — Texor does. This collection exists so the
- * product can attach its own data (org membership, preferences, invoice
- * ownership) to a stable key, and so a list of invoices can show a name without
+ * product can attach its own data (workspace membership, preferences) to a
+ * stable key, and so a list of invoices can show a name without
  * calling the identity provider for every row.
  *
  * `texorId` is the `sub` claim: the single identifier the same human carries
@@ -20,12 +20,14 @@ const userSchema = new Schema(
     // Refreshed from the ID token on every sign-in; never edited here. Profile
     // changes belong in accounts.texor.app.
     email: { type: String, required: true, index: true },
+    // Whether Texor vouches for the address. Workspace invites are addressed by
+    // email, so only a verified address may claim one.
+    emailVerified: { type: Boolean, default: false },
     displayName: { type: String, default: '' },
     picture: { type: String, default: '' },
 
-    // Product-specific state.
-    defaultCurrency: { type: String, default: 'USD' },
-    businessName: { type: String, default: '' },
+    // The workspace this person last opened, so sign-in lands them back in it.
+    lastWorkspace: { type: Schema.Types.ObjectId, ref: 'Workspace', default: null },
 
     lastSeenAt: { type: Date, default: () => new Date() },
   },
@@ -42,6 +44,7 @@ userSchema.statics.upsertFromClaims = async function upsertFromClaims(claims) {
     {
       $set: {
         email: claims.email,
+        emailVerified: claims.email_verified === true,
         displayName: claims.name ?? claims.email,
         picture: claims.picture ?? '',
         lastSeenAt: new Date(),

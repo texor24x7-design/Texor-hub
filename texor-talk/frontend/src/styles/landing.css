@@ -60,16 +60,23 @@
 
 /* ── header ───────────────────────────────────────────────────────────────── */
 
+/*
+ * Brand on the left; nav and actions together on the right.
+ *
+ * The same arrangement as Finvoice's front door, so the two products' headers
+ * read as one company. The brand does the pushing — an auto margin on the nav
+ * would stop working on a phone, where the nav is hidden.
+ */
 .lp__header {
   max-width: 1240px;
   margin: 0 auto;
   padding: 1.75rem 2rem;
   display: flex;
   align-items: center;
-  gap: 2rem;
+  gap: 2.25rem;
 }
 
-.lp__brand { display: flex; align-items: center; gap: 0.6rem; text-decoration: none; flex: none; }
+.lp__brand { display: flex; align-items: center; gap: 0.6rem; text-decoration: none; flex: none; margin-right: auto; }
 .lp__logo { display: block; flex: none; }
 
 /* ── the family this product belongs to ── */
@@ -121,25 +128,25 @@
   display: grid; place-items: center;
   font-size: 0.8125rem; font-weight: 700;
 }
-.lp__me-name { max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp__me-name { white-space: nowrap; }
 
 /* ── the footer ── */
+/* Centred, like the front door of every other product in the family. */
 .lp__foot {
   max-width: 1240px;
   margin: 0 auto;
-  padding: 2rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
+  padding: 2.5rem 2rem 3rem;
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  text-align: center;
   border-top: 1px solid var(--lp-line);
 }
 .lp__foot-brand { display: block; flex: none; }
 .lp__foot-brand img { display: block; height: 1.35rem; width: auto; }
 .lp__foot p { font-size: 0.875rem; color: var(--lp-body); }
 
-.lp__nav { display: flex; gap: 2.25rem; margin: 0 auto; }
-/* Centred by its own auto margins; it pushes nothing else around. */
+.lp__nav { display: flex; gap: 2.25rem; }
 .lp__nav-link {
   color: var(--lp-body);
   text-decoration: none;
@@ -149,15 +156,8 @@
 }
 .lp__nav-link:hover { color: var(--lp-ink); }
 
-/*
- * `margin-left: auto` here, not `margin: 0 auto` on the nav.
- *
- * The nav was doing the pushing, and the nav is hidden below 68rem — so on
- * every phone the brand and the buttons bunched together on the left with the
- * right half of the header empty. A rule that only works while a neighbour is
- * visible is not a rule.
- */
-.lp__actions { display: flex; align-items: center; gap: 1.25rem; flex: none; margin-left: auto; }
+/* Sits beside the nav at the right end, whether or not the nav is on screen. */
+.lp__actions { display: flex; align-items: center; gap: 1rem; flex: none; }
 
 .lp__signin {
   border: 0;
@@ -186,9 +186,9 @@
 .lp__hero {
   max-width: 1240px;
   margin: 0 auto;
-  padding: 1.5rem 2rem 5.5rem;
+  padding: 1.5rem 2rem 4rem;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   gap: 4rem;
   align-items: center;
 }
@@ -215,9 +215,17 @@
   line-height: 1.65;
   color: var(--lp-body);
   margin: 0 0 2.4rem;
+  max-width: 32rem;
+  text-wrap: pretty;
 }
 
-.lp__ctas { display: flex; flex-wrap: wrap; gap: 0.85rem; margin-bottom: 2.75rem; }
+.lp__ctas { display: flex; flex-wrap: wrap; gap: 0.85rem; margin-bottom: 2rem; }
+
+/* The three facts under the buttons, which fill what used to be a void. */
+.lp__proof { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; max-width: 30rem; }
+.lp__proof li { display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.9375rem; color: var(--lp-body); }
+.lp__proof svg { color: var(--lp-blue); flex: none; margin-top: 0.15rem; }
+.lp__proof strong { color: var(--lp-ink); font-weight: 600; display: block; }
 
 .lp__btn {
   display: inline-flex;
@@ -295,36 +303,39 @@
  * tells you what the product does at a glance instead of making you read it.
  */
 .lp__features {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
   list-style: none;
   margin: 0;
-  padding: 1.5rem 0 0;
+  padding: 2rem 0 0;
   border-top: 1px solid var(--lp-line);
 }
 .lp__feature {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.5rem 0.95rem 0.5rem 0.5rem;
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+  padding: 1.25rem;
   border: 1px solid var(--lp-line);
-  border-radius: 999px;
+  border-radius: 16px;
   background: var(--lp-surface);
+  transition: border-color 140ms, box-shadow 140ms, transform 140ms;
 }
+.lp__feature:hover { border-color: var(--tile-ink); box-shadow: 0 18px 34px rgb(11 27 62 / 8%); transform: translateY(-2px); }
 .lp__feature-tile {
-  width: 1.9rem;
-  height: 1.9rem;
-  border-radius: 50%;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 12px;
   background: var(--tile-bg);
   color: var(--tile-ink);
   display: grid;
   place-items: center;
   flex: none;
+  margin-bottom: 0.35rem;
 }
-.lp__feature-tile svg { width: 1rem; height: 1rem; }
-.lp__feature-label { font-size: 0.875rem; font-weight: 500; color: var(--lp-ink); white-space: nowrap; }
+.lp__feature-tile svg { width: 1.25rem; height: 1.25rem; }
+.lp__feature-label { font-size: 1rem; font-weight: 700; color: var(--lp-ink); }
+.lp__feature-blurb { font-size: 0.875rem; line-height: 1.55; color: var(--lp-body); }
 
 /* One stop of the globe each. */
 .lp__feature--red   { --tile-bg: #fdeaea; --tile-ink: #c62222; }
@@ -332,10 +343,54 @@
 .lp__feature--green { --tile-bg: #e6f9e7; --tile-ink: #1a8c2f; }
 .lp__feature--teal  { --tile-bg: #e3f7f4; --tile-ink: #11897a; }
 
+/* ── the sections below the fold ──────────────────────────────────────────── */
+
+.lp__section { max-width: 1240px; margin: 0 auto; padding: 4.5rem 2rem; }
+.lp__section-head { max-width: 44rem; margin: 0 auto 2.5rem; text-align: center; }
+.lp__section-head h2 { font-size: clamp(1.6rem, 3.1vw, 2.35rem); font-weight: 700; letter-spacing: -0.025em; margin: 0; text-wrap: balance; }
+.lp__section-head p { margin: 0.75rem 0 0; color: var(--lp-body); font-size: 1.05rem; line-height: 1.6; }
+
+.lp__grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.lp__card {
+  display: grid; gap: 0.4rem; align-content: start;
+  padding: 1.35rem; border: 1px solid var(--lp-line); border-radius: 16px; background: var(--lp-surface);
+  transition: border-color 140ms, box-shadow 140ms, transform 140ms;
+}
+.lp__card:hover { border-color: var(--lp-blue); box-shadow: 0 18px 34px rgb(11 27 62 / 8%); transform: translateY(-2px); }
+.lp__card-icon { width: 2.6rem; height: 2.6rem; border-radius: 12px; display: grid; place-items: center; background: var(--lp-tile); color: var(--lp-blue); margin-bottom: 0.35rem; }
+.lp__card strong { font-size: 1.05rem; }
+.lp__card-blurb { font-size: 0.9rem; line-height: 1.55; color: var(--lp-body); }
+
+/* The dark beat before the end, so the page arrives somewhere. */
+.lp__band {
+  background: var(--lp-ink);
+  background-image: radial-gradient(38rem 20rem at 82% 0%, rgb(97 135 206 / 28%), transparent 62%);
+  color: #eaeefb;
+  padding: 4.5rem 2rem;
+}
+.lp__band .lp__section-head h2 { color: #fff; }
+.lp__steps {
+  list-style: none; margin: 0 auto; padding: 0; max-width: 1060px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem;
+}
+.lp__steps li { display: grid; gap: 0.5rem; align-content: start; }
+.lp__steps strong { color: #fff; font-size: 1.1rem; }
+.lp__steps span:last-child { color: #a9b6d4; font-size: 0.95rem; line-height: 1.6; }
+.lp__step-no {
+  width: 2.1rem; height: 2.1rem; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--lp-blue); color: #fff; font-weight: 700;
+}
+.lp__band-cta { display: flex; justify-content: center; margin-top: 2.5rem; }
+/* White on navy: the blue button is the page's loudest thing on white, and its
+   quietest on this band. */
+.lp__band .lp__btn--primary { background: #fff; color: var(--lp-ink); box-shadow: 0 12px 30px rgb(0 0 0 / 28%); }
+.lp__band .lp__btn--primary:hover { background: #e8eefb; }
+
 /* ── the artwork ──────────────────────────────────────────────────────────── */
 
 /* Room on the left for the card that overlaps, and below for the script. */
-.lp__art { position: relative; margin-left: 1.5rem; }
+.lp__art { position: relative; margin-left: 1.5rem; padding-bottom: 3.5rem; }
 
 /**
  * The photograph.
@@ -392,7 +447,7 @@
 .lp__badge {
   position: absolute;
   left: -1.5rem;
-  bottom: 2.5rem;
+  bottom: 5.5rem;
   z-index: 2;
   background: var(--lp-surface);
   border: 1px solid var(--lp-line);
@@ -417,7 +472,7 @@
 .lp__script {
   position: absolute;
   right: 0.5rem;
-  bottom: -3.25rem;
+  bottom: 0;
   z-index: 2;
   margin: 0;
   font-family: var(--lp-script-stack);
@@ -502,11 +557,12 @@
 
 @media (max-width: 68rem) {
   .lp__nav { display: none; }
-  .lp__hero { grid-template-columns: 1fr; gap: 3.5rem; padding-bottom: 7rem; }
-  .lp__features { justify-content: flex-start; }
+  .lp__hero { grid-template-columns: 1fr; gap: 3rem; padding-bottom: 3rem; }
+  .lp__features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lp__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lp__steps { grid-template-columns: 1fr; gap: 1.75rem; }
   .lp__art { margin-left: 0; }
-  .lp__badge { left: 0; bottom: -1.5rem; }
-  .lp__script { bottom: -5.5rem; right: 0; }
+  .lp__badge { left: 0; bottom: 4.5rem; }
 }
 
 @media (max-width: 40rem) {
@@ -528,7 +584,6 @@
   .lp__pending { width: 8.5rem; height: 2.4rem; }
   .lp__me { padding: 0.25rem 0.7rem 0.25rem 0.25rem; font-size: 0.875rem; }
   .lp__me-face { width: 1.8rem; height: 1.8rem; }
-  .lp__me-name { max-width: 5rem; }
 
   /* Wraps rather than forcing the page wider than the phone. */
   .lp__family { flex-wrap: wrap; margin-bottom: 1.1rem; }
@@ -539,15 +594,17 @@
     gap: 0.75rem;
   }
   .lp__foot p { font-size: 0.8125rem; line-height: 1.6; }
-  .lp__ctas { margin-bottom: 2.75rem; }
-  .lp__btn { flex: 1 1 100%; }
+  .lp__ctas { margin-bottom: 1.75rem; }
+  /* Side by side while they fit: two full-width slabs read as a form, not a choice. */
+  .lp__btn { flex: 1 1 9.5rem; padding: 0.9rem 1rem; font-size: 0.95rem; }
   .lp__join { flex: 1 1 100%; }
   .lp__join-input { width: 100%; }
-  /* Left over from when this was a grid; it is a flex row now. */
-  .lp__strip { padding: 0 1.25rem 3rem; }
-  .lp__features { gap: 0.5rem; padding-top: 1.25rem; }
-  .lp__feature { padding: 0.4rem 0.8rem 0.4rem 0.4rem; }
-  .lp__feature-label { font-size: 0.8125rem; }
+  .lp__strip { padding: 0 1.25rem 2.5rem; }
+  .lp__features { grid-template-columns: 1fr; gap: 0.75rem; padding-top: 1.5rem; }
+  .lp__feature { padding: 1rem; }
+  .lp__section { padding: 3rem 1.25rem; }
+  .lp__band { padding: 3rem 1.25rem; }
+  .lp__grid { grid-template-columns: 1fr; }
   /* One offset, not two fighting: the card tucks under the drawing's left. */
   .lp__badge { left: 0; right: auto; bottom: -1.25rem; padding: 0.75rem 1rem; }
   .lp__badge-line { font-size: 0.95rem; }

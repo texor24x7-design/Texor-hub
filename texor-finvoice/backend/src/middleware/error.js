@@ -17,6 +17,22 @@ export function errorHandler(error, _req, res, _next) {
     });
   }
 
+  // A schema parsed inside a service rather than by `validate` still means bad input.
+  if (error?.name === 'ZodError') {
+    return res.status(400).json({
+      error: {
+        code: 'bad_request',
+        message: 'Some fields need attention.',
+        details: error.issues.map((issue) => ({ field: issue.path.join('.'), message: issue.message })),
+      },
+    });
+  }
+
+  // A body over the upload limit.
+  if (error?.type === 'entity.too.large') {
+    return res.status(413).json({ error: { code: 'too_large', message: 'That file is too large.' } });
+  }
+
   // Mongo duplicate key — surfaces as a conflict rather than a 500.
   if (error?.code === 11000) {
     return res.status(409).json({

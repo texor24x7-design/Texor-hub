@@ -2,7 +2,7 @@
   "name": "finvoice-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Finvoice \u2014 invoicing for the Texor ecosystem",
+  "description": "Finvoice — invoicing for the Texor ecosystem",
   "type": "module",
   "main": "src/server.js",
   "engines": {
@@ -11,15 +11,22 @@
   "scripts": {
     "dev": "node --watch --env-file=.env src/server.js",
     "start": "node src/server.js",
-    "check:texor": "node --env-file=.env scripts/check-texor.js"
+    "check:texor": "node --env-file=.env scripts/check-texor.js",
+    "test": "node --env-file=.env tests/run.js"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/source-serif-4": "^5.3.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "helmet": "^8.1.0",
     "jose": "^6.2.12",
     "mongoose": "^9.9.5",
+    "nodemailer": "^10.0.10",
+    "puppeteer": "^25.11.0",
+    "qrcode": "^1.5.4",
     "zod": "^4.1.13"
   }
 }

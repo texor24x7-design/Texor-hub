@@ -83,7 +83,8 @@ export function Landing() {
                     {(user.displayName ?? '?').trim().charAt(0).toUpperCase()}
                   </span>
                 )}
-              <span className="lp__me-name">{(user.displayName ?? '').split(' ')[0]}</span>
+              {/* What the button does, not who is pressing it — the face already says that. */}
+              <span className="lp__me-name">Open Talk</span>
             </button>
           ) : (
             <>
@@ -121,10 +122,9 @@ export function Landing() {
             <span className="lp__title-accent">Move Forward.</span>
           </h1>
 
+          {/* No hard break: it has to wrap by itself on a phone. */}
           <p className="lp__sub">
-            Secure, high-quality video meetings for modern teams.
-            <br />
-            Built for productivity, designed for people.
+            Secure, high-quality video meetings for modern teams. Built for productivity, designed for people.
           </p>
 
           <div className="lp__ctas">
@@ -160,6 +160,25 @@ export function Landing() {
             )}
           </div>
 
+          {/*
+            * Three plain facts, where the column used to simply stop.
+            *
+            * The left side ended at the buttons while the drawing ran on for
+            * another two hundred pixels, so the hero read as one full half and
+            * one empty one.
+            */}
+          <ul className="lp__proof">
+            {[
+              ['Nothing to install', 'It runs in the browser you already have.'],
+              ['Guests, not strangers', 'A lobby, knocking and host controls on every link.'],
+              ['Your own server', 'The media never leaves the machine you run it on.'],
+            ].map(([title, line]) => (
+              <li key={title}>
+                <TickGlyph />
+                <span><strong>{title}</strong>{line}</span>
+              </li>
+            ))}
+          </ul>
         </div>
 
         <div className="lp__art">
@@ -194,44 +213,81 @@ export function Landing() {
       {/*
         * The feature row is its own band, not part of the left column.
         *
-        * Stacked with the eyebrow, the headline, the copy and two buttons, it
-        * made one side of the page carry everything while the other held a
-        * drawing. Across the full width it balances the two, and all four fit
-        * on one line instead of three plus a stray.
+        * Four cards rather than four pills: the pills were a ragged row of
+        * different widths floating under a hairline, and said only what the
+        * product has, never what it is for. Each still takes one stop of the
+        * Texor globe, on decoration only.
         */}
-      <section className="lp__strip">
-        {/*
-          * Icon beside label, not above it.
-          *
-          * Stacked, "Secure & Encrypted" and "Team Collaboration" wrapped to
-          * two lines while the others sat on one, and the row read as ragged.
-          * Side by side they are four even pills.
-          *
-          * Each tile takes a different stop from the Texor globe — the
-          * family's colours, on decoration only.
-          */}
+      <section className="lp__strip" id="product">
         <ul className="lp__features">
           {[
-            ['HD Video', <CameraGlyph key="c" />, 'red'],
-            ['Secure & Encrypted', <ShieldGlyph key="s" />, 'amber'],
-            ['Screen Sharing', <ScreenGlyph key="p" />, 'green'],
-            ['Team Collaboration', <PeopleGlyph key="t" />, 'teal'],
-          ].map(([label, glyph, tint]) => (
+            ['HD Video', 'Crisp, low-latency calls that hold up on Indian broadband.', <CameraGlyph key="c" />, 'red'],
+            ['Secure & Encrypted', 'Media stays on your own server, behind your own account.', <ShieldGlyph key="s" />, 'amber'],
+            ['Screen Sharing', 'Show a deck, a design or a terminal without a download.', <ScreenGlyph key="p" />, 'green'],
+            ['Team Collaboration', 'Channels, shared notes and files beside the call.', <PeopleGlyph key="t" />, 'teal'],
+          ].map(([label, blurb, glyph, tint]) => (
             <li className={`lp__feature lp__feature--${tint}`} key={label}>
               <span className="lp__feature-tile" aria-hidden="true">{glyph}</span>
-              <span className="lp__feature-label">{label}</span>
+              <strong className="lp__feature-label">{label}</strong>
+              <span className="lp__feature-blurb">{blurb}</span>
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="lp__section" id="solutions">
+        <header className="lp__section-head">
+          <h2>Everything the meeting needs, in the meeting</h2>
+          <p>No second tab for notes, no third for the transcript, no fourth to find the link again.</p>
+        </header>
+        <ul className="lp__grid">
+          {[
+            ['Live captions', 'Spoken words appear as they are said, and stay as a transcript afterwards.', <CaptionGlyph key="cc" />],
+            ['Shared notes', 'One document everyone in the room can write in, kept with the meeting.', <NoteGlyph key="n" />],
+            ['Channels', 'Team conversation that carries on between calls.', <ChatGlyph key="ch" />],
+            ['Calendar & invites', 'Schedule it, send it, and it lands in their calendar.', <CalendarGlyph key="cal" />],
+            ['Lobby & roles', 'Decide who waits, who is admitted and who can host.', <LockGlyph key="l" />],
+            ['Picture-in-picture', 'Keep the room in a corner while you work in another window.', <PipGlyph key="p" />],
+          ].map(([title, blurb, glyph]) => (
+            <li className="lp__card" key={title}>
+              <span className="lp__card-icon" aria-hidden="true">{glyph}</span>
+              <strong>{title}</strong>
+              <span className="lp__card-blurb">{blurb}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="lp__band" id="resources">
+        <header className="lp__section-head">
+          <h2>A meeting is three steps away</h2>
+        </header>
+        <ol className="lp__steps">
+          {[
+            ['Start the room', 'One click makes a link. No scheduling, no add-on, no download.'],
+            ['Share the link', 'Colleagues walk in with their Texor Account; guests knock and you let them in.'],
+            ['Talk, and keep it', 'Captions, notes and decisions stay with the meeting after everybody leaves.'],
+          ].map(([title, blurb], i) => (
+            <li key={title}>
+              <span className="lp__step-no">{i + 1}</span>
+              <strong>{title}</strong>
+              <span>{blurb}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="lp__band-cta">
+          <button type="button" className="lp__btn lp__btn--primary" onClick={() => router.push('/home')}>
+            Start a Meeting
+            <ArrowIcon />
+          </button>
+        </div>
       </section>
 
       <footer className="lp__foot">
         <a className="lp__foot-brand" href={ACCOUNTS_ORIGIN || '/'} target="_blank" rel="noreferrer">
           <img src="/brand/texor.svg" alt="Texor" width="82" height="24" />
         </a>
-        <p>
-          Texor Talk is part of Texor. One account signs you in to every product in the family.
-        </p>
+        <p>Texor Talk is part of Texor. One account signs you in to every product in the family.</p>
       </footer>
     </div>
   );
@@ -253,6 +309,34 @@ const ShieldGlyph = () => (
 
 const ScreenGlyph = () => (
   <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 4h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-7v2h3v2H7v-2h3v-2H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm1 2v9h16V6H4Z" /></svg>
+);
+
+const TickGlyph = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+);
+
+const CaptionGlyph = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm3.5 5.5a2.5 2.5 0 0 0 0 5h1.8v-1.8H6.5a.7.7 0 1 1 0-1.4h1.8V10.5H6.5Zm7 0a2.5 2.5 0 0 0 0 5h1.8v-1.8h-1.8a.7.7 0 1 1 0-1.4h1.8V10.5h-1.8Z" /></svg>
+);
+
+const NoteGlyph = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 2h8l6 6v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm7 2v5h5l-5-5Zm-4 9h8v2H9v-2Zm0 4h8v2H9v-2Z" /></svg>
+);
+
+const ChatGlyph = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm3 5h10v2H7V8Zm0 4h7v2H7v-2Z" /></svg>
+);
+
+const CalendarGlyph = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7 2v2h10V2h2v2h2a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h2V2h2ZM4 9v11h16V9H4Zm3 3h4v4H7v-4Z" /></svg>
+);
+
+const LockGlyph = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 2a5 5 0 0 1 5 5v2h1.5A1.5 1.5 0 0 1 20 10.5v9A1.5 1.5 0 0 1 18.5 21h-13A1.5 1.5 0 0 1 4 19.5v-9A1.5 1.5 0 0 1 5.5 9H7V7a5 5 0 0 1 5-5Zm0 2a3 3 0 0 0-3 3v2h6V7a3 3 0 0 0-3-3Zm0 9a1.8 1.8 0 0 0-1 3.3V18h2v-1.7A1.8 1.8 0 0 0 12 13Z" /></svg>
+);
+
+const PipGlyph = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 4h18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm1 2v12h16V6H4Zm8 5h7v5h-7v-5Z" /></svg>
 );
 
 const PeopleGlyph = () => (
