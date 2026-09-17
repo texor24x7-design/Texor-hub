@@ -26,7 +26,6 @@ import { createPending } from '@/lib/pending';
 import {
   CAMERA_ENCODINGS, SCREEN_MODES, cameraBudget, cameraEncodings, screenConstraints, screenEncodings,
 } from '@/lib/encodings';
-import { encodeAudioFrame } from '@/lib/captions';
 
 const WS_ORIGIN = API_ORIGIN.replace(/^http/, 'ws');
 
@@ -67,15 +66,6 @@ export class MeetingRoom {
      * a ceiling that then drops the excess, which is worse than encoding to it.
      */
     this.limits = handlers.limits ?? null;
-
-    /**
-     * What the meeting is doing about captions, as the server last said.
-     *
-     * Arrives with the welcome and is updated by the `captions` notification,
-     * so it survives a reconnect — the client must never decide for itself
-     * whether to start reading somebody's microphone.
-     */
-    this.captions = null;
   }
 
   // ── Signalling ─────────────────────────────────────────────────────────────
@@ -197,9 +187,6 @@ export class MeetingRoom {
 
         if (message.type === 'welcome') {
           try {
-            // Held on the room so a reconnect does not lose what the meeting is
-            // doing — the caller re-reads it rather than waiting for a change.
-            this.captions = message.data.captions ?? null;
             /**
              * The roster is handed over *before* any track is consumed.
              *
@@ -513,25 +500,6 @@ export class MeetingRoom {
 
       case 'activeSpeaker':
         this.on.activeSpeaker?.(data.texorId);
-        break;
-
-      /** One recognised utterance — ours or somebody else's. */
-      case 'caption':
-        this.on.caption?.(data);
-        break;
-
-      /**
-       * Captions were turned on or off for the meeting.
-       *
-       * Everyone is told, not just the host who pressed it, and that is the
-       * point rather than a convenience: with this on, what each person says is
-       * being transcribed and — unless the organisation has switched storage
-       * off — written down against their name. Nobody should have to notice a
-       * small indicator to find that out.
-       */
-      case 'captions':
-        this.captions = { ...this.captions, ...data };
-        this.on.captions?.(this.captions);
         break;
 
       /**
@@ -1171,36 +1139,6 @@ export class MeetingRoom {
 
   sendChat(body) {
     return this.request('chat', { body });
-  }
-
-  /**
-   * One utterance of our own microphone, for transcription.
-   *
-   * Binary, and fire-and-forget — there is no reply to wait for and no id to
-   * correlate. A caption that could not be sent is a caption that does not
-   * appear, which is the correct outcome for a blip; retrying would put a
-   * sentence on screen after the conversation had moved past it.
-   *
-   * `bufferedAmount` is the backpressure valve. A socket that is already behind
-   * must not be handed another three hundred kilobytes of audio — that is how a
-   * bad connection turns into a call whose signalling is stuck behind a queue
-   * of stale caption clips, which costs far more than the captions are worth.
-   */
-  sendAudio({ utteranceId, final, samples }) {
-    if (this.socket?.readyState !== WebSocket.OPEN) return false;
-    if (this.socket.bufferedAmount > 512 * 1024) return false;
-
-    try {
-      this.socket.send(encodeAudioFrame({ utteranceId, final }, samples));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /** A host turning captions on or off for the whole meeting. */
-  setCaptions(on) {
-    return this.request('setCaptions', { on });
   }
 
   sendReaction(emoji) {

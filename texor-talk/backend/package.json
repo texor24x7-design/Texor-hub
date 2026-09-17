@@ -12,10 +12,6 @@
     "dev": "node --watch --env-file=.env src/server.js",
     "start": "node src/server.js",
     "check:texor": "node --env-file=.env scripts/check-texor.js",
-    "captions:build": "node scripts/build-whisper.js",
-    "captions:model": "node --env-file=.env scripts/fetch-model.js",
-    "captions:check": "node --env-file=.env scripts/check-captions.js",
-    "captions:setup": "npm run captions:build && npm run captions:model",
     "migrate:media": "node --env-file=.env scripts/drop-legacy-media-index.js",
     "test": "node --env-file=.env tests/run.js"
   },
@@ -29,8 +25,5 @@
     "mongoose": "^9.9.5",
     "ws": "^8.21.3",
     "zod": "^4.1.13"
-  },
-  "optionalDependencies": {
-    "smart-whisper": "^0.8.1"
   }
 }

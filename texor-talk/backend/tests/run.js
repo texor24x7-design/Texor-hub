@@ -168,7 +168,7 @@ let failures = 0;
  * rule fails in a second rather than after a full media negotiation.
  */
 for (const file of ['speaker.test.mjs', 'fullscreen.test.mjs', 'media-errors.test.mjs', 'tile-layout.test.mjs', 'quality.test.mjs',
-  'notes-doc.test.mjs', 'meeting-lifecycle.test.mjs', 'transcript.test.mjs']) {
+  'notes-doc.test.mjs', 'meeting-lifecycle.test.mjs']) {
   failures += (await runSuite(file)) === 0 ? 0 : 1;
 }
 
@@ -183,15 +183,14 @@ for (const file of [
   'render.test.mjs', 'autosave.test.mjs', 'duration.test.mjs', 'stats.test.mjs',
   'sounds.test.mjs', 'stage.test.mjs', 'styles.test.mjs', 'accent.test.mjs',
   'origin.test.mjs', 'note-export.test.mjs', 'pending.test.mjs',
-  'preferences.test.mjs', 'pip.test.mjs', 'vad.test.mjs', 'caption-lines.test.mjs',
+  'preferences.test.mjs', 'pip.test.mjs',
 ]) {
   failures += (await runSuite(file, FRONTEND)) === 0 ? 0 : 1;
 }
 
 await waitForHealth();
 
-for (const file of ['meetings.test.mjs', 'media.test.mjs', 'guests.test.mjs', 'notes.test.mjs',
-  'captions.test.mjs']) {
+for (const file of ['meetings.test.mjs', 'media.test.mjs', 'guests.test.mjs', 'notes.test.mjs']) {
   failures += (await runSuite(file)) === 0 ? 0 : 1;
 }
 

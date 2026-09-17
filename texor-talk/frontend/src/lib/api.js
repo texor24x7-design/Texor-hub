@@ -111,17 +111,6 @@ export const meetings = {
   // the browser's own download handling is what should receive it.
   inviteUrl: (code) => `${API_ORIGIN}/api/meetings/${code}/invite.ics`,
 
-  /** What was said, once the meeting has been captioned. */
-  transcript: (code) => api(`/api/meetings/${code}/transcript`),
-  deleteTranscript: (code) => api(`/api/meetings/${code}/transcript`, { method: 'DELETE' }),
-  // Same reasoning as the invite: the server renders the file, so the download
-  // is the canonical transcript rather than a second rendering in the browser.
-  transcriptUrl: (code) => `${API_ORIGIN}/api/meetings/${code}/transcript.txt`,
-
-  /** Whether this deployment can caption at all. Asked before a call starts,
-   * so a control is never offered that would fail when pressed. */
-  captions: () => api('/api/captions'),
-
   /**
    * Guest access. These two are the only meeting calls that work with no
    * credential at all — everything else needs a Texor session or a guest pass

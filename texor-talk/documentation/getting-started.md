@@ -104,30 +104,6 @@ The suites wipe collections, so each one refuses to start unless the database
 name ends in `_test`. Running a test file directly with `--env-file=.env` stops
 with an error rather than touching your data.
 
-## Captions
-
-Optional, and two steps beyond `npm install` — both in `backend/`:
-
-```bash
-npm run captions:setup     # rebuild whisper.cpp for this CPU, then fetch the model (~148 MB)
-npm run captions:check     # speak a sentence through it and report the speed
-```
-
-The rebuild takes a minute or two and needs `cmake` and a C++ compiler. It is
-not optional if captions are going to be used: `smart-whisper` ships no
-instruction-set flags, so a plain `npm install` compiles ggml's scalar fallback
-kernels and recognition runs roughly ten times slower — slower than the speech
-going into it, which means captions fall behind and get dropped rather than
-merely being sluggish.
-
-`captions:check` prints the real-time factor. Below 1 is what you want.
-
-Skipping all of this is fine. `smart-whisper` is an optional dependency, so the
-product installs and runs without it; captions simply report themselves
-unavailable, with a reason, and nothing else changes.
-
-See [Captions](./captions.md).
-
 ## Troubleshooting
 
 **Redirected to `/signin?error=…`** — the message is the real one. Common
@@ -163,25 +139,3 @@ front of a door with nobody behind it. Have the host join first.
 **`/admin` returns 403** — your address is not in `ADMIN_EMAILS` and you are not
 in the policy's admin list. `ADMIN_EMAILS` is read at boot, so restart the API
 after changing it.
-
-**The caption button says captions are unavailable** — ask `/api/captions`; the
-reason is in the response. It is almost always the model: run
-`npm run captions:model` in `backend/`. If `smart-whisper` itself is missing,
-the machine had no C++ toolchain at `npm install` time — install `cmake` and a
-compiler and reinstall.
-
-**Captions appear seconds late, or not at all under load** — recognition is
-slower than speech on that machine. Run `npm run captions:check`; if the
-real-time factor is above 1, run `npm run captions:build` first, which is
-usually the whole gap. After that, `CAPTIONS_INTERIM=false`, then a smaller
-`WHISPER_MODEL`.
-
-**A transcript is full of "Thank you." and "[BLANK_AUDIO]"** — that is whisper
-answering silence with the most common phrases in its training data, and the
-filter in `backend/src/utils/transcript.js` is what is supposed to catch it.
-If new variants get through, add them there and to
-`backend/tests/transcript.test.mjs` — never to a caller.
-
-**Nothing is captioned even with captions on** — check the microphone is not
-muted. A muted participant is never transcribed, and the server enforces that
-independently of the browser, so it holds even if the tap is misbehaving.

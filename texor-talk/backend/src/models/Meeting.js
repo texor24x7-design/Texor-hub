@@ -76,17 +76,6 @@ const settingsSchema = new Schema(
     screenShare: { type: String, enum: ['everyone', 'hosts'], default: 'everyone' },
     allowChat: { type: Boolean, default: true },
     allowExternalGuests: { type: Boolean, default: true },
-
-    /**
-     * Live captions, and the transcript they leave behind.
-     *
-     * Off unless somebody turns it on, whatever the organisation allows. A
-     * meeting that starts recording what people say because a default said so
-     * is the wrong way round — the org decides whether it is *possible*, a host
-     * decides whether it *happens*, and everybody in the room is told while it
-     * is.
-     */
-    captions: { type: String, enum: ['off', 'on'], default: 'off' },
   },
   { _id: false },
 );

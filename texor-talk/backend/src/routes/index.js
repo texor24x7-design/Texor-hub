@@ -60,12 +60,6 @@ import {
   updateNoteSchema,
 } from '../controllers/note.controller.js';
 import {
-  captionsStatus,
-  deleteTranscript,
-  downloadTranscript,
-  getMeetingTranscript,
-} from '../controllers/transcript.controller.js';
-import {
   adminMeetingsSchema,
   auditQuerySchema,
   listAllMeetings,
@@ -83,16 +77,6 @@ export function createApiRouter() {
   router.use(attachSession);
 
   router.get('/health', (_req, res) => res.json({ status: 'ok', service: 'talk' }));
-
-  /**
-   * Whether this deployment can caption at all.
-   *
-   * Not under `/meetings`, because it is a fact about the server rather than
-   * about any one meeting, and the client needs it before it has joined
-   * anything — a caption button that appears and then fails is worse than one
-   * that was never offered.
-   */
-  router.get('/captions', requireUser, captionsStatus);
 
   // ── Texor SSO ───────────────────────────────────────────────────────────────
   router.get('/auth/login', startLogin);
@@ -185,15 +169,6 @@ export function createApiRouter() {
   router.post('/meetings/:code/invitees', validate(inviteeSchema), addInvitees);
   router.delete('/meetings/:code/invitees/:email', removeInvitee);
   router.post('/meetings/:code/rsvp', validate(rsvpSchema), respondToInvite);
-
-  /**
-   * The transcript. Not in GUEST_ROUTES, so the blanket `requireUser` above
-   * applies — a guest can be captioned live, along with everyone else in the
-   * room, but cannot walk away with the record of the conversation.
-   */
-  router.get('/meetings/:code/transcript', getMeetingTranscript);
-  router.get('/meetings/:code/transcript.txt', downloadTranscript);
-  router.delete('/meetings/:code/transcript', deleteTranscript);
 
   // Who can be tagged in a note about this meeting. Not in GUEST_ROUTES, so a
   // guest cannot enumerate the people in a meeting they were let into.

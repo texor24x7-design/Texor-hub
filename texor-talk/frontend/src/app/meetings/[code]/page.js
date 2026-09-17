@@ -1,10 +1,6 @@
 'use client';
 
 import { Fragment, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CaptionCapture } from '@/lib/caption-capture';
-import { applyCaption } from '@/lib/captions';
-import { CaptionOverlay } from '@/components/CaptionOverlay';
-import { TranscriptPanel } from '@/components/TranscriptPanel';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
@@ -18,8 +14,6 @@ import {
   TuneIcon,
   NotesIcon,
   SearchIcon,
-  CaptionsIcon,
-  TranscriptIcon,
 } from '@/components/icons';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { joinDefaults, joinPatch, loadPreferences, savePreferences } from '@/lib/preferences';
@@ -538,21 +532,7 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   const [role, setRole] = useState(grant.role);
   const [status, setStatus] = useState('connecting');
   const [error, setError] = useState(null);
-  const [panel, setPanel] = useState(null); // 'people' | 'chat' | 'info' | 'notes' | 'transcript'
-
-  /**
-   * Captions.
-   *
-   * `captionState` is the server's answer and is never inferred here — whether
-   * this meeting is being transcribed is not something a browser may decide for
-   * itself. `captionLines` is what has been recognised so far, and
-   * `captionsShown` is this one person's choice about the overlay, which is
-   * purely a display preference and deliberately not shared with anybody.
-   */
-  const [captionState, setCaptionState] = useState(null);
-  const [captionLines, setCaptionLines] = useState([]);
-  const [captionsShown, setCaptionsShown] = useState(true);
-  const captureRef = useRef(null);
+  const [panel, setPanel] = useState(null); // 'people' | 'chat' | 'info'
 
   const isHost = role === 'host' || role === 'cohost';
 
@@ -678,40 +658,6 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
       knocks: setKnocks,
       knockResolved: (knockId) => setKnocks((current) => current.filter((k) => k.id !== knockId)),
 
-      /**
-       * One recognised utterance, from anybody in the room including us.
-       *
-       * `applyCaption` keys the line by utterance rather than appending, so the
-       * two or three interim versions of a sentence replace each other in place
-       * instead of stacking up as a growing pile of near-duplicates.
-       */
-      caption: (entry) => setCaptionLines((current) => applyCaption(current, entry)),
-
-      /**
-       * Captions were turned on or off for the meeting.
-       *
-       * Announced to everybody rather than only to the host who did it. The
-       * notice is the consent: from this moment what each person says is being
-       * transcribed, and if the organisation stores transcripts it is being
-       * written down against their name.
-       */
-      captions: (state) => {
-        setCaptionState(state);
-
-        if (state.changedBy) {
-          setNotice(
-            state.on
-              ? `${state.changedBy} turned on captions.${state.stored ? ' This meeting is being transcribed.' : ''}`
-              : `${state.changedBy} turned off captions.`,
-          );
-        }
-
-        // The lines on screen belong to the stretch that was captioned. Holding
-        // them after it stops would leave a transcript panel open on a meeting
-        // that is no longer recording one.
-        if (!state.on) setCaptionLines([]);
-      },
-
       chat: (entry) => {
         setChat((current) => [...current.slice(-99), entry]);
         // Counted against the panel as it was when the message arrived, so a
@@ -806,11 +752,6 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         // is what an AudioContext needs to start unsuspended.
         chimes.current?.arm();
 
-        // Carried on the welcome, so a meeting already being captioned starts
-        // capturing as soon as the microphone is up rather than on the next
-        // time somebody changes the setting.
-        setCaptionState(room.captions);
-
         /**
          * The microphone is always opened, even when joining muted.
          *
@@ -860,73 +801,6 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
       chimes.current?.close();
     };
   }, [code, grant, updatePeer, addPeer, onClosed]);
-
-  /**
-   * Reading our own microphone, while and only while there is a reason to.
-   *
-   * Three conditions, all of them necessary:
-   *
-   *   · the meeting is being captioned — decided by the server, never here
-   *   · our microphone is on — a muted participant is not transcribed, and the
-   *     tap is not merely stopped, it is torn down, so there is nothing reading
-   *     the device at all
-   *   · the call is actually live, rather than joining or reconnecting
-   *
-   * The capture is rebuilt rather than paused when any of those changes. That
-   * is what makes the effect's cleanup the single place the microphone stops
-   * being read, including on the double mount that Strict Mode does in
-   * development — a tap that survived its own cleanup would be a second,
-   * invisible reader of somebody's microphone.
-   */
-  const captionsOn = Boolean(captionState?.on);
-  const captionsInterim = captionState?.interim !== false;
-  const captionsMaxMs = captionState?.maxUtteranceMs;
-
-  useEffect(() => {
-    if (!captionsOn || !micOn || status !== 'live') return undefined;
-
-    let capture = null;
-    let cancelled = false;
-
-    (async () => {
-      const track = roomRef.current?.producers.get('mic')?.track;
-      if (!track || cancelled) return;
-
-      capture = new CaptionCapture({
-        track,
-        interim: captionsInterim,
-        maxUtteranceMs: captionsMaxMs,
-        // Straight onto the socket. There is nothing to await and nothing to
-        // retry — see `sendAudio`, which drops rather than queues.
-        onUtterance: (utterance) => roomRef.current?.sendAudio(utterance),
-        onError: (captureError) => setError(captureError.message),
-      });
-
-      captureRef.current = capture;
-      await capture.start();
-
-      // Stopped while it was starting: tear down what we just built.
-      if (cancelled) {
-        await capture.stop();
-        if (captureRef.current === capture) captureRef.current = null;
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      capture?.stop();
-      if (captureRef.current === capture) captureRef.current = null;
-    };
-  }, [captionsOn, micOn, status, captionsInterim, captionsMaxMs]);
-
-  /** A host turning transcription on or off for everybody. */
-  async function toggleCaptions() {
-    try {
-      await roomRef.current?.setCaptions(!captionsOn);
-    } catch (captionError) {
-      setError(captionError.message);
-    }
-  }
 
   // A picker left open behind a click elsewhere is a small thing that feels
   // broken, and Escape is what people try first.
@@ -1748,17 +1622,6 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
         </div>
       ) : null}
 
-      {/*
-        * Live captions, over the stage rather than beside it.
-        *
-        * Drawn last so it sits above the tiles, and hidden the moment captions
-        * are turned off — an overlay holding the last sentence of a meeting
-        * that has stopped transcribing would misrepresent what is happening.
-        */}
-      {captionsOn && captionsShown ? (
-        <CaptionOverlay lines={captionLines} self={user.texorId} />
-      ) : null}
-
       {/* Remote audio is played, never shown. One element per peer so one
             failing track cannot silence everybody else. */}
         {everyone.map((peer) => (
@@ -1790,14 +1653,6 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
             try {
               const track = await roomRef.current?.useDevice(source, deviceId);
               if (source === 'camera' && track) setLocalCamera(track);
-              /**
-               * The caption tap holds its own reference to the microphone
-               * track, and `useDevice` swaps the track under the producer
-               * without renegotiating — which the tap cannot see. Without this
-               * it would keep reading the device that was just switched away
-               * from, and caption a microphone that is no longer on air.
-               */
-              if (source === 'mic' && track) await captureRef.current?.setTrack(track);
             } catch {
               setError('That device could not be used. The previous one is still on.');
             }
@@ -1828,10 +1683,6 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           onError={setError}
           onDecide={decideKnock}
           onSetRole={changeRole}
-          code={code}
-          captionState={captionState}
-          captionLines={captionLines}
-          onToggleCaptions={toggleCaptions}
         />
       ) : null}
 
@@ -2054,41 +1905,6 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
             />
           </div>
 
-          {/*
-            * Two controls, because they are two different decisions.
-            *
-            * This one is a display preference and affects nobody else: whether
-            * the captions are drawn over the stage for you. Turning
-            * transcription on or off for the whole meeting is a host's decision
-            * with consequences for everybody, so it lives in the transcript
-            * panel where the consequences can actually be stated rather than
-            * behind an icon.
-            */}
-          <PanelButton
-            active={captionsOn && captionsShown}
-            onClick={() => {
-              if (!captionsOn) {
-                setPanel('transcript');
-                return;
-              }
-              setCaptionsShown((shown) => !shown);
-            }}
-            label={
-              captionsOn
-                ? captionsShown ? 'Hide captions' : 'Show captions'
-                : 'Captions are off for this meeting'
-            }
-            icon={<CaptionsIcon />}
-          />
-
-          <PanelButton
-            active={panel === 'transcript'}
-            onClick={() => openPanel('transcript')}
-            label="Transcript"
-            icon={<TranscriptIcon />}
-            alert={captionsOn && captionState?.stored}
-          />
-
           <PanelButton
             active={panel === 'info'}
             onClick={() => openPanel('info')}
@@ -2184,10 +2000,9 @@ function Clock() {
 
 // ── The side panel ───────────────────────────────────────────────────────────
 
-function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError, onDecide, onSetRole, code, captionState, captionLines, onToggleCaptions }) {
+function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError, onDecide, onSetRole }) {
   const titles = {
     people: 'People', chat: 'In-call messages', info: 'Meeting details', notes: 'Notes',
-    transcript: 'Transcript',
   };
 
   return (
@@ -2207,48 +2022,6 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
           />
         ) : null}
         {panel === 'chat' ? <ChatPanel chat={chat} room={room} user={user} peers={peers} /> : null}
-        {panel === 'transcript' ? (
-          <div className="meet__transcript-wrap">
-            {/*
-              * The host switch sits above the transcript rather than in the
-              * control bar, because this is the one place there is room to say
-              * what pressing it does — that everybody's speech starts being
-              * transcribed, and whether it is being kept.
-              */}
-            {isHost ? (
-              <div className="meet__captions-switch">
-                <div>
-                  <strong>{captionState?.on ? 'Captions are on' : 'Captions are off'}</strong>
-                  <span>
-                    {captionState?.allowed === false
-                      ? 'Your organisation has switched captions off.'
-                      : captionState?.on
-                        ? captionState?.stored
-                          ? 'Everyone is being transcribed, and the transcript is kept with this meeting.'
-                          : 'Everyone is being transcribed. Nothing is stored.'
-                        : 'Turning this on transcribes what everyone says. Everybody in the call is told.'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="meet__captions-toggle"
-                  disabled={captionState?.allowed === false || captionState?.available === false}
-                  onClick={onToggleCaptions}
-                >
-                  {captionState?.on ? 'Turn off' : 'Turn on'}
-                </button>
-              </div>
-            ) : null}
-
-            <TranscriptPanel
-              lines={captionLines}
-              user={user}
-              code={code}
-              captions={Boolean(captionState?.on)}
-              stored={Boolean(captionState?.stored)}
-            />
-          </div>
-        ) : null}
         {panel === 'notes' ? (
           <MeetingNotes code={meeting.code} livePeople={peers} onError={onError} />
         ) : null}

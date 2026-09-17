@@ -49,29 +49,6 @@ account to create, nothing to point at.
 - An append-only audit log whose rows are hashed and numbered without gaps
 - Simulcast, so one person on bad wifi does not drag the call down for everyone
 
-**Live captions** — speech recognised by
-[whisper.cpp](https://github.com/ggerganov/whisper.cpp), compiled into
-`node_modules` and run inside the API process. No speech API, no key, and no
-audio leaving the deployment.
-
-- Captions over the stage, attributed to whoever is speaking
-- 99 languages, detected per utterance — a meeting that switches between Telugu
-  and English mid-sentence is the ordinary case, not the exotic one
-- A stored transcript that reads as the conversation:
-  `surya: endhuko telidu.` / `john: I don't know either.`
-- Host-controlled per meeting, announced to everyone in the room, audited on
-  both edges, with org policy over whether transcripts are kept and for how long
-- A muted participant is never transcribed — enforced by the server, not just by
-  the browser that stopped capturing
-
-```bash
-cd backend
-npm run captions:setup    # rebuild whisper.cpp for this CPU, then fetch the model
-npm run captions:check    # speak a sentence through it and report the speed
-```
-
-See [`documentation/captions.md`](documentation/captions.md).
-
 **Messaging** — unchanged, and now able to start a call.
 
 - Public and private channels
@@ -117,7 +94,6 @@ and exchanging producers against the SFU without a browser.
 - [Getting started](./documentation/getting-started.md)
 - [Meetings](./documentation/meetings.md) — joining, the lobby, roles, policy, audit
 - [Media](./documentation/media.md) — the SFU, configuration, and the signalling protocol
-- [Captions](./documentation/captions.md) — whisper.cpp, segmentation, and transcripts
 - [Texor SSO](./documentation/texor-sso.md)
 - [API reference](./documentation/api-reference.md)
 - [Data model](./documentation/data-model.md)

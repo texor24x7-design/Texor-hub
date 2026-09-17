@@ -105,10 +105,6 @@ function PolicyPanel() {
         defaultVideoOffOnEntry: draft.defaultVideoOffOnEntry,
         screenShareDefault: draft.screenShareDefault,
         maxQuality: draft.maxQuality,
-        allowCaptions: draft.allowCaptions,
-        storeTranscripts: draft.storeTranscripts,
-        transcriptRetentionDays: Number(draft.transcriptRetentionDays),
-        captionsDefault: draft.captionsDefault,
       });
       setPolicy(saved);
       setDraft(saved);
@@ -220,57 +216,6 @@ function PolicyPanel() {
           {toggle('defaultMuteOnEntry', 'New meetings mute people on entry', null)}
           {toggle('defaultVideoOffOnEntry', 'New meetings start with cameras off', null)}
         </div>
-
-        {/*
-          * Captions are two decisions, not one.
-          *
-          * Whether people may be transcribed at all, and whether that
-          * transcription is *kept*, have different answers in most
-          * organisations — "help people follow the conversation" is a much
-          * smaller ask than "keep a durable, attributed record of what everyone
-          * said". Collapsing them into one switch would force the larger answer
-          * on anybody who wanted the smaller one.
-          */}
-        <h3 className="panel__subhead">Captions and transcripts</h3>
-
-        <div className="stack stack--tight">
-          {toggle('allowCaptions', 'Allow live captions in meetings', 'Speech is transcribed by this server. No audio leaves your deployment.')}
-          {draft.allowCaptions ? (
-            toggle('storeTranscripts', 'Keep a transcript of captioned meetings', 'Off means captions appear live and nothing is written down.')
-          ) : null}
-        </div>
-
-        {draft.allowCaptions ? (
-          <div className="row row--wrap" style={{ marginTop: '1rem', alignItems: 'flex-start' }}>
-            <Field
-              label="New meetings start with captions"
-              hint="Hosts can always turn them on themselves, and everyone in the call is told."
-              htmlFor="captionsDefault"
-            >
-              <select
-                id="captionsDefault" className="input" value={draft.captionsDefault ?? 'off'}
-                onChange={(event) => set('captionsDefault', event.target.value)}
-              >
-                <option value="off">Off</option>
-                <option value="on">On</option>
-              </select>
-            </Field>
-
-            {draft.storeTranscripts ? (
-              <Field
-                label="Delete transcripts after"
-                hint="Days. 0 keeps them indefinitely. Changing this applies to transcripts already stored, not just future ones."
-                htmlFor="transcriptRetentionDays"
-              >
-                <input
-                  id="transcriptRetentionDays" className="input" type="number" min={0} max={3650}
-                  value={draft.transcriptRetentionDays ?? 0}
-                  onChange={(event) => set('transcriptRetentionDays', event.target.value)}
-                />
-              </Field>
-            ) : null}
-          </div>
-        ) : null}
 
         <div className="row" style={{ gap: '0.6rem', marginTop: '1.25rem' }}>
           <Button onClick={save} loading={busy} disabled={!dirty}>

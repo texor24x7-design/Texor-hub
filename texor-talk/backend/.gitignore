@@ -3,7 +3,3 @@ node_modules/
 .env.local
 *.log
 .DS_Store
-
-# The ggml speech model. A few hundred megabytes of weights, fetched by
-# `npm run captions:model` — not something to carry in the repository.
-.models/

@@ -46,17 +46,6 @@ class Peer {
     // Raising a hand is state, not a passing reaction: it stays up until it is
     // lowered, and everyone arriving later needs to see it is still up.
     this.handRaised = false;
-
-    /**
-     * How much caption audio this peer has sent lately.
-     *
-     * Every other message on the socket is a small JSON object from a fixed
-     * list, so the socket's own limits are enough. Audio is the exception —
-     * the payload is the cost — and the ceiling is enforced per peer in
-     * `signalling.js`. Declared here so a peer's whole state is visible in one
-     * place rather than appearing on the object by assignment.
-     */
-    this.captionBudget = null;
   }
 
   close() {
@@ -111,18 +100,6 @@ class Room {
      */
     this.audioLevelObserver = audioLevelObserver;
     this.activeSpeakerTexorId = null;
-
-    /**
-     * Whether this meeting is being captioned, cached from the meeting document
-     * and the org policy.
-     *
-     * Read on the path that handles every incoming audio frame, which is why it
-     * is not looked up each time. The room ticker refreshes it, the same way the
-     * roster is reconciled, so a change made anywhere else converges here within
-     * a tick rather than being missed for the rest of the call.
-     */
-    this.captions = null;
-    this.transcriptReady = false;
   }
 
   /** The peer that owns a producer, or null if they have since left. */

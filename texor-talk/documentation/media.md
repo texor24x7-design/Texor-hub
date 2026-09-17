@@ -387,31 +387,13 @@ without one is a notification.
 | `raiseHand`, `lowerHand` | A raised hand is state, not a reaction |
 | `chat` | In-call message |
 | `reaction` | One of a fixed set of emoji |
-| `setCaptions` | Host action. Transcribe this meeting, or stop |
 
 **Server → client**
 
 `welcome` · `peerJoined` · `peerLeft` · `newProducer` · `producerClosed` ·
 `producerPaused` · `producerResumed` · `consumerClosed` · `knocks` ·
 `knockResolved` · `roleChanged` · `peerRoleChanged` · `chat` · `reaction` ·
-`removed` · `ended` · `refused` · `activeSpeaker` · `handChanged` ·
-`forceMuted` · `caption` · `captions`
-
-### The one message that is not JSON
-
-Caption audio travels as **binary frames on this same socket** — see
-[captions.md](./captions.md#the-wire-format). A second connection just for audio
-would need its own authentication, its own lifetime and its own reconnect, and
-would be a way to send audio for a meeting you are no longer in.
-
-Here the frame is attributable by construction: this socket already *is* one
-authenticated person in one meeting, so the header carries no speaker field for
-a client to lie in — and no timestamp either, since the server derives the
-timing from the sample count.
-
-`welcome` carries a `captions` block alongside `rtpCapabilities`, because the
-client has to know whether the meeting is being transcribed before it decides
-whether to open an audio tap on somebody's microphone.
+`removed` · `ended` · `refused` · `activeSpeaker` · `handChanged` · `forceMuted`
 
 ### Deltas converge, they do not merely fire
 

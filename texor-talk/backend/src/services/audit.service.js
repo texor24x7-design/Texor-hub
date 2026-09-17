@@ -30,18 +30,6 @@ export const ACTIONS = {
   POLICY_UPDATED: 'policy.updated',
   GUEST_ADMITTED_PASS: 'guest.pass_issued',
   HOST_TRANSFERRED: 'meeting.host_transferred',
-  /**
-   * Captions are audited on both edges, and the transcript separately.
-   *
-   * Starting a recording of what people say is an act somebody is accountable
-   * for. "Who turned this on, and when did it stop" is the first question asked
-   * about any transcript that later matters, and a log that only recorded the
-   * start could not answer the second half.
-   */
-  CAPTIONS_STARTED: 'captions.started',
-  CAPTIONS_STOPPED: 'captions.stopped',
-  TRANSCRIPT_EXPORTED: 'transcript.exported',
-  TRANSCRIPT_DELETED: 'transcript.deleted',
 };
 
 // Field separator for the hashed form. A control character, so it cannot occur
