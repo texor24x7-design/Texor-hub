@@ -87,6 +87,9 @@ export function meetingDefaults(policy) {
       screenShare: policy.screenShareDefault,
       allowChat: true,
       allowExternalGuests: policy.allowExternalGuests,
+      // Clamped against what the org allows, so a default of 'on' left behind
+      // by a policy that has since withdrawn captions cannot switch them on.
+      captions: policy.allowCaptions && policy.captionsDefault === 'on' ? 'on' : 'off',
     },
   };
 }

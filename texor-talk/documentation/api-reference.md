@@ -244,6 +244,77 @@ Blocks a rejoin, and closes their media socket and transports at once.
 
 ---
 
+## Captions and transcripts
+
+Live captions travel on the media socket, because they are part of the call —
+the `setCaptions` action and the `caption` and `captions` notifications are in
+[captions.md](./captions.md). These are the routes for what it leaves behind.
+
+### `GET /api/captions`
+
+Whether this deployment can caption at all. Not under `/meetings`, because it is
+a fact about the server rather than about any one meeting, and the client needs
+it before it has joined anything.
+
+```json
+{
+  "captions": {
+    "allowed": true, "stored": true, "retentionDays": 0,
+    "available": true, "reason": null,
+    "model": "base", "language": "auto"
+  }
+}
+```
+
+`available` is answered without loading the model — the native addon is an
+import and the weights are a file on disk. When it is `false`, `reason` is
+always populated with something actionable.
+
+### `GET /api/meetings/:code/transcript`
+
+The stored conversation. `transcript.text` is rendered server-side, so what a
+client shows and what it downloads cannot drift apart.
+
+```json
+{
+  "transcript": {
+    "meetingTitle": "Q3 numbers",
+    "speakers": [{ "texorId": "tx-…", "name": "surya", "picture": "" }],
+    "languages": ["en", "te"],
+    "segments": [
+      { "speakerName": "surya", "text": "endhuko telidu.", "language": "te",
+        "confidence": 0.82, "offsetMs": 5000, "durationMs": 1800,
+        "startedAt": "…", "endedAt": "…" }
+    ],
+    "text": "surya: endhuko telidu.\njohn: I don't know either.",
+    "words": 9, "truncated": false, "expiresAt": null
+  },
+  "captions": "on"
+}
+```
+
+A meeting nobody captioned answers `200` with `transcript: null`. Most meetings
+never turn captions on, and answering `404` would make "nobody captioned this"
+indistinguishable from "something went wrong".
+
+Access is by **attendance**, not invitation, and guests are refused. Somebody
+who was not there gets `404` rather than `403` — meeting codes are guessable by
+design, so a `403` would be a way to enumerate real meetings and learn which of
+them were captioned.
+
+### `GET /api/meetings/:code/transcript.txt`
+
+The same, as a timestamped plain-text file. Audited as `transcript.exported`,
+because it is the moment the record leaves the product.
+
+### `DELETE /api/meetings/:code/transcript`
+
+Soft-delete, **owner only** — not whoever happens to be hosting. A stand-in host
+promoted because they arrived first should not be able to destroy the record of
+what a room full of people said. Audited as `transcript.deleted`.
+
+There is deliberately no route that *edits* a transcript.
+
 ## Invitations
 
 ### `POST /api/meetings/:code/invitees`

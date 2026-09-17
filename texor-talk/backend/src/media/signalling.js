@@ -13,6 +13,7 @@
  * same `id`; anything without an `id` is a notification and is not replied to.
  */
 import { WebSocketServer } from 'ws';
+import env from '../config/env.js';
 import Meeting from '../models/Meeting.js';
 import Knock from '../models/Knock.js';
 import logger from '../utils/logger.js';
@@ -33,9 +34,34 @@ import {
 } from '../services/meeting.service.js';
 import { Peer, closeRoom, createWebRtcTransport, getOrCreateRoom, getRoom } from './room.js';
 import { attachSpeakingDetection } from './speaking.js';
+import { decodeAudioFrame } from './audio-frame.js';
 import { effectiveTier, isTier, limitsFor, maxSendBitrate } from '../services/quality.service.js';
+import {
+  appendSegment,
+  captionsAllowed,
+  closeTranscript,
+  effectiveCaptions,
+  openTranscript,
+  transcriptsStored,
+} from '../services/captions.service.js';
+import { status as whisperStatus, transcribe } from '../services/whisper.service.js';
+import { isNoise, normaliseText } from '../utils/transcript.js';
 
 const ROOM_TICK_MS = 5_000;
+
+/**
+ * The audio budget one participant may spend on captions, in bytes per second.
+ *
+ * Speech at 16 kHz mono 16-bit is 32 kB/s, so this is three times what talking
+ * continuously can possibly produce. It is not a quality limit — it is what
+ * stops a modified client pushing a firehose of audio into the recogniser and
+ * spending the whole room's transcription capacity, which an allowlist of
+ * actions cannot prevent because the audio itself is the payload.
+ */
+const CAPTION_BYTES_PER_SECOND = 96_000;
+
+/** Sample rate the client is required to send at. Whisper's native rate. */
+const CAPTION_SAMPLE_RATE = 16_000;
 
 /**
  * The reactions a client may send.
@@ -207,7 +233,23 @@ async function handleConnection(socket, request) {
    * attaching it even one `await` later loses that first message and the client
    * waits forever for a reply to a request the server never saw.
    */
-  socket.on('message', (raw) => {
+  socket.on('message', (raw, isBinary) => {
+    /**
+     * Audio arrives as binary on the same socket as everything else.
+     *
+     * A second connection just for captions would need its own authentication,
+     * its own lifetime and its own reconnect, and would be a way to send audio
+     * for a meeting you are no longer in. Here the frame is attributable by
+     * construction: this socket already *is* one authenticated person in one
+     * meeting, so there is no speaker field for a client to lie in.
+     */
+    if (isBinary) {
+      handleAudio({ socket, raw, room, peer, user, code }).catch((error) => {
+        logger.warn('caption audio failed', { message: error.message });
+      });
+      return;
+    }
+
     handleMessage({ socket, raw, room, peer, user, code }).catch((error) => {
       logger.warn('signalling message failed', { message: error.message });
     });
@@ -218,6 +260,31 @@ async function handleConnection(socket, request) {
       logger.warn('signalling disconnect failed', { message: error.message }),
     );
   });
+
+  /**
+   * The caption state travels with the welcome, not behind a second request.
+   *
+   * The client has to know three things before it can decide whether to open an
+   * audio tap on the microphone: whether the organisation allows captions at
+   * all, whether this meeting has them on, and what the recogniser will accept.
+   * Any of that arriving later means either a tap that starts and is thrown
+   * away, or captions that do not begin until something else prompts them.
+   */
+  room.captions = captionStateOf(meeting, policy);
+
+  /**
+   * A meeting can already be captioning when this process first sees it.
+   *
+   * The setting lives on the meeting document, so it survives a server restart
+   * and it is already on for the second person through the door. Opening the
+   * transcript here — upserting, so it is a no-op when one exists — is what
+   * stops those utterances being recognised, shown, and then dropped because
+   * there was nothing to append them to.
+   */
+  room.transcriptReady = room.captions.on && transcriptsStored(policy);
+  if (room.transcriptReady) await openTranscript({ meeting, user, policy });
+
+  const engine = await whisperStatus();
 
   send(socket, {
     type: 'welcome',
@@ -231,6 +298,14 @@ async function handleConnection(socket, request) {
         settings: meeting.settings,
         startedAt: meeting.startedAt,
         maxDurationMinutes: meeting.maxDurationMinutes,
+      },
+      captions: {
+        ...room.captions,
+        available: engine.available || engine.enabled,
+        reason: engine.reason,
+        sampleRate: CAPTION_SAMPLE_RATE,
+        interim: engine.interim,
+        maxUtteranceMs: engine.maxUtteranceMs,
       },
     },
   });
@@ -318,7 +393,10 @@ async function onDisconnect({ room, peer, user, code }) {
   }
 
   // An empty Router still holds resources on a worker.
-  if (room.peers.size === 0) closeRoom(code);
+  if (room.peers.size === 0) {
+    closeTranscript(code).catch(() => {});
+    closeRoom(code);
+  }
 }
 
 // ── Messages ─────────────────────────────────────────────────────────────────
@@ -677,6 +755,69 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
       return { tier };
     }
 
+    /**
+     * A host turning captions on, or off, for the whole meeting.
+     *
+     * Host-only and meeting-wide rather than per-person, because it is not
+     * really a display setting: with it on, everybody's microphone is being
+     * transcribed and — unless the organisation has switched storage off — a
+     * durable record of what each named person said is being written. That is
+     * not something one participant may switch on for everybody else, and it is
+     * not something that may happen without the room being told, which is what
+     * the broadcast below is for.
+     */
+    case 'setCaptions': {
+      requireHost(peer);
+
+      const on = Boolean(data.on);
+      const policy = await getPolicy();
+
+      if (on && !captionsAllowed(policy)) {
+        throw fail('forbidden', 'Your organisation has switched captions off.');
+      }
+
+      /**
+       * Checked before the setting is written, not after.
+       *
+       * `probe` loads the model if it is not already up, so this answers
+       * "captions will work" rather than "captions have worked before". Turning
+       * the setting on against a server with no model would put a caption
+       * indicator on everybody's screen and then never produce a word, which
+       * reads as the feature being broken rather than as it being unavailable.
+       */
+      if (on) {
+        const engine = await whisperStatus({ probe: true });
+        if (!engine.available) {
+          throw fail('unavailable', engine.reason ?? 'The speech recogniser is not available.');
+        }
+      }
+
+      const meeting = await Meeting.findOne({ code }).exec();
+      if (!meeting) throw fail('gone', 'This meeting no longer exists.');
+
+      meeting.settings.captions = on ? 'on' : 'off';
+      await meeting.save();
+
+      if (on) await openTranscript({ meeting, user, policy });
+
+      room.captions = captionStateOf(meeting, policy);
+      room.transcriptReady = on && transcriptsStored(policy);
+
+      await record({
+        action: on ? ACTIONS.CAPTIONS_STARTED : ACTIONS.CAPTIONS_STOPPED,
+        actor: user,
+        meeting,
+        metadata: { stored: room.captions.stored },
+      });
+
+      broadcastAll(room, {
+        type: 'captions',
+        data: { ...room.captions, changedBy: peer.name },
+      });
+
+      return { on };
+    }
+
     case 'removePeer': {
       requireHost(peer);
       const meeting = await Meeting.findOne({ code }).exec();
@@ -802,6 +943,146 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
  * so re-attaching per connection would stack duplicate listeners and send the
  * same event several times over.
  */
+// ── Captions ─────────────────────────────────────────────────────────────────
+
+/**
+ * The caption facts a client needs, derived from the meeting and the policy.
+ *
+ * `setAt` is what makes the cache safe to refresh from a background timer. See
+ * the ticker, which will not overwrite a state newer than the document it read.
+ */
+function captionStateOf(meeting, policy) {
+  return {
+    allowed: captionsAllowed(policy),
+    on: effectiveCaptions(meeting, policy) === 'on',
+    stored: transcriptsStored(policy),
+    meetingStartedAt: meeting.startedAt,
+    meetingId: meeting._id,
+    meetingTitle: meeting.title,
+    setAt: Date.now(),
+  };
+}
+
+/**
+ * One utterance of somebody's microphone, arriving as a binary frame.
+ *
+ *   ┌────────────┬──────────────────┬──────────────────────────────┐
+ *   │ 4 bytes BE │ JSON header      │ Int16LE PCM, 16 kHz mono     │
+ *   │ header len │ {utteranceId,…}  │                              │
+ *   └────────────┴──────────────────┴──────────────────────────────┘
+ *
+ * ── What the header deliberately does not contain ──
+ *
+ * No speaker, no timestamp and no duration. The speaker is whoever holds this
+ * socket, which was authenticated on the upgrade; the duration is the sample
+ * count divided by the sample rate; and the start time is now minus that
+ * duration. All three are therefore facts the server computed rather than
+ * claims the client made, which is what keeps a transcript — a record of who
+ * said what, at what time — from being something a modified client can forge.
+ */
+async function handleAudio({ raw, room, peer, user, code }) {
+  if (!room.captions?.on) return;
+
+  /**
+   * Muted means not transcribed, enforced here rather than trusted to the tap.
+   *
+   * The client stops capturing when the microphone is muted, and that is the
+   * mechanism that actually protects people. This is the check that makes it a
+   * guarantee: a client that kept sending — through a bug, or deliberately —
+   * would otherwise have a muted participant's private audio transcribed into
+   * a permanent record, which is the worst thing this feature could do.
+   *
+   * Strict on purpose. It can cost the last word of a sentence when somebody
+   * mutes the instant they stop speaking, and that is a far better failure than
+   * the other one.
+   */
+  const mic = [...peer.producers.values()].find((producer) => producer.appData.source === 'mic');
+  if (!mic || mic.paused) return;
+
+  const frame = decodeAudioFrame(raw);
+  if (!frame) return;
+
+  const { header, pcm, durationMs } = frame;
+
+  // Shorter than this cannot hold a word; longer than the segmenter is allowed
+  // to send is a client that is not ours. The slack is one whole second.
+  if (durationMs < 200 || durationMs > env.captions.maxUtteranceMs + 1000) return;
+
+  /**
+   * The per-peer audio budget, measured over a rolling ten seconds.
+   *
+   * Every other action on this socket is bounded by being a small JSON message
+   * from an allowlist. Audio is not — the payload *is* the cost — so it needs
+   * its own ceiling, or one participant can consume the recogniser that the
+   * whole room shares.
+   */
+  const now = Date.now();
+  if (!peer.captionBudget || now - peer.captionBudget.since > 10_000) {
+    peer.captionBudget = { since: now, bytes: 0 };
+  }
+  peer.captionBudget.bytes += frame.samples * 2;
+
+  if (peer.captionBudget.bytes > CAPTION_BYTES_PER_SECOND * 10) {
+    logger.warn('caption audio budget exceeded', { code, texorId: user.texorId });
+    return;
+  }
+
+  const final = header.final !== false;
+
+  // Interim results are a redraw of a sentence still being spoken. They are
+  // never stored, and they are the first thing dropped when the recogniser is
+  // behind, so there is no point spending anything on them when they are off.
+  if (!final && !env.captions.interim) return;
+
+  const recognised = await transcribe(pcm, {
+    priority: final ? 'final' : 'interim',
+    meetingCode: code,
+  });
+
+  // Dropped, refused, or the recogniser went away underneath us.
+  if (!recognised) return;
+
+  const text = normaliseText(recognised.text);
+  if (!text || isNoise(recognised.text, { confidence: recognised.confidence, durationMs })) return;
+
+  /**
+   * The peer may have left while the recogniser was working.
+   *
+   * A second or two passes between the audio arriving and the words coming
+   * back, which is long enough for somebody to hang up. Broadcasting then would
+   * caption a person the room has already been told is gone.
+   */
+  if (room.peers.get(user.texorId) !== peer) return;
+
+  const startedAt = new Date(Date.now() - durationMs);
+
+  broadcastAll(room, {
+    type: 'caption',
+    data: {
+      texorId: user.texorId,
+      name: peer.name,
+      utteranceId: String(header.utteranceId ?? ''),
+      text,
+      language: recognised.language,
+      confidence: recognised.confidence,
+      final,
+      at: startedAt,
+      durationMs,
+    },
+  });
+
+  if (!final || !room.transcriptReady) return;
+
+  await appendSegment({
+    meetingCode: code,
+    speaker: { texorId: user.texorId, name: peer.name, picture: peer.picture },
+    recognised: { ...recognised, text },
+    startedAt,
+    durationMs,
+    meetingStartedAt: room.captions.meetingStartedAt,
+  }).catch((error) => logger.warn('storing an utterance failed', { code, message: error.message }));
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fail(code, message) {
@@ -878,6 +1159,17 @@ function closeEveryone(room, code, reason) {
     send(other.socket, { type: 'ended', data: { reason } });
     other.socket.close(4004, 'ended');
   }
+
+  /**
+   * Stamp the transcript with the end of the meeting it belongs to.
+   *
+   * Every route that ends a meeting comes through here, which is why the stamp
+   * is here rather than in each of them. Without it a transcript reads as a
+   * conversation that never finished, and the file somebody downloads has a
+   * start time and no end.
+   */
+  closeTranscript(code).catch(() => {});
+
   closeRoom(code);
 }
 
@@ -910,6 +1202,10 @@ function startRoomTicker(wss) {
       if (!room) continue;
 
       try {
+        // Taken before the read, so anything that changes the room *during* it
+        // is recognisable as newer than what comes back. See the caption
+        // reconciliation below.
+        const loadedAt = Date.now();
         const meeting = await Meeting.findOne({ code }).exec();
         if (!meeting) continue;
 
@@ -952,6 +1248,40 @@ function startRoomTicker(wss) {
             });
             closeEveryone(room, code, meeting.endedReason);
             continue;
+          }
+        }
+
+        /**
+         * Captions, reconciled the same way the roster is.
+         *
+         * `room.captions` is a cache, so that the audio path does not read the
+         * meeting and the policy for every utterance. Anything that can change
+         * it out from under us — the host editing the meeting over REST, an
+         * admin withdrawing captions org-wide — happens somewhere this cache
+         * cannot see, so it is refreshed here and the room is told when the
+         * answer actually moved.
+         */
+        /**
+         * Skipped when a host changed it while we were reading.
+         *
+         * `meeting` was loaded at the top of this tick, and a `setCaptions`
+         * landing in between leaves this holding a document that predates it.
+         * Applying that would undo the change in the cache — announcing
+         * captions as back on seconds after they were turned off, and, far
+         * worse, leaving `transcriptReady` true so utterances kept being
+         * written to a transcript the host had just stopped.
+         *
+         * A timestamp rather than a lock, because this is a cache converging on
+         * the truth: the newest read wins, and the next tick picks up anything
+         * this one skipped.
+         */
+        if (!room.captions || room.captions.setAt <= loadedAt) {
+          const captionsBefore = room.captions?.on;
+          room.captions = captionStateOf(meeting, await getPolicy());
+          room.transcriptReady = room.captions.on && room.captions.stored;
+
+          if (captionsBefore !== undefined && captionsBefore !== room.captions.on) {
+            broadcastAll(room, { type: 'captions', data: { ...room.captions } });
           }
         }
 

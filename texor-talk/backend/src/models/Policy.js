@@ -39,6 +39,38 @@ const policySchema = new Schema(
      */
     maxQuality: { type: String, enum: ['saver', 'standard', 'high'], default: 'high' },
 
+    /**
+     * Whether meetings in this organisation may run live captions at all.
+     *
+     * Off is a real setting, not a formality. Transcribing a meeting means
+     * producing a durable, attributed record of what named people said, and
+     * plenty of organisations have a reason — legal, contractual, or a works
+     * council — why that must not happen by default on somebody's say-so.
+     */
+    allowCaptions: { type: Boolean, default: true },
+
+    /**
+     * Whether the captions are also *kept*.
+     *
+     * Deliberately separate from `allowCaptions`. "Help people follow the
+     * conversation" and "keep a transcript of it" are different asks with
+     * different answers: with this off, captions still appear live and nothing
+     * is written down.
+     */
+    storeTranscripts: { type: Boolean, default: true },
+
+    /**
+     * How long a stored transcript is kept, in days. 0 keeps it indefinitely.
+     *
+     * Enforced by a TTL index on the transcript rather than by a job, and
+     * re-applied to transcripts already stored whenever this changes — a
+     * retention policy that only governed future meetings would not be one.
+     */
+    transcriptRetentionDays: { type: Number, default: 0, min: 0, max: 3650 },
+
+    /** What a newly created meeting's caption setting starts at. */
+    captionsDefault: { type: String, enum: ['off', 'on'], default: 'off' },
+
     defaultMuteOnEntry: { type: Boolean, default: true },
     defaultVideoOffOnEntry: { type: Boolean, default: false },
     screenShareDefault: { type: String, enum: ['everyone', 'hosts'], default: 'everyone' },

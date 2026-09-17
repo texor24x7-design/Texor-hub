@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { Alert, Button, Field, Loading, formatTimestamp } from '@/components/ui';
 import { meetings as meetingApi, notes as notesApi } from '@/lib/api';
-import { LockIcon, PlusIcon, ShareIcon } from '@/components/icons';
+import { LockIcon, PlusIcon, ShareIcon, TranscriptIcon, TrashIcon } from '@/components/icons';
 import { activeFor, durationBetween, formatDuration } from '@/lib/duration';
 
 /**
@@ -154,6 +154,8 @@ function MeetingDetails({ code }) {
       />
 
       {meeting.attendance?.length ? <Attendance meeting={meeting} /> : null}
+
+      <MeetingTranscript code={code} isOwner={meeting.viewer?.isOwner} />
 
       <MeetingNotes code={code} />
 
@@ -368,6 +370,117 @@ function InviteeList({ meeting, isHost, onInvite, onUninvite }) {
  * "what was written down", and whether you or a colleague wrote it is a detail
  * of the row, not a reason to look somewhere else.
  */
+/**
+ * What was said, read back after the meeting.
+ *
+ * The panel in the call draws the captions that arrived on the socket, because
+ * while a meeting is running that is the only copy the browser has. This draws
+ * the *stored* transcript, which is authoritative — it includes anything a
+ * browser missed while it was reconnecting, and it is still here next week.
+ *
+ * Renders nothing at all when there is none, which is most meetings. An empty
+ * "Transcript" panel on every meeting that was never captioned would be a
+ * permanent piece of furniture advertising a feature nobody used.
+ */
+function MeetingTranscript({ code, isOwner }) {
+  const [transcript, setTranscript] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    meetingApi.transcript(code)
+      .then(({ transcript: found }) => { if (!cancelled) setTranscript(found); })
+      // A meeting somebody cannot read the transcript of looks the same as one
+      // that has none, which is the intended behaviour rather than an error.
+      .catch(() => { if (!cancelled) setTranscript(null); });
+    return () => { cancelled = true; };
+  }, [code]);
+
+  if (!transcript) return null;
+
+  const turns = transcript.text.split('\n').filter(Boolean);
+
+  return (
+    <section className="panel">
+      <div className="row row--between row--wrap panel__header">
+        <div>
+          <h2>Transcript</h2>
+          <p>
+            {transcript.segments.length} utterance{transcript.segments.length === 1 ? '' : 's'}
+            {transcript.languages?.length > 1 ? ` in ${transcript.languages.join(', ')}` : ''}
+            {transcript.expiresAt
+              ? ` · deleted ${formatTimestamp(transcript.expiresAt)}`
+              : ''}
+          </p>
+        </div>
+
+        <div className="row" style={{ gap: '0.5rem' }}>
+          {/* A link rather than a fetch: the server renders the file, so this
+              downloads the canonical transcript rather than a second rendering
+              of it made in the browser. */}
+          <a className="btn btn--secondary btn--sm" href={meetingApi.transcriptUrl(code)} download>
+            <TranscriptIcon />
+            Download
+          </a>
+
+          {isOwner ? (
+            <Button
+              variant="danger"
+              size="sm"
+              loading={busy}
+              onClick={async () => {
+                if (!window.confirm('Delete this transcript? The record of what was said goes with it.')) return;
+                setBusy(true);
+                setError(null);
+                try {
+                  await meetingApi.deleteTranscript(code);
+                  setTranscript(null);
+                } catch (deleteError) {
+                  setError(deleteError.message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <TrashIcon />
+              Delete
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <Alert kind="error">{error}</Alert>
+
+      {transcript.truncated ? (
+        <Alert kind="info">
+          This meeting ran past the length a single transcript can hold, so the
+          last part of it was not recorded.
+        </Alert>
+      ) : null}
+
+      {/*
+        * Rendered from the server's own text, split back into lines, so the
+        * page and the downloaded file cannot say different things.
+        */}
+      <div className="transcript">
+        {turns.map((line, index) => {
+          const split = line.indexOf(': ');
+          const who = split === -1 ? '' : line.slice(0, split);
+          const said = split === -1 ? line : line.slice(split + 2);
+
+          return (
+            <p className="transcript__turn" key={index}>
+              {who ? <span className="transcript__who">{who}</span> : null}
+              {said}
+            </p>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function MeetingNotes({ code }) {
   const router = useRouter();
   const [rows, setRows] = useState(null);

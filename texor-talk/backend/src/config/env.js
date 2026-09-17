@@ -2,6 +2,7 @@
  * Environment loading and validation for Texor Talk.
  */
 import { cpus } from 'node:os';
+import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 
 const csv = (value) => (value ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
@@ -46,6 +47,46 @@ const schema = z.object({
    * the ceiling, a host picks within it, per meeting, while the call is running.
    */
 
+  // ── Captions (the speech recogniser that runs inside this process) ─────────
+  /**
+   * Same principle as the SFU above: whisper.cpp is compiled into
+   * `node_modules` by `npm install` and run in this process. There is no speech
+   * API to sign up for, no key, and no audio leaving the deployment.
+   *
+   * It is an *optional* dependency, so a machine without a C++ toolchain still
+   * installs and runs — captions simply report themselves unavailable rather
+   * than taking the product down with them.
+   */
+  CAPTIONS_ENABLED: z.stringbool().default(true),
+  // A ggml model file. `npm run models:fetch` downloads it.
+  WHISPER_MODEL: z.string().default('base'),
+  WHISPER_MODELS_DIR: z.string().default('.models'),
+  /**
+   * `auto` detects the language per utterance, which is the only setting that
+   * works for a meeting where people code-switch mid-sentence. Pin it to a
+   * language code only when a deployment is genuinely monolingual — it is
+   * faster and slightly more accurate when it is true, and quietly wrong when
+   * it is not.
+   */
+  WHISPER_LANGUAGE: z.string().default('auto'),
+  // Defaults to the machine's *physical* cores. Hyperthreads do not help ggml
+  // and oversubscribing measurably hurts it.
+  WHISPER_THREADS: z.coerce.number().int().min(1).max(64).optional(),
+  /**
+   * Interim captions: re-transcribing the utterance so far, every couple of
+   * seconds, so words appear while somebody is still speaking rather than only
+   * once they stop. It multiplies the CPU cost of every utterance, so it is the
+   * first thing to turn off on a machine that cannot keep up.
+   */
+  CAPTIONS_INTERIM: z.stringbool().default(true),
+  // How far behind the recogniser may fall before it starts dropping work.
+  // Captions that arrive a minute late are worse than captions that are missing.
+  CAPTIONS_MAX_QUEUE: z.coerce.number().int().min(1).max(200).default(12),
+  CAPTIONS_STALE_MS: z.coerce.number().int().min(1000).default(15_000),
+  // The longest single utterance the segmenter will send. Whisper's window is
+  // 30s and anything approaching it is both slow and less accurate.
+  CAPTIONS_MAX_UTTERANCE_MS: z.coerce.number().int().min(1000).max(30_000).default(10_000),
+
   // ── Meetings ───────────────────────────────────────────────────────────────
   // How early a guest may join a scheduled meeting. Hosts are never held back.
   MEETING_JOIN_EARLY_MINUTES: z.coerce.number().int().min(0).default(15),
@@ -84,6 +125,30 @@ export const env = {
 
   adminEmails: lower(csv(raw.ADMIN_EMAILS)),
   orgEmailDomains: lower(csv(raw.ORG_EMAIL_DOMAINS)).map((domain) => domain.replace(/^@/, '')),
+
+  captions: {
+    enabled: raw.CAPTIONS_ENABLED,
+    model: raw.WHISPER_MODEL,
+    modelsDir: isAbsolute(raw.WHISPER_MODELS_DIR)
+      ? raw.WHISPER_MODELS_DIR
+      : resolve(process.cwd(), raw.WHISPER_MODELS_DIR),
+    language: raw.WHISPER_LANGUAGE,
+    /**
+     * Physical cores, not logical ones.
+     *
+     * `cpus().length` counts hyperthreads, and handing ggml twice the threads
+     * there are cores makes it slower rather than faster — the kernels are
+     * already saturating each core's vector units, so the extra threads only
+     * add contention. There is no portable way to ask for physical cores in
+     * Node, and half the logical count is right on every machine that reports
+     * hyperthreads and merely conservative on the ones that do not.
+     */
+    threads: raw.WHISPER_THREADS ?? Math.max(1, Math.floor(cpus().length / 2)),
+    interim: raw.CAPTIONS_INTERIM,
+    maxQueue: raw.CAPTIONS_MAX_QUEUE,
+    staleMs: raw.CAPTIONS_STALE_MS,
+    maxUtteranceMs: raw.CAPTIONS_MAX_UTTERANCE_MS,
+  },
 
   media: {
     announcedAddress: raw.MEDIA_ANNOUNCED_ADDRESS,

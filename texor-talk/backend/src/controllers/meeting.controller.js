@@ -79,6 +79,7 @@ const settingsInput = z.object({
   screenShare: z.enum(['everyone', 'hosts']).optional(),
   allowChat: z.boolean().optional(),
   allowExternalGuests: z.boolean().optional(),
+  captions: z.enum(['off', 'on']).optional(),
 });
 
 export const createMeetingSchema = z
@@ -285,6 +286,16 @@ function presentMeeting(meeting, user, { policy } = {}) {
     viewer: {
       role,
       isHost,
+      /**
+       * Ownership, as distinct from hosting.
+       *
+       * `isHost` is true for a co-host and for whoever is standing in while the
+       * owner is away, which is right for admitting people and muting them. It
+       * is not right for destroying the record of what a room full of people
+       * said — that is the owner's call alone, and the server enforces it on the
+       * delete route regardless of what this made the page draw.
+       */
+      isOwner: meeting.isOwner(user.texorId),
       isGuest,
       isExternal: isExternalEmail(user.email),
       canEdit: isHost,
@@ -330,6 +341,9 @@ function mediaGrant(meeting, role, policy) {
     },
     canShareScreen: meeting.settings.screenShare === 'everyone' || isModerator,
     allowChat: meeting.settings.allowChat,
+    // What the client draws the caption control from. `on` here means the
+    // meeting is being transcribed right now, for everybody in it.
+    captions: meeting.settings.captions ?? 'off',
     startMuted: meeting.settings.muteOnEntry && !isModerator,
     startCameraOff: meeting.settings.videoOffOnEntry,
   };

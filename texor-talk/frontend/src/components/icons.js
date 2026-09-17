@@ -340,3 +340,22 @@ export default {
   CodeIcon, HighlightIcon, HeadingIcon, BulletIcon, TodoIcon, QuoteIcon, TrashIcon,
   LockIcon, ShareIcon, SearchIcon, PlusIcon, HomeIcon, RecordIcon,
 };
+
+/**
+ * Captions. The rounded rectangle with two lines in it is the mark every
+ * player and every conferencing product uses, so it needs no learning.
+ */
+export const CaptionsIcon = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" {...props}>
+    <rect x="3" y="5" width="18" height="14" rx="3" />
+    <path d="M10 10.5a2 2 0 1 0 0 3M17 10.5a2 2 0 1 0 0 3" />
+  </svg>
+);
+
+/** A transcript: lines of text with a speaker's turn breaking them up. */
+export const TranscriptIcon = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" {...props}>
+    <path d="M5 4h14v16H5z" />
+    <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" />
+  </svg>
+);

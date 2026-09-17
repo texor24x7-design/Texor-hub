@@ -14,6 +14,8 @@ import ApiError from '../utils/ApiError.js';
 import { ACTIONS, record, verifyChain } from '../services/audit.service.js';
 import { workerStats } from '../media/worker.js';
 import { getPolicy, isAdmin } from '../services/policy.service.js';
+import { status as whisperStatus } from '../services/whisper.service.js';
+import { applyRetention } from '../services/captions.service.js';
 
 export const policySchema = z.object({
   whoCanCreateMeetings: z.enum(['anyone', 'allowlist']).optional(),
@@ -27,6 +29,10 @@ export const policySchema = z.object({
   defaultVideoOffOnEntry: z.boolean().optional(),
   screenShareDefault: z.enum(['everyone', 'hosts']).optional(),
   maxQuality: z.enum(['saver', 'standard', 'high']).optional(),
+  allowCaptions: z.boolean().optional(),
+  storeTranscripts: z.boolean().optional(),
+  transcriptRetentionDays: z.coerce.number().int().min(0).max(3650).optional(),
+  captionsDefault: z.enum(['off', 'on']).optional(),
   adminTexorIds: z.array(z.string().min(1)).max(200).optional(),
 });
 
@@ -70,6 +76,10 @@ const presentPolicy = (policy) => ({
   defaultVideoOffOnEntry: policy.defaultVideoOffOnEntry,
   screenShareDefault: policy.screenShareDefault,
   maxQuality: policy.maxQuality,
+  allowCaptions: policy.allowCaptions,
+  storeTranscripts: policy.storeTranscripts,
+  transcriptRetentionDays: policy.transcriptRetentionDays,
+  captionsDefault: policy.captionsDefault,
   adminTexorIds: policy.adminTexorIds,
   updatedAt: policy.updatedAt,
   updatedBy: policy.updatedByName,
@@ -92,6 +102,14 @@ export async function readPolicy(_req, res) {
         rtcPortRange: `${env.media.rtcMinPort}-${env.media.rtcMaxPort}`,
         workers: await workerStats(),
       },
+      /**
+       * The recogniser, reported next to the media workers because it is the
+       * same kind of fact: a C++ engine this process owns, which either came up
+       * or did not. `realtimeFactor` is the number that matters — above 1 means
+       * recognition is slower than the speech going into it, which is a machine
+       * that will shed captions under load rather than one that is broken.
+       */
+      captions: await whisperStatus(),
     },
   });
 }
@@ -117,6 +135,20 @@ export async function updatePolicy(req, res) {
   policy.updatedByName = req.user.displayName;
   await policy.save();
 
+  /**
+   * Retention applies to what is already on disk, not only to future meetings.
+   *
+   * "We keep transcripts for thirty days" is a statement about the material
+   * this organisation is holding. A setting that only governed meetings held
+   * from now on would leave every existing transcript kept forever, which is
+   * both not what was asked for and exactly the kind of gap a retention policy
+   * exists to close.
+   */
+  let retention = null;
+  if (changed.includes('transcriptRetentionDays') || changed.includes('storeTranscripts')) {
+    retention = await applyRetention(policy);
+  }
+
   await record({
     action: ACTIONS.POLICY_UPDATED,
     actor: req.user,
@@ -124,6 +156,7 @@ export async function updatePolicy(req, res) {
       changed,
       from: Object.fromEntries(changed.map((key) => [key, before[key]])),
       to: Object.fromEntries(changed.map((key) => [key, policy[key]])),
+      ...(retention ? { transcriptsRetimed: retention.updated } : {}),
     },
     req,
   });

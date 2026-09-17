@@ -5,6 +5,7 @@ import { connectDatabase, disconnectDatabase } from './config/db.js';
 import { createApp } from './app.js';
 import { closeWorkers, startWorkers } from './media/worker.js';
 import { attachSignalling } from './media/signalling.js';
+import { closeWhisper } from './services/whisper.service.js';
 
 async function main() {
   await connectDatabase();
@@ -41,6 +42,9 @@ async function main() {
     logger.info(`received ${signal}, shutting down`);
     server.close();
     await closeWorkers();
+    // The speech model holds a few hundred megabytes and a native handle;
+    // releasing it before the process exits keeps a restart clean.
+    await closeWhisper().catch(() => {});
     await disconnectDatabase();
     process.exit(0);
   };

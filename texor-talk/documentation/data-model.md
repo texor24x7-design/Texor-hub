@@ -138,6 +138,67 @@ One document, keyed `org`, created with its defaults on first read via an upsert
 — so two requests racing on a cold database cannot both create it. See
 [meetings.md](./meetings.md#policy).
 
+`allowCaptions`, `storeTranscripts`, `captionsDefault` and
+`transcriptRetentionDays` live here too. The first two are deliberately separate
+settings: "help people follow the conversation" and "keep a durable, attributed
+record of what everyone said" are different asks with different answers. See
+[captions.md](./captions.md#who-decides).
+
+## `transcripts`
+
+One document per meeting, holding the utterances in the order they were spoken.
+See [captions.md](./captions.md#the-transcript).
+
+| Field | Notes |
+|---|---|
+| `meetingCode` | Unique. The meeting this is a record of |
+| `segments[]` | `speakerTexorId`, `speakerName`, `text`, `language`, `confidence`, `startedAt`, `endedAt`, `durationMs`, `offsetMs` |
+| `speakers[]` | Denormalised, so a transcript renders without looking anybody up |
+| `languages[]` | Every language heard in the meeting |
+| `startedByTexorId` / `startedByName` | Who turned captions on |
+| `expiresAt` | Retention. Null keeps it. A TTL index does the deleting |
+| `truncated` | The utterance cap was reached and appending stopped |
+| `deletedAt` | Soft delete |
+
+### Why one document rather than a collection of utterances
+
+A transcript is only ever read whole — as a conversation, or as a file somebody
+downloads — and never queried across meetings by utterance. Keeping them
+together makes the read one lookup instead of a paginated scan, and makes the
+append an atomic `$push` rather than a read-modify-write that two people talking
+at once would race on and silently lose. Two hours of continuous speech is
+around three hundred kilobytes, well inside the sixteen megabyte document limit.
+
+### Why the speaker's name is on every utterance
+
+Denormalised on purpose. A transcript is a record of what happened, and if
+somebody changes their display name in their Texor Account next year, the record
+of who spoke in this meeting should not change with it. `speakerTexorId` stays
+the identity; `speakerName` is what they were called at the time.
+
+### Why the text index needs `language_override`
+
+A MongoDB text index reads a field called `language` on each indexed document —
+including on each element of an indexed array — and treats its value as the
+stemming language. Our segments carry exactly that field, set to whatever
+whisper detected, and the two meanings collide: storing an utterance detected as
+`te` was rejected outright with `language override unsupported: te`, because
+Telugu is not one of the languages text search can stem.
+
+The failure is at *write* time, so it does not degrade search — it makes the
+utterance impossible to store at all, and only for the languages least likely to
+be tested. Pointing the override at a field nothing ever sets leaves `language`
+as ordinary data.
+
+### Indexes
+
+| Index | For |
+|---|---|
+| `{ meetingCode: 1 }` unique | The only way a transcript is fetched |
+| `{ 'speakers.texorId': 1, deletedAt: 1, createdAt: -1 }` | One person's transcripts |
+| `{ 'segments.text': 'text', meetingTitle: 'text' }` | Search across what was said |
+| `{ expiresAt: 1 }` TTL | Retention, enforced by the database rather than a job |
+
 ## `auditevents` and `auditcounters`
 
 Append-only. Nothing in this codebase updates or deletes a row.
