@@ -14,6 +14,9 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_API_ORIGIN: origin(process.env.NEXT_PUBLIC_API_ORIGIN, 'http://localhost:4001') || 'http://localhost:4001',
     NEXT_PUBLIC_ACCOUNTS_ORIGIN: origin(process.env.NEXT_PUBLIC_ACCOUNTS_ORIGIN, 'http://localhost:3000'),
+    NEXT_PUBLIC_FINVOICE_ORIGIN: origin(process.env.NEXT_PUBLIC_FINVOICE_ORIGIN, 'http://localhost:3001'),
+    NEXT_PUBLIC_TALK_ORIGIN: origin(process.env.NEXT_PUBLIC_TALK_ORIGIN, 'http://localhost:3002'),
+    NEXT_PUBLIC_PAYROLL_ORIGIN: origin(process.env.NEXT_PUBLIC_PAYROLL_ORIGIN, 'http://localhost:3003'),
   },
 };
 

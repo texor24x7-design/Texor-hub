@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Menu as MenuIcon, Plus, Search } from 'lucide-react';
+import { Grid3x3, Menu as MenuIcon, Plus, Search } from 'lucide-react';
 import { Icon } from '@/components/Icon';
 import { Alert, Button, ConfirmProvider, Loading, Menu, MenuItem, ToastProvider } from '@/components/ui';
 import { api, auth } from '@/lib/api';
+import { PRODUCTS } from '@/lib/ecosystem';
 import { WorkspaceContext, screenFor, useWorkspaceValue } from '@/lib/workspace';
 import { CommandPalette } from './CommandPalette';
 import { Sidebar } from './Sidebar';
@@ -76,6 +77,30 @@ export function WorkspaceShell({ slug, children }) {
                   <Search aria-hidden="true" /><span>Search or jump to…</span><span className="kbd">⌘K</span>
                 </button>
                 <div className="grow" />
+                {/* The rest of Texor. One account carries somebody across all of it. */}
+                <Menu align="right" trigger={({ toggle }) => (
+                  <Button variant="ghost" icon={<Grid3x3 />} aria-label="Texor products" title="Texor products" onClick={toggle} />
+                )}>
+                  <div className="menu-label">Texor</div>
+                  <div className="apps-grid">
+                    {PRODUCTS.map((product) => (
+                      <a
+                        key={product.id}
+                        className={`apps-item${product.current ? ' apps-item--current' : ''}`}
+                        href={product.href}
+                        // Siblings open alongside, rather than replacing the invoice being edited here.
+                        target={product.current ? undefined : '_blank'}
+                        rel={product.current ? undefined : 'noreferrer'}
+                      >
+                        {product.icon
+                          ? <img className="apps-mark apps-mark--logo" src={product.icon} alt="" />
+                          : <span className="apps-mark" style={{ background: product.tint }}>{product.initial}</span>}
+                        <span className="apps-name">{product.name}</span>
+                        <span className="apps-blurb">{product.blurb}</span>
+                      </a>
+                    ))}
+                  </div>
+                </Menu>
                 {creatable.length ? (
                   <Menu align="right" trigger={({ toggle }) => <Button icon={<Plus />} onClick={toggle}>New</Button>}>
                     {creatable.slice(0, 12).map((m) => (

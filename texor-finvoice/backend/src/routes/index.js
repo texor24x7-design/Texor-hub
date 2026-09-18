@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import { attachSession, requireUser } from '../middleware/session.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import { validate } from '../middleware/validate.js';
 import { authorize, loadWorkspace } from '../middleware/workspace.js';
 import { handleCallback, logout, me, startLogin } from '../controllers/auth.controller.js';
@@ -26,23 +27,39 @@ export function createApiRouter() {
 
   router.use(attachSession);
 
+  /**
+   * Generous on purpose: these stop a runaway client or a scraper, not a person
+   * working quickly. A signed-in caller is counted as themselves, everyone else
+   * by IP — see `middleware/rateLimit.js`.
+   */
+  const limit = {
+    auth: rateLimit({ name: 'auth', limit: 30, message: 'Too many sign-in attempts. Try again shortly.' }),
+    publicDoc: rateLimit({ name: 'public-doc', limit: 120 }),
+    publicPdf: rateLimit({ name: 'public-pdf', limit: 20, message: 'This document is being downloaded too often. Try again shortly.' }),
+    file: rateLimit({ name: 'file', limit: 600 }),
+    pdf: rateLimit({ name: 'pdf', limit: 60 }),
+    deliver: rateLimit({ name: 'deliver', limit: 60, message: 'Too many sends in a row. Try again shortly.' }),
+    upload: rateLimit({ name: 'upload', limit: 120 }),
+    importing: rateLimit({ name: 'import', limit: 10, windowMs: 300_000, message: 'Imports are limited to ten every five minutes.' }),
+  };
+
   router.get('/health', (_req, res) => res.json({ status: 'ok', service: 'finvoice' }));
 
   // ── Texor SSO ───────────────────────────────────────────────────────────────
-  router.get('/auth/login', startLogin);
-  router.get('/auth/callback', handleCallback);
+  router.get('/auth/login', limit.auth, startLogin);
+  router.get('/auth/callback', limit.auth, handleCallback);
   router.post('/auth/logout', logout);
   router.get('/auth/me', me);
 
   // ── Public ──────────────────────────────────────────────────────────────────
-  router.get('/files/:key', files.download);
+  router.get('/files/:key', limit.file, files.download);
   router.get('/industries', workspaces.industries);
   router.get('/fonts/:file', designs.font);
   router.get('/integrations/gmail/callback', integrations.gmailCallback);
-  router.get('/public/documents/:token', docs.publicDocument);
-  router.get('/public/documents/:token/html', designs.publicHtml);
-  router.get('/public/documents/:token/pdf', designs.publicPdf);
-  router.get('/public/warranties/:token', ops.publicWarranty);
+  router.get('/public/documents/:token', limit.publicDoc, docs.publicDocument);
+  router.get('/public/documents/:token/html', limit.publicDoc, designs.publicHtml);
+  router.get('/public/documents/:token/pdf', limit.publicPdf, designs.publicPdf);
+  router.get('/public/warranties/:token', limit.publicDoc, ops.publicWarranty);
 
   // ── Workspaces ──────────────────────────────────────────────────────────────
   router.get('/workspaces', requireUser, workspaces.listWorkspaces);
@@ -80,7 +97,7 @@ export function createApiRouter() {
   w.delete('/team/roles/:key', authorize('team', 'edit'), team.deleteRole);
 
   // ── Files ───────────────────────────────────────────────────────────────────
-  w.post('/files', express.raw({ type: ALLOWED_TYPES, limit: env.uploadMaxBytes }), files.upload);
+  w.post('/files', limit.upload, express.raw({ type: ALLOWED_TYPES, limit: env.uploadMaxBytes }), files.upload);
 
   // ── Catalogue helpers ───────────────────────────────────────────────────────
   w.get('/items', records.searchItems);
@@ -105,7 +122,7 @@ export function createApiRouter() {
   // ── Record modules (customers, products, services, warranties, staff, custom) ──
   w.get('/records/:module', authorize(byParam, 'view'), records.list);
   w.get('/records/:module/export', authorize(byParam, 'export'), records.exportCsv);
-  w.post('/records/:module/import', authorize(byParam, 'create'), validate(records.importSchema), records.importRows);
+  w.post('/records/:module/import', limit.importing, authorize(byParam, 'create'), validate(records.importSchema), records.importRows);
   w.post('/records/:module', authorize(byParam, 'create'), records.create);
   w.get('/records/:module/:id', authorize(byParam, 'view'), records.get);
   w.patch('/records/:module/:id', authorize(byParam, 'edit'), records.update);
@@ -121,10 +138,10 @@ export function createApiRouter() {
   w.delete('/documents/:kind/:id', docKind, authorize(kindParam, 'delete'), docs.remove);
 
   w.get('/documents/:kind/:id/html', docKind, authorize(kindParam, 'view'), designs.html);
-  w.get('/documents/:kind/:id/pdf', docKind, authorize(kindParam, 'view'), designs.pdf);
+  w.get('/documents/:kind/:id/pdf', limit.pdf, docKind, authorize(kindParam, 'view'), designs.pdf);
 
   w.get('/documents/:kind/:id/compose', docKind, authorize(kindParam, 'view'), integrations.compose);
-  w.post('/documents/:kind/:id/deliver', docKind, authorize(kindParam, 'view'), validate(sendSchema), integrations.send);
+  w.post('/documents/:kind/:id/deliver', limit.deliver, docKind, authorize(kindParam, 'view'), validate(sendSchema), integrations.send);
   w.get('/documents/:kind/:id/deliveries', docKind, authorize(kindParam, 'view'), integrations.deliveries);
 
   // ── Integrations ────────────────────────────────────────────────────────────

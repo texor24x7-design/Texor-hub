@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Ban, CheckCircle2, Copy, Download, FileCheck2, MoreHorizontal, Pencil, Receipt, Send, ShieldCheck, Trash2, Wallet, XCircle } from 'lucide-react';
 import { Alert, Badge, Button, ButtonLink, Dialog, Field, Menu, MenuItem, PageHeader, SkeletonRows, StatusBadge, useConfirm, useToast } from '@/components/ui';
 import { Activity } from '@/components/records/Activity';
@@ -36,6 +36,7 @@ function Preview({ kind, id, design, version }) {
 export function DocumentView({ module, id }) {
   const { api, slug, href, can, currency, module: moduleOf, prefs } = useWorkspace();
   const router = useRouter();
+  const params = useSearchParams();
   const toast = useToast();
   const confirm = useConfirm();
   const kind = module.key;
@@ -45,7 +46,8 @@ export function DocumentView({ module, id }) {
   const { data: designs } = useResource(`designs:${slug}`, () => api.get('/designs'));
   const { data: deliveries, reload: reloadDeliveries } = useResource(`deliveries:${slug}:${id}`, () => api.get(`/documents/${kind}/${id}/deliveries`));
   const [paying, setPaying] = useState(false);
-  const [sending, setSending] = useState(false);
+  // Arriving from "Save & send" — open the send sheet straight away.
+  const [sending, setSending] = useState(() => params.get('send') === '1');
   const [voiding, setVoiding] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [busy, setBusy] = useState(null);
@@ -73,7 +75,17 @@ export function DocumentView({ module, id }) {
   const transition = (action, label) => act(action, () => api.post(`/documents/quotations/${id}/${action}`), label);
   async function convert() {
     const result = await act('convert', () => api.post(`/documents/quotations/${id}/convert`), 'Draft invoice created');
-    if (result?.document) router.push(href(`/invoices/${result.document._id}/edit`));
+    // The invoice view, not the editor: the figures came from an accepted quotation,
+    // so the common case is issuing it, not editing it again.
+    if (result?.document) router.push(href(`/invoices/${result.document._id}`));
+  }
+  // A draft invoice has no number yet, so Send issues it first instead of disappearing.
+  async function sendNow() {
+    if (isInvoice && doc.status === 'draft') {
+      if (!(await act('send', () => api.post(`/documents/invoices/${id}/issue`), `${module.labelSingular} issued`))) return;
+      await reload();
+    }
+    setSending(true);
   }
   async function remove() {
     if (!(await confirm({ title: `Delete this ${module.labelSingular.toLowerCase()}?`, message: 'It will be removed permanently.', confirmLabel: 'Delete', danger: true }))) return;
@@ -91,6 +103,7 @@ export function DocumentView({ module, id }) {
   const setDue = (dueDate) => act('due', () => api.patch(`/documents/${kind}/${id}`, { dueDate: dueDate || null }), 'Due date updated');
 
   const editable = isInvoice ? doc.status === 'draft' : ['draft', 'sent'].includes(doc.status);
+  const needsIssuer = isInvoice && doc.status === 'draft' && !can('invoices', 'approve');
   const pdfUrl = api.url(`/documents/${kind}/${id}/pdf?download=1`);
   const publicLink = doc.publicToken && !(isInvoice && doc.status === 'draft') ? `${window.location.origin}/d/${doc.publicToken}` : null;
   const invoices = moduleOf('invoices');
@@ -108,7 +121,7 @@ export function DocumentView({ module, id }) {
             {isInvoice && doc.status === 'draft' && can('invoices', 'approve') ? <Button icon={<FileCheck2 />} onClick={issue} loading={busy === 'issue'}>Issue invoice</Button> : null}
             {isInvoice && ['issued', 'partial'].includes(doc.status) && can('payments', 'create') ? <Button icon={<Wallet />} onClick={() => setPaying(true)}>Record payment</Button> : null}
             {!isInvoice && ['draft', 'sent', 'accepted'].includes(doc.status) && invoices && can('invoices', 'create') ? <Button icon={<Receipt />} onClick={convert} loading={busy === 'convert'}>Convert to {invoices.labelSingular.toLowerCase()}</Button> : null}
-            {doc.status !== 'void' && !(isInvoice && doc.status === 'draft') ? <Button variant="secondary" icon={<Send />} onClick={() => setSending(true)}>Send</Button> : null}
+            {doc.status !== 'void' ? <Button variant="secondary" icon={<Send />} onClick={sendNow} loading={busy === 'send'} disabled={needsIssuer} title={needsIssuer ? `A ${module.labelSingular.toLowerCase()} has to be issued before it can be sent, and you do not have permission to issue.` : undefined}>Send</Button> : null}
             <a className="btn btn-secondary" href={pdfUrl}><Download />PDF</a>
             <Menu align="right" trigger={({ toggle }) => <Button variant="secondary" icon={<MoreHorizontal />} aria-label="More actions" onClick={toggle} />}>
               {publicLink ? <MenuItem icon={<Copy />} onClick={() => { navigator.clipboard?.writeText(publicLink); toast('Link copied'); }}>Copy customer link</MenuItem> : null}
@@ -208,7 +221,7 @@ export function DocumentView({ module, id }) {
       </div>
 
       {isInvoice ? <PaymentDialog open={paying} onClose={() => setPaying(false)} document={doc} onRecorded={refresh} /> : null}
-      <SendDialog open={sending} onClose={() => setSending(false)} kind={kind} document={doc} onSent={() => { refresh(); reloadDeliveries(); }} />
+      <SendDialog open={sending} onClose={() => { setSending(false); if (params.get('send')) router.replace(href(`/${kind}/${id}`)); }} kind={kind} document={doc} onSent={() => { refresh(); reloadDeliveries(); }} />
       <Dialog open={voiding} onClose={() => setVoiding(false)} size="narrow" title={`Void ${doc.number}?`} description="The number stays used, stock goes back and warranties from this invoice are voided. This cannot be undone."
         footer={<><Button variant="secondary" onClick={() => setVoiding(false)}>Cancel</Button><Button variant="danger" loading={busy === 'void'} onClick={async () => { await act('void', () => api.post(`/documents/invoices/${id}/void`, { reason: voidReason }), 'Invoice voided'); setVoiding(false); }}>Void invoice</Button></>}>
         <Field label="Reason" hint="Kept with the invoice for your records."><input className="input" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="Wrong customer, duplicate…" autoFocus /></Field>

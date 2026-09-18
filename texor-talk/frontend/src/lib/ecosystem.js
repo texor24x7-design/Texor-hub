@@ -36,6 +36,7 @@ export const ACCOUNTS_ORIGIN = origin(
 export const PRODUCTS = [
   {
     id: 'account',
+    icon: '/brand/accounts-icon.svg',
     name: 'Texor Account',
     blurb: 'Profile, security and sign-in',
     href: ACCOUNTS_ORIGIN,
@@ -44,6 +45,7 @@ export const PRODUCTS = [
   },
   {
     id: 'talk',
+    icon: '/brand/talk-icon.svg',
     name: 'Texor Talk',
     blurb: 'Meetings and messaging',
     href: origin(process.env.NEXT_PUBLIC_TALK_ORIGIN, 'http://localhost:3002'),
@@ -53,8 +55,9 @@ export const PRODUCTS = [
   },
   {
     id: 'finvoice',
+    icon: '/brand/finvoice-icon.svg',
     name: 'Finvoice',
-    blurb: 'Invoicing',
+    blurb: 'Invoicing and inventory',
     href: origin(process.env.NEXT_PUBLIC_FINVOICE_ORIGIN, 'http://localhost:3001'),
     initial: 'F',
     tint: '#0f766e',

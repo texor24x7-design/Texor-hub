@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Barcode, Plus, Trash2 } from 'lucide-react';
+import { Barcode, Plus, Send, Trash2 } from 'lucide-react';
 import { Alert, Button, Dialog, Field, PageHeader, SkeletonRows, Switch, useToast } from '@/components/ui';
 import { FieldInput, GstinInput, WIDE_TYPES } from '@/components/fields/FieldInput';
 import { MoneyInput } from '@/components/fields/MoneyInput';
 import { ReferencePicker } from '@/components/fields/ReferencePicker';
-import { invalidate } from '@/lib/data';
+import { invalidate, prefetch } from '@/lib/data';
 import { money, toDateInput } from '@/lib/format';
 import { STATES, stateFromGstin } from '@/lib/shared/india.mjs';
 import { computeDocument } from '@/lib/shared/tax.mjs';
@@ -185,12 +185,15 @@ export function DocumentEditor({ module, id }) {
     setErrors({});
     try {
       const { document: saved } = id ? await api.patch(`/documents/${kind}/${id}`, body()) : await api.post(`/documents/${kind}`, body());
-      if (then === 'issue') await api.post(`/documents/invoices/${saved._id}/issue`);
+      // An invoice needs a number before it can go anywhere, so sending issues it too.
+      if (then !== 'draft' && isInvoice) await api.post(`/documents/invoices/${saved._id}/issue`);
       invalidate(`documents:${slug}:${kind}`);
       invalidate(`document:${slug}:${kind}:${saved._id}`);
       invalidate(`dashboard:${slug}`);
-      toast(then === 'issue' ? `${module.labelSingular} issued` : 'Saved');
-      router.replace(href(`/${kind}/${saved._id}`));
+      // Start composing now so the send sheet is already filled in when it opens.
+      if (then === 'send') prefetch(`compose:${slug}:${kind}:${saved._id}`, () => api.get(`/documents/${kind}/${saved._id}/compose`));
+      if (then !== 'send') toast(then === 'issue' ? `${module.labelSingular} issued` : 'Saved');
+      router.replace(href(`/${kind}/${saved._id}`) + (then === 'send' ? '?send=1' : ''));
     } catch (saveError) {
       setError(saveError.message);
       setErrors(saveError.fieldErrors ?? {});
@@ -199,11 +202,24 @@ export function DocumentEditor({ module, id }) {
     }
   }
 
+  // No dependency list: the handler has to see the current `save` and `busy` every render.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter' || busy) return;
+      e.preventDefault();
+      save(!isInvoice || can('invoices', 'approve') ? 'send' : 'draft');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   if (!loaded) return <SkeletonRows rows={10} />;
   if (id && isInvoice && status !== 'draft') {
     return <Alert kind="info" title="This invoice has been issued">Its figures are final. <Link href={href(`/${kind}/${id}`)}>Open it</Link> to record payments, send it, change the due date or void it.</Alert>;
   }
 
+  // Only an approver can issue, and an invoice cannot be sent before it is issued.
+  const canSend = !isInvoice || can('invoices', 'approve');
   const showSerialColumn = doc.lines.some((l) => l.meta?.trackSerials || l.serials?.length);
   const interState = computed.interState;
   const t = computed.totals;
@@ -216,8 +232,9 @@ export function DocumentEditor({ module, id }) {
         actions={(
           <>
             <Button variant="secondary" onClick={() => router.back()}>Cancel</Button>
-            <Button variant={isInvoice && can('invoices', 'approve') ? 'secondary' : 'primary'} loading={busy === 'draft'} onClick={() => save('draft')}>{isInvoice ? 'Save draft' : 'Save'}</Button>
-            {isInvoice && can('invoices', 'approve') ? <Button loading={busy === 'issue'} onClick={() => save('issue')}>Save & issue</Button> : null}
+            <Button variant={canSend ? 'secondary' : 'primary'} loading={busy === 'draft'} onClick={() => save('draft')}>{isInvoice ? 'Save draft' : 'Save'}</Button>
+            {isInvoice && canSend ? <Button variant="secondary" loading={busy === 'issue'} onClick={() => save('issue')}>Save & issue</Button> : null}
+            {canSend ? <Button icon={<Send />} loading={busy === 'send'} onClick={() => save('send')} title="Save and send (⌘↵ or Ctrl+↵)">Save & send</Button> : null}
           </>
         )}
       />

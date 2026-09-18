@@ -60,6 +60,18 @@ export function useResource(key, loader, { keepPrevious = true } = {}) {
   return { ...state, reload: load, mutate };
 }
 
+/**
+ * Warm a cache key before the screen that reads it mounts. Failures are ignored —
+ * the hook will just fetch normally.
+ *
+ * ponytail: stores resolved values only, so a read landing mid-flight fetches a
+ * second time. Share in-flight promises if that ever shows up in the network tab.
+ */
+export function prefetch(key, loader) {
+  if (!key || cache.has(key)) return;
+  Promise.resolve(loader()).then((data) => { cache.set(key, data); }).catch(() => {});
+}
+
 /** Debounced value for search boxes. */
 export function useDebounced(value, delay = 250) {
   const [debounced, setDebounced] = useState(value);

@@ -231,9 +231,9 @@ function AppsMenu() {
                 target={product.current ? undefined : '_blank'}
                 rel={product.current ? undefined : 'noreferrer'}
               >
-                <span className="apps__mark" style={{ background: product.tint }}>
-                  {product.initial}
-                </span>
+                {product.icon
+                  ? <img className="apps__mark apps__mark--logo" src={product.icon} alt="" />
+                  : <span className="apps__mark" style={{ background: product.tint }}>{product.initial}</span>}
                 <span className="apps__name">{product.name}</span>
                 <span className="apps__blurb">{product.blurb}</span>
               </a>

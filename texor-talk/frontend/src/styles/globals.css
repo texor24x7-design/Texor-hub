@@ -2120,6 +2120,7 @@ p { margin: 0; }
   font-weight: 700;
   font-size: 1rem;
 }
+.apps__mark--logo { background: #fff; border: 1px solid var(--border); padding: 3px; object-fit: contain; }
 .apps__name { font-size: 0.8125rem; font-weight: 550; }
 .apps__blurb { font-size: 0.7rem; color: var(--text-subtle); line-height: 1.3; }
 
