@@ -1820,6 +1820,12 @@ p { margin: 0; }
   font-size: 0.875rem;
 }
 
+/* A question or two and a button — the same shell as the settings dialog,
+   without its sidebar. */
+.dialog--form { grid-template-columns: 1fr; width: min(27rem, 100%); }
+.dialog--form .dialog__body { padding: 1.4rem 1.5rem 1.5rem; gap: 1rem; }
+.dialog--form h2 { font-size: 1.15rem; font-weight: 550; padding-right: 2.5rem; }
+
 .setting { display: grid; gap: 0.4rem; }
 .setting--row { grid-template-columns: 1fr auto; align-items: start; gap: 1.5rem; }
 .setting__label { font-size: 0.9375rem; font-weight: 550; color: var(--text); }

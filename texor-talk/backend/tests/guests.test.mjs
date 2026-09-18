@@ -67,6 +67,13 @@ check('a preview is available with no credential', preview.status === 200);
 check('it gives the title and host',
   preview.body.meeting.title === 'Open day' && Boolean(preview.body.meeting.hostName));
 check('guests are allowed here', preview.body.guests.allowed === true, JSON.stringify(preview.body.guests));
+/**
+ * The host set `lobby: 'off'`, and this said so — while `forceLobbyForExternal`
+ * quietly held the guest at the door anyway. Two screens promising a guest they
+ * would walk straight in, and a knock either way.
+ */
+check('and are told the truth about the lobby they will actually meet',
+  preview.body.guests.willWait === true, JSON.stringify(preview.body.guests));
 check('it leaks no agenda, invitees, participants or join link',
   !('agenda' in preview.body.meeting) && !('invitees' in preview.body.meeting)
   && !('participants' in preview.body.meeting) && !('joinUrl' in preview.body.meeting),
@@ -151,6 +158,47 @@ const waiting = await call(host.cookie, `/api/meetings/${open.code}/knocks`);
 check('the host sees them waiting, named as they typed it',
   waiting.body.knocks?.[0]?.name === 'Sam Guest', JSON.stringify(waiting.body.knocks));
 check('and marked as being from outside', waiting.body.knocks?.[0]?.isExternal === true);
+
+console.log('\n── with the override off, "everyone walks in" means it ──');
+{
+  // The one switch that makes the host's choice final, and the reason the
+  // dialog now says which of the two is in force.
+  await db.collection('policies').updateOne({}, { $set: { forceLobbyForExternal: false } });
+
+  const walkIn = (await call(host.cookie, '/api/meetings', {
+    method: 'POST', body: { title: 'Wide open', access: 'anyone', lobby: 'off' },
+  })).body.meeting;
+
+  const told = await call(null, `/api/meetings/${walkIn.code}/guest`);
+  check('the preview stops promising a lobby', told.body.guests.willWait === false,
+    JSON.stringify(told.body.guests));
+
+  const pass = await call(null, `/api/meetings/${walkIn.code}/guest`, {
+    method: 'POST', body: { name: 'Wanda Walkin' },
+  });
+  const cookie = (pass.setCookie ?? '').split(';')[0];
+  await call(host.cookie, `/api/meetings/${walkIn.code}/join`, { method: 'POST' });
+
+  const straightIn = await call(cookie, `/api/meetings/${walkIn.code}/join`, { method: 'POST' });
+  check('and the guest walks in without knocking',
+    straightIn.body.status === 'admitted', JSON.stringify(straightIn.body).slice(0, 160));
+
+  await db.collection('policies').updateOne({}, { $set: { forceLobbyForExternal: true } });
+}
+
+console.log('\n── what a host is told before they choose ──');
+{
+  const { body, status } = await call(host.cookie, '/api/meetings/defaults');
+  check('the defaults endpoint answers', status === 200, `HTTP ${status}`);
+  check('with the waiting room a new meeting would get',
+    body.defaults?.lobby === 'external', JSON.stringify(body.defaults));
+  check('and the two org rules that can overrule the host',
+    body.defaults?.forceLobbyForExternal === true && body.defaults?.allowExternalGuests === true,
+    JSON.stringify(body.defaults));
+
+  const anon = await call(null, '/api/meetings/defaults');
+  check('and it is not open to anonymous callers', anon.status === 401, `HTTP ${anon.status}`);
+}
 
 console.log('\n── a guest can take part once admitted ──');
 await call(host.cookie, `/api/meetings/${open.code}/knocks/${knocked.body.knockId}`, {

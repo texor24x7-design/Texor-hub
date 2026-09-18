@@ -6,6 +6,7 @@ import { AppShell } from '@/components/AppShell';
 import { Alert } from '@/components/ui';
 import { CalendarIcon, NotesIcon, PlusIcon, VideoPlusIcon } from '@/components/icons';
 import { HeroDoodle } from '@/components/HeroDoodle';
+import { StartMeetingDialog, defaultMeetingTitle } from '@/components/StartMeetingDialog';
 import { meetings as meetingApi, notes as notesApi } from '@/lib/api';
 import { accentFor } from '@/lib/accent';
 import { usePoll } from '@/lib/use-poll';
@@ -28,7 +29,7 @@ function Home({ user }) {
   const router = useRouter();
   const [list, setList] = useState(null);
   const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [notes, setNotes] = useState(null);
 
   // Whether anything has ever arrived, so a failed *refresh* is not
@@ -88,23 +89,6 @@ function Home({ user }) {
     return () => { cancelled = true; };
   }, []);
 
-  async function startInstant() {
-    setBusy(true);
-    setError(null);
-    try {
-      // A display name comes from an identity provider and may not be a string.
-      const first = (typeof user.displayName === 'string' ? user.displayName : '').split(' ')[0];
-      const { meeting } = await meetingApi.create({
-        title: first ? `${first}'s meeting` : 'New meeting',
-        access: 'texor',
-      });
-      router.push(`/meetings/${meeting.code}`);
-    } catch (createError) {
-      setError(createError.message);
-      setBusy(false);
-    }
-  }
-
   const first = (typeof user.displayName === 'string' ? user.displayName : '').split(' ')[0];
 
   const liveRows = (list?.live ?? []).slice(0, 4);
@@ -127,7 +111,7 @@ function Home({ user }) {
       icon: <VideoPlusIcon />,
       title: 'Start a meeting',
       blurb: 'Instant, no setup',
-      onClick: startInstant,
+      onClick: () => setStarting(true),
     },
     {
       key: 'join',
@@ -159,6 +143,14 @@ function Home({ user }) {
     <div className="home">
       <Alert kind="error">{error}</Alert>
 
+      {starting ? (
+        <StartMeetingDialog
+          defaultTitle={defaultMeetingTitle(user)}
+          onClose={() => setStarting(false)}
+          onStarted={(meeting) => router.push(`/meetings/${meeting.code}`)}
+        />
+      ) : null}
+
       <section className="hero">
         <div className="hero__copy">
           <p className="hero__greet">
@@ -170,9 +162,9 @@ function Home({ user }) {
           </p>
 
           <div className="hero__actions">
-            <button type="button" className="btn btn--primary" onClick={startInstant} disabled={busy}>
+            <button type="button" className="btn btn--primary" onClick={() => setStarting(true)}>
               <VideoPlusIcon />
-              {busy ? 'Starting…' : 'Start a meeting'}
+              Start a meeting
             </button>
             <button type="button" className="btn btn--secondary" onClick={() => router.push('/meetings?new=1')}>
               <CalendarIcon />
@@ -193,7 +185,6 @@ function Home({ user }) {
             type="button"
             className={`quick__card quick__card--${item.tint}`}
             onClick={item.onClick}
-            disabled={item.key === 'start' && busy}
           >
             <span className="quick__icon">{item.icon}</span>
             <span className="quick__text">

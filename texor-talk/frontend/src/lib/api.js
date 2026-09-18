@@ -81,6 +81,8 @@ export const meetings = {
   list: (scope = 'upcoming') => api(`/api/meetings?scope=${scope}`),
   get: (code) => api(`/api/meetings/${code}`),
   create: (body) => api('/api/meetings', { method: 'POST', body }),
+  // The org rules a new meeting will be bound by, before there is a meeting.
+  defaults: () => api('/api/meetings/defaults'),
   update: (code, body) => api(`/api/meetings/${code}`, { method: 'PATCH', body }),
   cancel: (code) => api(`/api/meetings/${code}`, { method: 'DELETE' }),
 

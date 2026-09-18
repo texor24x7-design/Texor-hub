@@ -183,9 +183,14 @@ export function createChimes({ enabled = true, gate = createSoundGate() } = {}) 
       audio();
     },
 
-    play(name, now) {
+    /**
+     * `force` skips the gate. It is for sounds that answer a click of your own
+     * — leaving the call — where a rate limit meant for other people's comings
+     * and goings would swallow the one piece of feedback you asked for.
+     */
+    play(name, now, { force = false } = {}) {
       if (!on) return false;
-      if (!gate.allow(name, now)) return false;
+      if (!force && !gate.allow(name, now)) return false;
 
       const tone = TONES[name];
       if (!tone) return false;

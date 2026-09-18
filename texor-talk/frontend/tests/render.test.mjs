@@ -454,5 +454,51 @@ console.log('\n── every other component renders ──');
   }
 }
 
+console.log('\n── the start-a-meeting dialog ──');
+{
+  const { StartMeetingDialog, defaultMeetingTitle } =
+    await import('@/components/StartMeetingDialog');
+
+  check('a name is made from the first name',
+    defaultMeetingTitle({ displayName: 'Ana Note' }) === "Ana's meeting",
+    defaultMeetingTitle({ displayName: 'Ana Note' }));
+  // The assumption that has crashed this product before: a display name from an
+  // identity provider need not be a string, or be there at all.
+  check('and from nothing at all without throwing',
+    defaultMeetingTitle({ displayName: { given: 'Ana' } }) === 'New meeting');
+  check('nor from no user at all', defaultMeetingTitle() === 'New meeting');
+
+  const { html } = render('the dialog renders', h(StartMeetingDialog, {
+    defaultTitle: "Ana's meeting",
+    onClose: () => {},
+    onStarted: () => {},
+  }));
+  if (html) {
+    check('the dialog renders', true);
+    check('it asks who can join', html.includes('Who can join'), html.slice(0, 200));
+    check('and about the waiting room', html.includes('Waiting room'));
+    // Until the organisation's rules arrive there is no honest value to show,
+    // so the field says so and cannot be set to something that will not be sent.
+    check('the waiting room waits for the organisation rules',
+      html.includes('Checking your organisation') && /<select id="start-lobby"[^>]*disabled/.test(html),
+      html.slice(html.indexOf('start-lobby') - 40, html.indexOf('start-lobby') + 400));
+    check('the name is filled in already', html.includes("Ana&#x27;s meeting") || html.includes("Ana's meeting"), html.slice(0, 400));
+  }
+
+  const channel = render('a channel meeting is pre-set to the channel', h(StartMeetingDialog, {
+    defaultTitle: '#design',
+    defaultAccess: 'invited',
+    channelId: 'c1',
+    onClose: () => {},
+    onStarted: () => {},
+  }));
+  if (channel.html) {
+    check('a channel meeting is pre-set to the channel', true);
+    check('with the access the channel implies',
+      channel.html.includes('<option value="invited" selected=""') || channel.html.includes('value="invited" selected'),
+      channel.html.slice(0, 600));
+  }
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

@@ -30,6 +30,7 @@ import {
 import { ACTIONS, record } from '../services/audit.service.js';
 import {
   assertCanCreateMeeting,
+  effectiveLobby,
   getPolicy,
   isExternalEmail,
   meetingDefaults,
@@ -385,6 +386,31 @@ export async function listMeetings(req, res) {
   res.json({ meetings: rows.map((meeting) => presentMeeting(meeting, req.user)) });
 }
 
+/**
+ * What a host is about to be bound by, before they create anything.
+ *
+ * The start-a-meeting dialog asks two questions whose answers the organisation
+ * can override — `forceLobbyForExternal` holds outside guests in the lobby even
+ * when the host turns the waiting room off, and `allowExternalGuests` can shut
+ * guests out of an "anyone with the code" meeting altogether. Without this the
+ * dialog could only guess, so it promised "everyone walks in" and the guest was
+ * made to knock anyway, with nothing on screen explaining why.
+ *
+ * Read-only, and only the three rules the dialog has to tell the truth about.
+ */
+export async function getMeetingDefaults(req, res) {
+  const policy = await getPolicy();
+  const defaults = meetingDefaults(policy);
+
+  res.json({
+    defaults: {
+      lobby: defaults.lobby,
+      forceLobbyForExternal: policy.forceLobbyForExternal,
+      allowExternalGuests: policy.allowExternalGuests,
+    },
+  });
+}
+
 export async function createMeeting(req, res) {
   const policy = await assertCanCreateMeeting(req.user);
   const defaults = meetingDefaults(policy);
@@ -592,8 +618,15 @@ export async function guestPreview(req, res) {
     guests: {
       allowed,
       reason: reason ?? null,
-      // Worth saying before they type a name, not after.
-      willWait: allowed && meeting.lobby !== 'off',
+      /**
+       * Worth saying before they type a name, not after — and it has to be the
+       * rule that will actually be applied to *them*. This read `meeting.lobby`
+       * alone, so a host who turned the waiting room off had their guests told
+       * they would walk straight in, and then held at the door anyway by
+       * `forceLobbyForExternal`. A guest has no account and is external by
+       * definition, which is the question `effectiveLobby` answers.
+       */
+      willWait: allowed && effectiveLobby(meeting, policy, { isExternal: true }) !== 'off',
     },
   });
 }

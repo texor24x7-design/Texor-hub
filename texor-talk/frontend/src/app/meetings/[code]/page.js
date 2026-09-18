@@ -1021,6 +1021,11 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   function leaveNow() {
     leavingRef.current = true;
 
+    // Everybody else hears us go; we should too. Forced past the gate because
+    // this answers a click of our own, and it has to be started before the
+    // socket closes — the player is given time to finish it as we unmount.
+    chimes.current?.play('leave', undefined, { force: true });
+
     /**
      * Close the socket, then go. Nothing is awaited.
      *

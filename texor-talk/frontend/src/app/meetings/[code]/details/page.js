@@ -234,7 +234,11 @@ function HostSettings({ meeting, onSave }) {
 
         <Field
           label="Waiting room"
-          hint="Hosts and co-hosts never wait."
+          hint={
+            draft.lobby === 'off' && meeting.policy?.forceLobbyForExternal
+              ? 'Hosts and co-hosts never wait. Your organisation still holds guests without a Texor Account in the lobby — an admin can change that under Admin → Meetings.'
+              : 'Hosts and co-hosts never wait.'
+          }
           htmlFor="lobby"
         >
           <select

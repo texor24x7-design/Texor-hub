@@ -8,6 +8,7 @@ import {
   RecordIcon, SettingsIcon, ShieldIcon, VideoPlusIcon,
 } from '@/components/icons';
 import { SettingsDialog } from '@/components/SettingsDialog';
+import { StartMeetingDialog, defaultMeetingTitle } from '@/components/StartMeetingDialog';
 import { auth } from '@/lib/api';
 import { ACCOUNTS_ORIGIN, PRODUCTS } from '@/lib/ecosystem';
 
@@ -24,6 +25,7 @@ export function AppShell({ children }) {
   const pathname = usePathname();
   const [user, setUser] = useState(undefined);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [startOpen, setStartOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -110,7 +112,10 @@ export function AppShell({ children }) {
             <MenuIcon />
           </button>
 
-          <JoinBar onJoin={(code) => router.push(`/meetings/${code}`)} />
+          <JoinBar
+            onJoin={(code) => router.push(`/meetings/${code}`)}
+            onNew={() => setStartOpen(true)}
+          />
 
           <div className="topbar__right">
             <AppsMenu />
@@ -124,6 +129,16 @@ export function AppShell({ children }) {
       </div>
 
       {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
+
+      {/* In the shell rather than on a page: "New" is in the top bar of every
+          screen, and it should open the same dialog from all of them. */}
+      {startOpen ? (
+        <StartMeetingDialog
+          defaultTitle={defaultMeetingTitle(user)}
+          onClose={() => setStartOpen(false)}
+          onStarted={(meeting) => { setStartOpen(false); router.push(`/meetings/${meeting.code}`); }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -134,9 +149,8 @@ export function AppShell({ children }) {
  * Both live in the top bar because they are the two things somebody opens this
  * product to do, and neither should depend on which page they happen to be on.
  */
-function JoinBar({ onJoin }) {
+function JoinBar({ onJoin, onNew }) {
   const [code, setCode] = useState('');
-  const router = useRouter();
   const clean = code.trim().toLowerCase();
 
   return (
@@ -160,7 +174,7 @@ function JoinBar({ onJoin }) {
         <button type="submit" className="joinbar__go" disabled={!clean}>Join</button>
       </form>
 
-      <button type="button" className="shell__new" onClick={() => router.push('/meetings?new=1')}>
+      <button type="button" className="shell__new" onClick={onNew}>
         <VideoPlusIcon />
         <span>New</span>
       </button>

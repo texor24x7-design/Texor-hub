@@ -8,6 +8,7 @@ import { CalendarIcon, ChevronIcon, VideoPlusIcon } from '@/components/icons';
 import { meetings as meetingApi } from '@/lib/api';
 import { usePoll } from '@/lib/use-poll';
 import { LiveCard } from '@/components/LiveCard';
+import { StartMeetingDialog, defaultMeetingTitle } from '@/components/StartMeetingDialog';
 
 /** Start one, join one, or look at what is coming. */
 export default function MeetingsPage() {
@@ -19,7 +20,7 @@ function MeetingsHome({ user }) {
   const [scope, setScope] = useState('upcoming');
   const [list, setList] = useState(null);
   const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [scheduling, setScheduling] = useState(false);
 
   // Whether anything has ever arrived, so a failed *refresh* is not
@@ -50,29 +51,18 @@ function MeetingsHome({ user }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // `?new=1` is what the top bar and the home page point at, and until now
+  // nothing read it — both landed on this page with the form still shut.
+  // Read from `location` rather than `useSearchParams`, which would need a
+  // Suspense boundary around the whole page to build.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('new')) setScheduling(true);
+  }, []);
+
   // Who is in a meeting changes while this page is open. Ten seconds is short
   // enough that a room filling up or emptying is noticed, and long enough that
   // an idle agenda is not a stream of requests.
   usePoll(load, 10_000);
-
-  async function startInstant() {
-    setBusy(true);
-    setError(null);
-    try {
-      // Same assumption that crashed the call grid: a display name comes from
-      // an identity provider and may not be a string at all.
-      const firstName = (typeof user.displayName === 'string' ? user.displayName : '').split(' ')[0];
-
-      const { meeting } = await meetingApi.create({
-        title: firstName ? `${firstName}'s meeting` : 'New meeting',
-        access: 'texor',
-      });
-      router.push(`/meetings/${meeting.code}`);
-    } catch (createError) {
-      setError(createError.message);
-      setBusy(false);
-    }
-  }
 
   // Occupied rooms. `presentCount` comes from the live socket list, so an
   // abandoned meeting is not one of them however its status reads.
@@ -98,6 +88,14 @@ function MeetingsHome({ user }) {
   return (
     <div className="dash">
       <Alert kind="error">{error}</Alert>
+
+      {starting ? (
+        <StartMeetingDialog
+          defaultTitle={defaultMeetingTitle(user)}
+          onClose={() => setStarting(false)}
+          onStarted={(meeting) => router.push(`/meetings/${meeting.code}`)}
+        />
+      ) : null}
 
       <header className="daybar">
         <div className="daybar__title">
@@ -176,9 +174,9 @@ function MeetingsHome({ user }) {
           <h2>{isSameDay(day, new Date()) ? 'No meetings scheduled for today' : 'Nothing on this day'}</h2>
           <p>Start one now, or put it in the calendar.</p>
           <div className="empty-day__actions">
-            <button type="button" className="shell__new" onClick={startInstant} disabled={busy}>
+            <button type="button" className="shell__new" onClick={() => setStarting(true)}>
               <VideoPlusIcon />
-              <span>{busy ? 'Starting…' : 'New meeting'}</span>
+              <span>New meeting</span>
             </button>
             <Button variant="secondary" onClick={() => setScheduling((open) => !open)}>
               {scheduling ? 'Cancel' : 'Schedule'}
@@ -193,7 +191,7 @@ function MeetingsHome({ user }) {
               <Button variant="secondary" size="sm" onClick={() => setScheduling((open) => !open)}>
                 {scheduling ? 'Cancel' : 'Schedule'}
               </Button>
-              <button type="button" className="shell__new" onClick={startInstant} disabled={busy}>
+              <button type="button" className="shell__new" onClick={() => setStarting(true)}>
                 <VideoPlusIcon />
                 <span>New</span>
               </button>
@@ -336,6 +334,7 @@ function ScheduleForm({ onCreated, onCancel }) {
       start: toLocalInput(start),
       end: toLocalInput(end),
       access: 'texor',
+      lobby: '',
       freq: 'none',
       invitees: '',
     };
@@ -362,6 +361,9 @@ function ScheduleForm({ onCreated, onCancel }) {
         // the times themselves travel as UTC.
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         access: form.access,
+        // Left out when the host did not choose, so the organisation's own
+        // default still applies.
+        ...(form.lobby ? { lobby: form.lobby } : {}),
         recurrence: { freq: form.freq, interval: 1, count: null, until: null },
         invitees: parseInvitees(form.invitees),
       });
@@ -411,6 +413,15 @@ function ScheduleForm({ onCreated, onCancel }) {
           <option value="texor">Anyone with a Texor Account</option>
           <option value="invited">Only people I invite</option>
           <option value="anyone">Anyone with the code, including guests</option>
+        </select>
+      </Field>
+
+      <Field label="Waiting room" hint="You and your co-hosts never wait." htmlFor="lobby">
+        <select id="lobby" className="input" value={form.lobby} onChange={set('lobby')}>
+          <option value="">My organisation&rsquo;s default</option>
+          <option value="off">Off — everyone walks in</option>
+          <option value="external">Guests from outside knock</option>
+          <option value="everyone">Everyone knocks</option>
         </select>
       </Field>
 

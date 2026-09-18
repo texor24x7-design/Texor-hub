@@ -26,13 +26,21 @@ export function SettingsDialog({ onClose, inCall = false, onDevice }) {
   const [error, setError] = useState(null);
   const dialog = useRef(null);
 
-  // Escape closes, and focus starts inside rather than wherever it was.
+  /**
+   * Escape closes, and focus starts inside rather than wherever it was — once,
+   * on mount. Depending on `onClose` re-ran this whenever the page underneath
+   * rendered, and pulling focus back mid-interaction closes an open `<select>`
+   * and loses the choice being made in it. Read through a ref instead.
+   */
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
   useEffect(() => {
-    const onKey = (event) => { if (event.key === 'Escape') onClose(); };
+    const onKey = (event) => { if (event.key === 'Escape') closeRef.current(); };
     window.addEventListener('keydown', onKey);
     dialog.current?.focus();
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

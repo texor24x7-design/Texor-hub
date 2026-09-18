@@ -26,6 +26,7 @@ import {
   endMeetingNow,
   getKnock,
   getMeeting,
+  getMeetingDefaults,
   guestPreview,
   guestSchema,
   inviteeSchema,
@@ -142,6 +143,8 @@ export function createApiRouter() {
 
   router.post('/meetings/:code/guest/leave', leaveAsGuest);
   router.get('/meetings', validate(listMeetingsSchema, 'query'), listMeetings);
+  // Before `/meetings/:code`, or the code parameter swallows it.
+  router.get('/meetings/defaults', getMeetingDefaults);
   router.post('/meetings', validate(createMeetingSchema), createMeeting);
 
   router.get('/meetings/:code', getMeeting);

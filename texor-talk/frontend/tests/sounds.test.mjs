@@ -171,6 +171,32 @@ console.log('\n── the player survives having no audio at all ──');
   check('closing with nothing open does not throw', true);
 }
 
+console.log('\n── your own departure is not rate-limited ──');
+{
+  // Leaving is a click of your own; the gate exists for other people's comings
+  // and goings and must not swallow the feedback you asked for.
+  const gate = createSoundGate({ settleMs: 0, minGapMs: 0, maxPerWindow: 0 });
+  gate.arm(0);
+  check('the gate would refuse it', gate.allow('leave', 1000) === false);
+
+  const chimes = createChimes({ gate });
+  // No AudioContext here, so the play itself still reports false — what is
+  // being checked is that the gate is no longer what stops it.
+  const seen = [];
+  const original = gate.allow;
+  gate.allow = (...args) => { seen.push(args[0]); return original.call(gate, ...args); };
+
+  chimes.play('leave', 1000, { force: true });
+  check('forcing does not consult it at all', seen.length === 0, seen.join());
+
+  chimes.play('leave', 1000);
+  check('without forcing it still does', seen.join() === 'leave', seen.join());
+
+  chimes.setEnabled(false);
+  chimes.play('leave', 1000, { force: true });
+  check('and off still means off', seen.length === 1 && chimes.enabled === false);
+}
+
 console.log('\n── turning it off is checked before anything else ──');
 {
   // Off means off, including for the end of the meeting.

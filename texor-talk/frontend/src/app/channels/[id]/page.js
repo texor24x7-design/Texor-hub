@@ -4,8 +4,9 @@ import { use, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
+import { StartMeetingDialog } from '@/components/StartMeetingDialog';
 import { Alert, Avatar, Button, Loading, formatTimestamp } from '@/components/ui';
-import { channels as channelApi, meetings as meetingApi } from '@/lib/api';
+import { channels as channelApi } from '@/lib/api';
 
 export default function ChannelPage({ params }) {
   const { id } = use(params);
@@ -87,28 +88,6 @@ function ChannelView({ id, user }) {
     }
   }
 
-  /**
-   * Turns the conversation into a call.
-   *
-   * The meeting is created against the channel, which is what makes the backend
-   * post the joining link into the channel — so everyone reading gets it without
-   * the person who started it having to paste anything.
-   */
-  async function startMeeting() {
-    setStarting(true);
-    try {
-      const { meeting } = await meetingApi.create({
-        title: `#${channel.slug}`,
-        access: channel.visibility === 'private' ? 'invited' : 'texor',
-        channelId: id,
-      });
-      router.push(`/meetings/${meeting.code}`);
-    } catch (meetingError) {
-      setError(meetingError.message);
-      setStarting(false);
-    }
-  }
-
   async function remove(messageId) {
     try {
       await channelApi.removeMessage(id, messageId);
@@ -131,6 +110,21 @@ function ChannelView({ id, user }) {
       <section className="panel" style={{ display: 'flex', flexDirection: 'column', minHeight: '70vh' }}>
         <Alert kind="error">{error}</Alert>
 
+        {/*
+          * Created against the channel, which is what makes the backend post
+          * the joining link into the conversation — so everyone reading gets it
+          * without the person who started it having to paste anything.
+          */}
+        {starting && channel ? (
+          <StartMeetingDialog
+            defaultTitle={`#${channel.slug}`}
+            defaultAccess={channel.visibility === 'private' ? 'invited' : 'texor'}
+            channelId={id}
+            onClose={() => setStarting(false)}
+            onStarted={(meeting) => router.push(`/meetings/${meeting.code}`)}
+          />
+        ) : null}
+
         {channel ? (
           <>
             <div className="row row--between row--wrap" style={{ paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
@@ -144,7 +138,7 @@ function ChannelView({ id, user }) {
               <div className="row" style={{ gap: '0.4rem' }}>
                 {channel.isMember ? (
                   <>
-                    <Button size="sm" onClick={startMeeting} loading={starting}>Start a meeting</Button>
+                    <Button size="sm" onClick={() => setStarting(true)}>Start a meeting</Button>
                     <Button variant="ghost" size="sm" onClick={async () => { await channelApi.leave(id); router.push('/channels'); }}>
                       Leave
                     </Button>
