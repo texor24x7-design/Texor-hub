@@ -89,7 +89,26 @@ async function seedSample(pack, workspace, user, session) {
     priceMinor: i.priceMinor ?? i.variants?.[0]?.priceMinor ?? 0,
     searchText: [i.name, i.category, i.sku, i.barcode].filter(Boolean).join(' ').toLowerCase(),
   }));
-  if (items.length) await Item.insertMany(items, { session });
+  const inserted = items.length ? await Item.insertMany(items, { session }) : [];
+
+  // Packages come second: they point at the items above, which only have ids
+  // once those are in. A pack names its components, and they are resolved here.
+  const byName = new Map(inserted.map((i) => [i.name, i]));
+  const packages = (sample.packages ?? []).map((pkg) => {
+    const components = (pkg.components ?? [])
+      .map(({ name, quantity = 1, variant = '' }) => {
+        const part = byName.get(name);
+        return part ? { item: part._id, variant, description: part.name, quantity, priceMinor: part.priceMinor } : null;
+      })
+      .filter(Boolean);
+    return {
+      ...common, kind: 'package', unit: '', custom: {},
+      packagePricing: 'fixed', packageDiscountPct: 0, priceMinor: 0,
+      ...pkg, components,
+      searchText: [pkg.name, pkg.category].filter(Boolean).join(' ').toLowerCase(),
+    };
+  }).filter((pkg) => pkg.components.length);
+  if (packages.length) await Item.insertMany(packages, { session });
 
   for (const [module, rows] of Object.entries(sample.records ?? {})) {
     const titleField = pack.customModules.find((m) => m.key === module)?.titleField;

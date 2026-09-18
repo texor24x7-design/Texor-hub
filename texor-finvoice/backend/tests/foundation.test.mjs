@@ -207,6 +207,28 @@ section('stock');
   check('the ledger has both movements', history.body.movements.length === 2);
 }
 
+section('remembered words');
+{
+  const before = await call(ana, `${W}/`);
+  const had = before.body.workspace.preferences.categories?.products ?? [];
+  check('a pack seeds some categories to choose from', Array.isArray(had));
+
+  await call(ana, `${W}/records/products`, { method: 'POST', body: { name: 'Snow foam lance', priceMinor: 129900, category: 'Equipment', unit: 'Piece' } });
+  const after = await call(ana, `${W}/`);
+  const prefs = after.body.workspace.preferences;
+  check('a category typed on a product joins the list', prefs.categories.products.includes('Equipment'), prefs.categories.products);
+  check('and so does a new unit', prefs.units.includes('Piece'), prefs.units);
+
+  await call(ana, `${W}/records/products`, { method: 'POST', body: { name: 'Snow foam refill', priceMinor: 49900, category: 'Equipment', unit: 'Piece' } });
+  const again = await call(ana, `${W}/`);
+  const list = again.body.workspace.preferences.categories.products;
+  check('using it again does not duplicate it', list.filter((c) => c === 'Equipment').length === 1, list);
+
+  await call(ana, `${W}/records/staff`, { method: 'POST', body: { name: 'Imran Q', designation: 'Foam technician' } });
+  const staffed = await call(ana, `${W}/`);
+  check('a staff role is remembered the same way', staffed.body.workspace.preferences.designations.includes('Foam technician'), staffed.body.workspace.preferences.designations);
+}
+
 section('warranties');
 {
   const customers = await call(ana, `${W}/records/customers?q=rohit`);

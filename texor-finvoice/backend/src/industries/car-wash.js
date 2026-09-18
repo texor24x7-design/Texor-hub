@@ -77,11 +77,20 @@ export default {
   },
 
   sample: {
+    packages: [
+      { name: 'Monsoon care package', category: 'Packages', packagePricing: 'fixed', priceMinor: rs(1999), components: [
+        { name: 'Interior + exterior deep clean', quantity: 1 }, { name: 'Rubbing & polishing', quantity: 1 },
+        { name: 'Microfibre cloth', quantity: 1 },
+      ] },
+      { name: 'Quick shine combo', category: 'Packages', packagePricing: 'percent', packageDiscountPct: 10, components: [
+        { name: 'Foam wash (exterior)', quantity: 1 }, { name: 'Engine bay cleaning', quantity: 1 },
+      ] },
+    ],
     services: [
       { name: 'Foam wash (exterior)', category: 'Washing', unit: 'Wash', taxRate: 18, variants: perVehicle(299, 349, 449, 499, 149) },
       { name: 'Interior + exterior deep clean', category: 'Washing', unit: 'Wash', taxRate: 18, variants: perVehicle(699, 799, 999, 1099, 249) },
       { name: 'Rubbing & polishing', category: 'Detailing', unit: 'Service', taxRate: 18, variants: perVehicle(1499, 1799, 2199, 2399, 599) },
-      { name: 'Ceramic coating (9H)', category: 'Coating', unit: 'Service', taxRate: 18, variants: perVehicle(14999, 17999, 21999, 23999, 5999), warranty: { duration: 2, unit: 'years', coverage: 'Gloss retention and hydrophobic performance, with free annual top-up inspection.' } },
+      { name: 'Ceramic coating (9H)', category: 'Coating', unit: 'Service', taxRate: 18, variants: perVehicle(14999, 17999, 21999, 23999, 5999), warranty: { duration: 2, unit: 'years', scope: 'service', includes: ['Gloss retention', 'Hydrophobic (water-beading) performance', 'Free annual top-up inspection'], excludes: ['Scratches, swirls and stone chips', 'Damage from automatic brush washes', 'Panels repainted after coating'] } },
       { name: 'Engine bay cleaning', category: 'Add-ons', unit: 'Service', taxRate: 18, variants: perVehicle(399, 399, 499, 499, 199) },
     ],
     products: [

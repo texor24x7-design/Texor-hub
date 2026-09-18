@@ -54,9 +54,15 @@ export function computeDocument({ lines = [], sellerState = '', placeOfSupply = 
   const charged = taxMode !== 'none';
 
   // 1. Line amounts after the line discount, in the price's own basis.
+  //
+  // `discountAmountMinor` wins when it is set: a package with a fixed price has to
+  // land on that price to the paisa, and a percentage cannot hit an integer
+  // target across several lines. It is also the plain "₹50 off this line".
   const staged = lines.map((line) => {
     const gross = round(num(line.quantity) * num(line.priceMinor));
-    const lineDiscount = round((gross * Math.min(Math.max(num(line.discountPct), 0), 100)) / 100);
+    const lineDiscount = line.discountAmountMinor == null
+      ? round((gross * Math.min(Math.max(num(line.discountPct), 0), 100)) / 100)
+      : Math.min(Math.max(round(num(line.discountAmountMinor)), 0), gross);
     return { line, gross, lineDiscount, net: gross - lineDiscount };
   });
 

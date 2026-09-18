@@ -123,7 +123,7 @@ function baseType(field) {
     case 'items': return z.array(z.object({
       item: objectId.nullable().default(null),
       variant: z.string().max(64).nullable().default(null),
-      description: optionalString(500),
+      description: optionalString(500).default(''),
       quantity: z.number().min(0).default(1),
       priceMinor: minorAmount.default(0),
     })).max(200);
@@ -133,9 +133,14 @@ function baseType(field) {
       priceMinor: minorAmount,
       sku: optionalString(64).default(''),
     })).max(50);
+    case 'points': return z.array(z.string().trim().min(1).max(200)).max(20);
     case 'warranty': return z.object({
       duration: z.number().int().min(1, 'A warranty lasts at least one day.').max(1200),
       unit: z.enum(['days', 'months', 'years']),
+      scope: z.enum(['parts_labour', 'parts', 'labour', 'replacement', 'service']).default('parts_labour'),
+      includes: z.array(z.string().trim().min(1).max(200)).max(20).default([]),
+      excludes: z.array(z.string().trim().min(1).max(200)).max(20).default([]),
+      transferable: z.boolean().default(false),
       coverage: optionalString(4000).default(''),
     });
     default: return z.any();

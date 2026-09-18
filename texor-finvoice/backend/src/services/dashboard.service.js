@@ -14,6 +14,7 @@ import Warranty from '../models/Warranty.js';
 import { dayIn } from './attendance.service.js';
 import { effectiveModules } from './metadata.service.js';
 import { can, scopeOf } from './rbac.service.js';
+import { bucketsFor } from './ledger.service.js';
 import { escapeRegex } from './record.service.js';
 
 const DAY = 864e5;
@@ -33,6 +34,14 @@ function startOfDay(timezone, instant = new Date()) {
 const own = (req, module) => (scopeOf(req.workspace, req.member, module, 'view') === 'own' ? { createdBy: req.user._id } : {});
 
 const WIDGETS = {
+  /** How old the money owed is — the view that decides who gets chased first. */
+  async receivables_aging(req) {
+    if (!can(req.workspace, req.member, 'invoices', 'view')) return null;
+    const filter = { workspace: req.workspace._id, deletedAt: null, status: { $in: ['issued', 'partial'] }, ...own(req, 'invoices') };
+    const invoices = await Invoice.find(filter).select('dueDate totals.totalMinor amountPaidMinor creditedMinor').lean();
+    return bucketsFor(invoices);
+  },
+
   async sales_today(req, t) {
     if (!can(req.workspace, req.member, 'invoices', 'view')) return null;
     const [row] = await Invoice.aggregate([

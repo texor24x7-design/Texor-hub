@@ -6,7 +6,7 @@
  * payment button that opens their UPI app on a phone.
  */
 import { use, useCallback, useEffect, useRef, useState } from 'react';
-import { Download, IndianRupee, Printer, Share2 } from 'lucide-react';
+import { CreditCard, Download, IndianRupee, Printer, Share2 } from 'lucide-react';
 import { Alert, Badge, Loading } from '@/components/ui';
 import { API_ORIGIN, api, fileUrl } from '@/lib/api';
 import { money } from '@/lib/format';
@@ -47,7 +47,8 @@ export default function PublicDocument({ params }) {
           {doc.state === 'paid' ? <Badge tone="green">Paid</Badge> : doc.state === 'overdue' ? <Badge tone="red">Overdue</Badge> : null}
         </div>
         <div className="row wrap">
-          {pay ? <a className="btn btn-primary" href={pay}><IndianRupee />Pay {money(due, doc.currency)} by UPI</a> : null}
+          {doc.payUrl ? <a className="btn btn-primary" href={doc.payUrl} target="_blank" rel="noreferrer"><CreditCard />Pay {money(due, doc.currency)} online</a> : null}
+          {pay ? <a className={`btn ${doc.payUrl ? 'btn-secondary' : 'btn-primary'}`} href={pay}><IndianRupee />Pay {money(due, doc.currency)} by UPI</a> : null}
           <a className="btn btn-secondary" href={`${API_ORIGIN}/api/public/documents/${token}/pdf?download=1`}><Download />Download PDF</a>
           <button type="button" className="btn btn-ghost btn-icon" aria-label="Print" onClick={() => frame.current?.contentWindow?.print()}><Printer /></button>
           {typeof navigator !== 'undefined' && navigator.share ? <button type="button" className="btn btn-ghost btn-icon" aria-label="Share" onClick={() => navigator.share({ title, url: window.location.href }).catch(() => {})}><Share2 /></button> : null}

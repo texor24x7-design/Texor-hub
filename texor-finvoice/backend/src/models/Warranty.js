@@ -31,6 +31,10 @@ const warrantySchema = new Schema({
   serial: { type: String, default: '', trim: true },
   startDate: { type: Date, required: true },
   endDate: { type: Date, required: true },
+  scope: { type: String, enum: ['parts_labour', 'parts', 'labour', 'replacement', 'service'], default: 'parts_labour' },
+  includes: { type: [String], default: [] },
+  excludes: { type: [String], default: [] },
+  transferable: { type: Boolean, default: false },
   coverage: { type: String, default: '' },
   status: { type: String, enum: ['active', 'void'], default: 'active' },
   source: { type: String, enum: ['manual', 'invoice'], default: 'manual' },
@@ -38,6 +42,7 @@ const warrantySchema = new Schema({
   invoiceNumber: { type: String, default: '' },
   claims: { type: [claimSchema], default: [] },
   shareToken: { type: String, default: null, index: true, sparse: true },
+  expiryNudgedAt: { type: Date, default: null },
 });
 
 warrantySchema.plugin(recordPlugin);

@@ -12,7 +12,7 @@ export const EDITIONS = ['lite', 'pro'];
 export const FIELD_TYPES = [
   'text', 'longtext', 'number', 'currency', 'percent', 'date', 'time', 'datetime',
   'select', 'multiselect', 'checkbox', 'email', 'phone', 'url', 'image', 'file',
-  'reference', 'gstin', 'state', 'address', 'items', 'variants', 'warranty',
+  'reference', 'gstin', 'state', 'address', 'items', 'variants', 'warranty', 'points',
 ];
 
 /** Types a person can add as a custom field. The rest exist for system fields. */
@@ -80,6 +80,51 @@ export const CORE_MODULES = [
       field('reference', 'PO / reference', 'text'),
       field('notes', 'Notes', 'longtext', { printable: true }),
       field('terms', 'Terms & conditions', 'longtext', { printable: true }),
+    ],
+  },
+
+  {
+    key: 'credit_notes', label: 'Credit notes', labelSingular: 'Credit note', icon: 'file-minus-2', edition: 'lite', group: 'sales', actions: [...CRUD, 'approve'],
+    document: true,
+    fields: [
+      field('customer', 'Customer', 'reference', { refModule: 'customers', required: true, locked: true }),
+      field('date', 'Note date', 'date', { required: true, locked: true }),
+      field('invoice', 'Against invoice', 'reference', { refModule: 'invoices', locked: true }),
+      field('reason', 'Reason', 'text', { printable: true, help: 'Return, damage, post-sale discount — GST expects a reason.' }),
+      field('restock', 'Put the goods back in stock', 'checkbox', { default: true }),
+      field('placeOfSupply', 'Place of supply', 'state', { locked: true }),
+      field('notes', 'Notes', 'longtext', { printable: true }),
+      field('terms', 'Terms & conditions', 'longtext', { printable: true }),
+    ],
+  },
+
+  {
+    key: 'debit_notes', label: 'Debit notes', labelSingular: 'Debit note', icon: 'file-plus-2', edition: 'lite', group: 'sales', actions: [...CRUD, 'approve'],
+    document: true,
+    fields: [
+      field('customer', 'Customer', 'reference', { refModule: 'customers', required: true, locked: true }),
+      field('date', 'Note date', 'date', { required: true, locked: true }),
+      field('invoice', 'Against invoice', 'reference', { refModule: 'invoices', locked: true }),
+      field('reason', 'Reason', 'text', { printable: true, help: 'Undercharged, extra goods supplied — GST expects a reason.' }),
+      field('placeOfSupply', 'Place of supply', 'state', { locked: true }),
+      field('notes', 'Notes', 'longtext', { printable: true }),
+      field('terms', 'Terms & conditions', 'longtext', { printable: true }),
+    ],
+  },
+
+  {
+    key: 'expenses', label: 'Expenses', labelSingular: 'Expense', icon: 'wallet-minus', edition: 'lite', group: 'operations', actions: CRUD,
+    titleField: 'description',
+    fields: [
+      field('description', 'What it was for', 'text', { required: true, locked: true }),
+      field('date', 'Date', 'date', { required: true, locked: true }),
+      field('amountMinor', 'Amount', 'currency', { required: true, locked: true }),
+      field('category', 'Category', 'select', { allowNew: true, options: [] }),
+      field('vendor', 'Paid to', 'text'),
+      field('mode', 'Paid by', 'select', { allowNew: true, options: [] }),
+      field('reference', 'Reference', 'text'),
+      field('attachment', 'Bill / receipt', 'file'),
+      field('note', 'Note', 'longtext'),
     ],
   },
 
@@ -157,6 +202,27 @@ export const CORE_MODULES = [
   },
 
   {
+    key: 'packages', label: 'Packages', labelSingular: 'Package', icon: 'boxes', edition: 'lite', group: 'catalogue', actions: CRUD,
+    titleField: 'name', itemKind: 'package',
+    fields: [
+      field('name', 'Name', 'text', { required: true, locked: true }),
+      field('category', 'Category', 'select', { allowNew: true, options: [] }),
+      field('description', 'Description', 'longtext'),
+      field('image', 'Image', 'image'),
+      field('components', 'What is in it', 'items', {
+        refModule: 'items', required: true, locked: true,
+        help: 'Each item is billed as its own line, keeping its own GST rate. A single-price bundle of mixed rates would be a mixed supply, taxable in full at the highest rate.',
+      }),
+      field('packagePricing', 'Price it by', 'select', {
+        section: 'Pricing', locked: true, default: 'fixed',
+        options: [{ value: 'fixed', label: 'A fixed package price' }, { value: 'percent', label: 'A percentage off the parts' }],
+      }),
+      field('priceMinor', 'Package price', 'currency', { section: 'Pricing', help: 'Used when the package has a fixed price.' }),
+      field('packageDiscountPct', 'Discount %', 'percent', { section: 'Pricing', help: 'Used when the package is priced as a percentage off.' }),
+    ],
+  },
+
+  {
     key: 'warranties', label: 'Warranties', labelSingular: 'Warranty', icon: 'shield-check', edition: 'lite', group: 'aftersales', actions: [...CRUD, 'approve'],
     titleField: 'itemName',
     fields: [
@@ -166,7 +232,11 @@ export const CORE_MODULES = [
       field('serial', 'Serial number', 'text', { locked: true }),
       field('startDate', 'Starts', 'date', { required: true, locked: true }),
       field('endDate', 'Ends', 'date', { required: true, locked: true }),
-      field('coverage', 'What is covered', 'longtext'),
+      field('scope', 'Cover', 'select', { options: [{ value: 'parts_labour', label: 'Parts & labour' }, { value: 'parts', label: 'Parts only' }, { value: 'labour', label: 'Labour only' }, { value: 'replacement', label: 'Replacement' }, { value: 'service', label: 'Service / workmanship' }], default: 'parts_labour' }),
+      field('includes', 'What is covered', 'points', { help: 'One point per line, as it should read on the warranty card.' }),
+      field('excludes', 'What is not covered', 'points'),
+      field('transferable', 'Transferable to a new owner', 'checkbox'),
+      field('coverage', 'Notes', 'longtext'),
     ],
   },
 
@@ -184,6 +254,11 @@ export const CORE_MODULES = [
       field('shiftEnd', 'Shift ends', 'time', { section: 'Shift' }),
       field('active', 'Active', 'checkbox', { default: true }),
     ],
+  },
+
+  {
+    key: 'schedules', label: 'Repeating invoices', labelSingular: 'Repeating invoice', icon: 'repeat', edition: 'lite', group: 'sales',
+    actions: CRUD, titleField: 'title', fields: [],
   },
 
   { key: 'team', label: 'Team & roles', labelSingular: 'Team', icon: 'user-cog', edition: 'lite', group: 'admin', actions: ['view', 'edit'], fields: [] },
@@ -238,7 +313,7 @@ export const SYSTEM_ROLES = [
     permissions: {
       dashboard: only(['view']), customers: only(CRUD), quotations: all(), invoices: all(), payments: all(),
       products: only(['view', 'export']), services: only(['view', 'export']), warranties: only(['view', 'export']),
-      staff: only(['view', 'export']), settings: only(['view']), reports: all(), gst: all(),
+      staff: only(['view', 'export']), settings: only(['view']), reports: all(), gst: all(), schedules: all(), credit_notes: all(), debit_notes: all(), expenses: all(), packages: only(['view', 'export']),
       custom: only(['view', 'export']),
     },
     hiddenFields: {},
@@ -248,7 +323,7 @@ export const SYSTEM_ROLES = [
     permissions: {
       dashboard: only(['view']), customers: only(['view', 'create', 'edit']),
       quotations: only(['view', 'create', 'edit', 'approve'], 'own'), invoices: only(['view', 'create', 'edit', 'approve'], 'own'),
-      payments: only(['view', 'create']), products: only(['view']), services: only(['view']),
+      payments: only(['view', 'create']), products: only(['view']), services: only(['view']), packages: only(['view']),
       warranties: only(['view', 'create', 'edit']), staff: only(['view']), crm: all('own'), calendar: all('own'),
       custom: only(['view', 'create', 'edit']),
     },
@@ -257,7 +332,7 @@ export const SYSTEM_ROLES = [
   {
     key: 'staff', name: 'Staff', description: 'Day-to-day work: job cards, customers, their own attendance.',
     permissions: {
-      dashboard: only(['view']), customers: only(['view', 'create']), products: only(['view']), services: only(['view']),
+      dashboard: only(['view']), customers: only(['view', 'create']), products: only(['view']), services: only(['view']), packages: only(['view']),
       warranties: only(['view']), staff: only(['view']), invoices: only(['view', 'create'], 'own'),
       custom: only(['view', 'create', 'edit']),
     },

@@ -83,8 +83,8 @@ export default {
     products: [
       { name: 'Engine oil 5W-30 (1L)', category: 'Oils & fluids', unit: 'Litre', hsn: '2710', taxRate: 18, priceMinor: rs(780), costMinor: rs(540), trackStock: true, stock: 40, lowStock: 10 },
       { name: 'Oil filter', category: 'Filters', unit: 'Pcs', hsn: '8421', taxRate: 18, priceMinor: rs(350), costMinor: rs(210), trackStock: true, stock: 25, lowStock: 6 },
-      { name: 'Front brake pads (set)', category: 'Brakes', unit: 'Set', hsn: '8708', taxRate: 18, priceMinor: rs(1850), costMinor: rs(1250), trackStock: true, stock: 12, lowStock: 4, warranty: { duration: 6, unit: 'months', coverage: 'Manufacturing defects. Normal wear is not covered.' } },
-      { name: 'Car battery 12V 35Ah', category: 'Electrical', unit: 'Pcs', hsn: '8507', taxRate: 18, priceMinor: rs(5600), costMinor: rs(4500), trackStock: true, trackSerials: true, stock: 6, lowStock: 2, warranty: { duration: 36, unit: 'months', coverage: '18 months free replacement, then pro-rata.' } },
+      { name: 'Front brake pads (set)', category: 'Brakes', unit: 'Set', hsn: '8708', taxRate: 18, priceMinor: rs(1850), costMinor: rs(1250), trackStock: true, stock: 12, lowStock: 4, warranty: { duration: 6, unit: 'months', scope: 'parts', includes: ['Manufacturing defects in the pad material', 'Uneven wear from a defective pad'], excludes: ['Normal wear from use', 'Damage from driving with worn discs'] } },
+      { name: 'Car battery 12V 35Ah', category: 'Electrical', unit: 'Pcs', hsn: '8507', taxRate: 18, priceMinor: rs(5600), costMinor: rs(4500), trackStock: true, trackSerials: true, stock: 6, lowStock: 2, warranty: { duration: 36, unit: 'months', scope: 'replacement', includes: ['Free replacement in the first 18 months', 'Pro-rata credit for the remaining period'], excludes: ['Damage from a faulty alternator', 'Physical damage or leakage from misuse'], coverage: 'Bring the battery and this certificate to claim.' } },
     ],
     services: [
       { name: 'Periodic service labour', category: 'General service', unit: 'Job', taxRate: 18, priceMinor: rs(1200) },

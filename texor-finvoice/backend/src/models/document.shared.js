@@ -22,6 +22,12 @@ export const lineSchema = new Schema(
     unit: { type: String, default: '' },
     priceMinor: { type: Number, required: true, min: 0 },
     discountPct: { type: Number, default: 0, min: 0, max: 100 },
+    /**
+     * An exact amount off this line, overriding the percentage when set.
+     * Distinct from the computed `discountMinor` below, which is what was
+     * actually taken off once the document discount is shared out too.
+     */
+    discountAmountMinor: { type: Number, default: null, min: 0 },
     taxRate: { type: Number, default: 0, min: 0, max: 100 },
     cessRate: { type: Number, default: 0, min: 0, max: 100 },
     priceIncludesTax: { type: Boolean, default: false },
@@ -100,6 +106,7 @@ export function documentFields() {
     design: { type: String, default: '' },
     publicToken: { type: String, default: null },
     sentAt: { type: Date, default: null },
+    viewedAt: { type: Date, default: null },
     source: {
       type: new Schema({ module: String, record: Schema.Types.ObjectId, title: String }, { _id: false }),
       default: null,

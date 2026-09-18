@@ -13,6 +13,7 @@ const { Schema } = mongoose;
 const quotationSchema = new Schema({
   ...documentFields(),
   status: { type: String, enum: ['draft', 'sent', 'accepted', 'declined', 'converted'], default: 'draft', index: true },
+  expiryNudgedAt: { type: Date, default: null },
   validUntil: { type: Date, default: null },
   decidedAt: { type: Date, default: null },
   invoice: { type: Schema.Types.ObjectId, ref: 'Invoice', default: null },

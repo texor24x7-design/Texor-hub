@@ -99,6 +99,28 @@ console.log('\n── GST ──');
   eq('HSN summary groups by code and rate', hsnSummary(lines, r.lines).map((h) => [h.hsn, h.quantity, h.taxableMinor]), [['8528', 3, 3000], ['8415', 1, 500]]);
 }
 
+{
+  // An exact amount off a line, which a package with a fixed price needs because
+  // a percentage cannot hit an integer target across several lines.
+  const r = computeDocument({ sellerState: '27', placeOfSupply: '27', lines: [{ quantity: 1, priceMinor: 10000, taxRate: 0, discountAmountMinor: 2501 }] });
+  eq('an amount discount comes off the line exactly', [r.lines[0].discountMinor, r.totals.taxableMinor], [2501, 7499]);
+
+  const both = computeDocument({ sellerState: '27', placeOfSupply: '27', lines: [{ quantity: 1, priceMinor: 10000, taxRate: 0, discountPct: 50, discountAmountMinor: 1000 }] });
+  eq('the amount wins over the percentage', both.totals.taxableMinor, 9000);
+
+  const over = computeDocument({ sellerState: '27', placeOfSupply: '27', lines: [{ quantity: 1, priceMinor: 10000, taxRate: 0, discountAmountMinor: 99999 }] });
+  eq('and is capped at what the line is worth', [over.totals.taxableMinor, over.totals.discountMinor], [0, 10000]);
+
+  const zero = computeDocument({ sellerState: '27', placeOfSupply: '27', lines: [{ quantity: 1, priceMinor: 10000, taxRate: 0, discountAmountMinor: 0, discountPct: 50 }] });
+  eq('an explicit zero still beats the percentage', zero.totals.taxableMinor, 10000);
+
+  const stacked = computeDocument({
+    sellerState: '27', placeOfSupply: '27', discount: { type: 'amount', value: 1000 },
+    lines: [{ quantity: 1, priceMinor: 10000, taxRate: 0, discountAmountMinor: 2000 }, { quantity: 1, priceMinor: 10000, taxRate: 0 }],
+  });
+  eq('a document discount still shares out on top of it', stacked.totals.taxableMinor, 17000);
+}
+
 eq('allocation always adds up', allocate(100, [1, 1, 1]).reduce((a, b) => a + b), 100);
 eq('allocation favours the largest remainders', allocate(100, [1, 1, 1]), [34, 33, 33]);
 

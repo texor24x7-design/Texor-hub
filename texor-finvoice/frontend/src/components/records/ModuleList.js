@@ -10,7 +10,7 @@ import { Badge, Button, ButtonLink, EmptyState, Menu, PageHeader, Pagination, Se
 import { FieldValue, readField } from '@/components/fields/FieldValue';
 import { invalidate, useDebounced, useResource, useStored } from '@/lib/data';
 import { money } from '@/lib/format';
-import { useWorkspace } from '@/lib/workspace';
+import { recordTitle, useWorkspace } from '@/lib/workspace';
 import { ImportDialog } from './ImportDialog';
 
 const LISTABLE = new Set(['text', 'email', 'phone', 'select', 'currency', 'number', 'date', 'datetime', 'reference', 'checkbox', 'gstin', 'state', 'percent', 'multiselect', 'image']);
@@ -35,7 +35,7 @@ function BoardCard({ record, module, refs, href }) {
   const fields = module.fields.filter((f) => !f.hidden && !['customer', module.boardField, module.titleField].includes(f.key) && ['reference', 'datetime', 'date', 'select', 'currency'].includes(f.type)).slice(0, 3);
   return (
     <div ref={setNodeRef} style={style} className={`board-card${isDragging ? ' dragging' : ''}`} {...listeners} {...attributes}>
-      <Link href={href} className="title" onClick={(e) => isDragging && e.preventDefault()} style={{ color: 'var(--text)' }}>{record.title || record.name || 'Untitled'}</Link>
+      <Link href={href} className="title" onClick={(e) => isDragging && e.preventDefault()} style={{ color: 'var(--text)' }}>{recordTitle(module, record)}</Link>
       {record.customer && refs[record.customer] ? <div className="muted small">{refs[record.customer].title}</div> : null}
       {fields.map((f) => {
         const value = readField(f, record);
@@ -213,7 +213,7 @@ export function ModuleList({ module }) {
                         <div className="row">
                           {r.image || r.photo ? <img src={`${process.env.NEXT_PUBLIC_API_ORIGIN}/api/files/${r.image || r.photo}`} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} /> : null}
                           <div>
-                            <Link href={href(`/${module.key}/${r._id}`)} className="cell-title" onClick={(e) => e.stopPropagation()}>{r.title || r.name || r.itemName || 'Untitled'}</Link>
+                            <Link href={href(`/${module.key}/${r._id}`)} className="cell-title" onClick={(e) => e.stopPropagation()}>{recordTitle(module, r)}</Link>
                             {r.variants?.length ? <div className="cell-sub">{r.variants.length} variants</div> : null}
                             {module.key === 'warranties' && r.serial ? <div className="cell-sub mono">{r.serial}</div> : null}
                           </div>

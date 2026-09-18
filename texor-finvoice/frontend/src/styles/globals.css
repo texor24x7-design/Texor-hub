@@ -257,7 +257,8 @@ select.input { appearance: none; padding-right: 2rem; background-image: url("dat
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.65rem 0.9rem; border-top: 1px solid var(--border); font-size: 0.8125rem; color: var(--text-muted); }
 
 /* ── dialog ─────────────────────────────────────────────────────────────── */
-dialog.dialog { border: 0; padding: 0; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); width: min(560px, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); color: var(--text); background: var(--surface); overflow: hidden; }
+/* `clip`, not `hidden`: `hidden` is still programmatically scrollable, so focusing a field low in a tall dialog scrolled the header and footer out of the box. The body is the only scroll container. */
+dialog.dialog { border: 0; padding: 0; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); width: min(560px, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); color: var(--text); background: var(--surface); overflow: clip; }
 dialog.dialog.wide { width: min(880px, calc(100vw - 2rem)); }
 dialog.dialog.narrow { width: min(420px, calc(100vw - 2rem)); }
 dialog.dialog::backdrop { background: rgb(13 18 26 / 45%); backdrop-filter: blur(2px); }
@@ -286,6 +287,7 @@ dialog.dialog[open] { display: flex; flex-direction: column; animation: pop .14s
 .combo-option { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8125rem; }
 .combo-option[aria-selected="true"], .combo-option:hover { background: var(--brand-050); }
 .combo-option .sub { color: var(--text-subtle); font-size: 0.75rem; }
+.combo-option.is-current { font-weight: 560; color: var(--brand-700); }
 .combo-empty { padding: 0.75rem; color: var(--text-subtle); font-size: 0.8125rem; }
 
 /* ── product switcher ───────────────────────────────────────────────────── */
@@ -563,3 +565,121 @@ a.list-row:hover { background: var(--surface-muted); }
 
 .print-hide { }
 @media print { .print-hide { display: none !important; } }
+
+/* Warranty terms and the point lists they are written as. */
+.warranty-terms { border-left: 2px solid var(--border); padding-left: 0.9rem; margin-top: 0.15rem; }
+.points-bullet { width: 5px; height: 5px; border-radius: 50%; background: var(--text-subtle); flex-shrink: 0; }
+.points-list { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.2rem; }
+.points-list li { font-size: 0.8125rem; }
+.warranty-points { display: grid; gap: 1rem; }
+@media (max-width: 640px) { .warranty-terms { padding-left: 0.6rem; } }
+
+/* ── The thermal printer ───────────────────────────────────────────────────
+   Shown when a roll-sized document is issued. The paper is the real rendered
+   receipt in an iframe; everything around it is CSS.                        */
+.tp {
+  position: fixed; inset: 0; z-index: 95;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 1.25rem; padding: 2.5rem 1rem 2rem;
+  overflow-y: auto; overscroll-behavior: contain;
+  background: radial-gradient(120% 90% at 50% 0%, #17242b 0%, #0b1114 60%, #070b0d 100%);
+}
+.tp-close {
+  position: fixed; top: 1rem; right: 1rem; z-index: 2;
+  display: grid; place-items: center; width: 34px; height: 34px;
+  border: 1px solid rgb(255 255 255 / 14%); border-radius: 50%;
+  background: rgb(255 255 255 / 6%); color: #cfe3dc; cursor: pointer;
+}
+.tp-close:hover { background: rgb(255 255 255 / 12%); }
+
+.tp-stage { display: grid; justify-items: center; width: 100%; }
+
+/* The machine */
+.tp-printer {
+  width: min(440px, 94vw); padding: 14px 18px 0;
+  border-radius: 20px 20px 8px 8px;
+  background: linear-gradient(180deg, #24343c 0%, #16222a 55%, #101a20 100%);
+  box-shadow:
+    0 30px 70px rgb(0 0 0 / 55%),
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    inset 0 -1px 0 rgb(0 0 0 / 40%);
+}
+.tp-printer.is-feeding { animation: tp-shake 0.16s linear infinite; }
+
+.tp-lid {
+  height: 30px; border-radius: 12px;
+  background: repeating-linear-gradient(90deg, #2a3b44 0 5px, #203038 5px 10px);
+  box-shadow: inset 0 -3px 7px rgb(0 0 0 / 50%), inset 0 1px 0 rgb(255 255 255 / 6%);
+}
+.tp-face { display: flex; align-items: center; justify-content: space-between; padding: 11px 2px 12px; }
+.tp-brand { font-size: 0.66rem; letter-spacing: 0.16em; text-transform: uppercase; color: #64808c; font-weight: 600; }
+.tp-led {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--brand-400); box-shadow: 0 0 10px var(--brand-400), 0 0 22px rgb(74 221 177 / 45%);
+  animation: tp-blink 0.62s steps(2, end) infinite;
+}
+.tp-led.is-done { animation: none; background: var(--brand-500); box-shadow: 0 0 8px var(--brand-500); }
+
+/* The slot the paper comes out of */
+.tp-slot {
+  height: 15px; margin: 0 -18px; position: relative;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(180deg, #05090b 0%, #0a1013 100%);
+  box-shadow: inset 0 4px 9px rgb(0 0 0 / 85%);
+}
+.tp-lip { position: absolute; left: 10%; right: 10%; top: 0; height: 1px; background: rgb(255 255 255 / 10%); }
+
+/* The paper: the wrapper reveals it a step at a time, like a line feed */
+.tp-wrap {
+  width: var(--tp-paper); max-width: 94vw;
+  height: 0; overflow: hidden;
+  animation: tp-feed var(--tp-feed) steps(26, end) forwards;
+  filter: drop-shadow(0 16px 24px rgb(0 0 0 / 45%));
+}
+.tp-wrap.is-fed .tp-paper { animation: tp-settle 0.45s ease-out; }
+
+.tp-paper {
+  --tooth: 11px; --depth: 6px;
+  position: relative; background: #fff;
+  /* A torn edge: a straight top, and a row of teeth masked out of the bottom. */
+  -webkit-mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--depth)) no-repeat,
+    conic-gradient(from 135deg at 50% 0, #0000 0 90deg, #000 0) bottom / var(--tooth) var(--depth) repeat-x;
+  mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--depth)) no-repeat,
+    conic-gradient(from 135deg at 50% 0, #0000 0 90deg, #000 0) bottom / var(--tooth) var(--depth) repeat-x;
+}
+.tp-paper iframe { display: block; width: 100%; border: 0; background: #fff; }
+/* A soft shade where the roll would still be curling away from the head. */
+.tp-curl {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 46px; pointer-events: none;
+  background: linear-gradient(180deg, rgb(15 23 28 / 0%) 0%, rgb(15 23 28 / 7%) 65%, rgb(15 23 28 / 13%) 100%);
+}
+
+.tp-actions {
+  display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;
+  opacity: 0; transform: translateY(6px); transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+}
+.tp-actions.is-ready { opacity: 1; transform: none; pointer-events: auto; }
+
+@keyframes tp-feed { to { height: var(--tp-h); } }
+@keyframes tp-blink { 50% { opacity: 0.25; } }
+@keyframes tp-shake { 25% { transform: translateY(-0.6px); } 75% { transform: translateY(0.6px); } }
+@keyframes tp-settle { 40% { transform: translateY(3px); } 100% { transform: none; } }
+
+/* Someone who asked for less motion still gets the receipt, just handed over. */
+@media (prefers-reduced-motion: reduce) {
+  .tp-wrap { animation: none; height: var(--tp-h); }
+  .tp-printer.is-feeding { animation: none; }
+  .tp-led { animation: none; }
+  .tp-actions { opacity: 1; transform: none; pointer-events: auto; transition: none; }
+}
+
+/* Receivables aging: one bar, one row per bucket. */
+.aging-bar { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--surface-muted); }
+.aging-bar span { display: block; min-width: 3px; }
+.aging-key { display: grid; gap: 0.1rem; margin-top: 0.35rem; }
+.aging-key-item { display: flex; align-items: center; gap: 0.55rem; padding: 0.3rem 0.35rem; border-radius: 6px; font-size: 0.8125rem; color: inherit; text-decoration: none; }
+.aging-key-item:hover { background: var(--surface-muted); }
+.aging-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }

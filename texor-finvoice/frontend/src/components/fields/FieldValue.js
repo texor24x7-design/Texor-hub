@@ -6,6 +6,7 @@ import { fileUrl } from '@/lib/api';
 import { addressLines, date, dateTime, money } from '@/lib/format';
 import { stateName } from '@/lib/shared/india.mjs';
 import { useWorkspace } from '@/lib/workspace';
+import { WARRANTY_SCOPES } from './FieldInput';
 
 const EMPTY = <span className="fv-empty">—</span>;
 
@@ -44,8 +45,23 @@ export function FieldValue({ field, value, refs = {}, compact }) {
         : <div className="stack-sm">{value.map((l, i) => <div key={i} className="row row-between"><span>{l.quantity} × {l.description || refs[l.item]?.title}</span><span className="num muted">{money((l.priceMinor ?? 0) * (l.quantity ?? 1), currency)}</span></div>)}</div>;
     case 'variants':
       return compact ? `${value.length} variants` : <div className="row wrap" style={{ gap: 6 }}>{value.map((v) => <span className="tag" key={v._id ?? v.name}>{v.name} · {money(v.priceMinor, currency)}</span>)}</div>;
-    case 'warranty':
-      return `${value.duration} ${value.unit}${value.coverage && !compact ? ` — ${value.coverage}` : ''}`;
+    case 'points':
+      return compact
+        ? <span className="ellipsis" style={{ display: 'inline-block', maxWidth: 260 }}>{value.join(' · ')}</span>
+        : <ul className="points-list">{value.map((point, i) => <li key={i}>{point}</li>)}</ul>;
+    case 'warranty': {
+      const scope = WARRANTY_SCOPES.find((o) => o.value === (value.scope ?? 'parts_labour'))?.label;
+      const head = `${value.duration} ${value.unit}${scope ? ` · ${scope}` : ''}`;
+      if (compact) return head;
+      const points = [...(value.includes ?? []), ...(value.excludes ?? [])];
+      return (
+        <span>
+          {head}{value.transferable ? ' · transferable' : ''}
+          {points.length ? ` · ${points.length} ${points.length === 1 ? 'term' : 'terms'}` : ''}
+          {value.coverage ? ` — ${value.coverage}` : ''}
+        </span>
+      );
+    }
     case 'longtext':
       return compact ? <span className="ellipsis" style={{ display: 'inline-block', maxWidth: 260 }}>{value}</span> : <span style={{ whiteSpace: 'pre-wrap' }}>{value}</span>;
     default: return String(value);

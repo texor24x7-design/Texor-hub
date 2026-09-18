@@ -14,7 +14,7 @@ const { Schema } = mongoose;
 const integrationSchema = new Schema(
   {
     workspace: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true, index: true },
-    type: { type: String, enum: ['gmail', 'smtp', 'whatsapp_cloud'], required: true },
+    type: { type: String, enum: ['gmail', 'smtp', 'whatsapp_cloud', 'razorpay'], required: true },
     user: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     account: { type: String, default: '' },
     config: { type: Schema.Types.Mixed, default: {} },

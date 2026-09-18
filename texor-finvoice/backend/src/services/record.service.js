@@ -10,12 +10,15 @@
  */
 import mongoose from 'mongoose';
 import Customer from '../models/Customer.js';
+import Expense from '../models/Expense.js';
 import Item from '../models/Item.js';
 import Member from '../models/Member.js';
 import Record from '../models/Record.js';
 import Staff from '../models/Staff.js';
 import Warranty from '../models/Warranty.js';
+import Workspace from '../models/Workspace.js';
 import ApiError from '../utils/ApiError.js';
+import logger from '../utils/logger.js';
 import { isCustomModuleKey } from '../modules/registry.js';
 import { india } from '../shared.js';
 import { parseBody, requireUsableModule, searchTextOf } from './metadata.service.js';
@@ -27,8 +30,10 @@ const STORES = {
   customers: { model: Customer, base: {} },
   products: { model: Item, base: { kind: 'product' } },
   services: { model: Item, base: { kind: 'service' } },
+  packages: { model: Item, base: { kind: 'package' } },
   warranties: { model: Warranty, base: {} },
   staff: { model: Staff, base: {} },
+  expenses: { model: Expense, base: {} },
 };
 
 export function storeFor(moduleKey) {
@@ -222,6 +227,59 @@ const HOOKS = {
   },
 };
 HOOKS.services = { beforeSave: HOOKS.products.beforeSave, afterCreate: HOOKS.products.afterCreate };
+
+HOOKS.packages = {
+  /**
+   * A package is billed by expanding it into its parts, so the parts have to be
+   * things that can stand as an invoice line. A package inside a package has no
+   * sensible expansion, and a component that has been deleted would silently
+   * vanish from the bill.
+   */
+  async beforeSave(data, req) {
+    if (data.components === undefined) return;
+    const ids = data.components.map((c) => c.item).filter(Boolean);
+    if (!ids.length) {
+      throw ApiError.badRequest('Some fields need attention.', [{ field: 'components', message: 'Add at least one product or service to the package.' }]);
+    }
+    const parts = await Item.find({ _id: { $in: ids }, workspace: req.workspace._id, deletedAt: null }).select('name kind priceMinor variants').lean();
+    const byId = new Map(parts.map((p) => [String(p._id), p]));
+
+    const missing = ids.filter((id) => !byId.has(String(id)));
+    if (missing.length) {
+      throw ApiError.badRequest('Some fields need attention.', [{ field: 'components', message: 'One of these items no longer exists. Remove it and pick another.' }]);
+    }
+    // Name the parts after the items when nobody typed anything, so the bill
+    // reads properly however the package was created.
+    for (const component of data.components) {
+      if (!component.description) component.description = byId.get(String(component.item))?.name ?? '';
+    }
+
+    // A "package" that costs more than its parts is a data-entry slip, and it
+    // would silently bill at no saving at all.
+    if ((data.packagePricing ?? 'fixed') === 'fixed' && data.priceMinor != null) {
+      const byIdFull = new Map(parts.map((p) => [String(p._id), p]));
+      const worth = data.components.reduce((sum, c) => {
+        const part = byIdFull.get(String(c.item));
+        const variant = c.variant ? (part?.variants ?? []).find((v) => v.name === c.variant) : null;
+        return sum + Math.round((Number(c.quantity) || 1) * Number(variant?.priceMinor ?? part?.priceMinor ?? 0));
+      }, 0);
+      if (data.priceMinor > worth) {
+        throw ApiError.badRequest('Some fields need attention.', [{
+          field: 'priceMinor',
+          message: `The parts come to ${(worth / 100).toFixed(2)}. A package price above that would charge more than buying them separately.`,
+        }]);
+      }
+    }
+
+    const nested = parts.filter((p) => p.kind === 'package');
+    if (nested.length) {
+      throw ApiError.badRequest('Some fields need attention.', [{
+        field: 'components',
+        message: `${nested.map((p) => p.name).join(', ')} is itself a package. Add its products and services directly instead.`,
+      }]);
+    }
+  },
+};
 HOOKS.products.listFilter = (filter, query) => {
   if (query.lowStock === '1') filter.$expr = { $and: [{ $eq: ['$trackStock', true] }, { $ne: ['$lowStock', null] }, { $lte: ['$stock', '$lowStock'] }] };
 };
@@ -301,6 +359,32 @@ export async function get(req, moduleKey, id) {
   };
 }
 
+/**
+ * Where a field's free-text word list lives in preferences. Mirrors
+ * `suggestionBucket` on the client; payment modes are deliberately absent
+ * because that list is curated in settings rather than grown by typing.
+ */
+const WORD_LIST = { category: (moduleKey) => `preferences.categories.${moduleKey}`, unit: () => 'preferences.units', designation: () => 'preferences.designations' };
+
+/**
+ * A category, unit or staff role typed into a record joins the workspace's list,
+ * so the next record offers it instead of everyone retyping it (and inventing a
+ * second spelling). Never fails a save: the record is what matters.
+ */
+async function rememberWords(req, moduleKey, data) {
+  const $addToSet = {};
+  for (const [key, path] of Object.entries(WORD_LIST)) {
+    const value = typeof data?.[key] === 'string' ? data[key].trim() : '';
+    if (value) $addToSet[path(moduleKey)] = value;
+  }
+  if (!Object.keys($addToSet).length) return;
+  try {
+    await Workspace.updateOne({ _id: req.workspace._id }, { $addToSet });
+  } catch (error) {
+    logger.warn('could not remember a catalogue word', { error: error.message, module: moduleKey });
+  }
+}
+
 export async function create(req, moduleKey, body) {
   const module = requireUsableModule(req.workspace, moduleKey);
   const { model, base } = storeFor(moduleKey);
@@ -319,6 +403,7 @@ export async function create(req, moduleKey, body) {
     return doc;
   });
 
+  await rememberWords(req, moduleKey, data);
   const fresh = await model.findById(created._id).lean();
   await audit(req, { action: 'record.created', module: moduleKey, recordId: created._id, summary: `Created ${module.labelSingular.toLowerCase()} ${fresh.title || fresh.name || fresh.itemName || ''}`.trim() });
   return { record: serialize(module, fresh, hidden), refs };
@@ -349,6 +434,7 @@ export async function update(req, moduleKey, id, body) {
   doc.updatedBy = req.user._id;
   await doc.save();
 
+  await rememberWords(req, moduleKey, data);
   await audit(req, { action: 'record.updated', module: moduleKey, recordId: doc._id, summary: `Updated ${module.labelSingular.toLowerCase()}`, metadata: { fields: changed } });
   return { record: serialize(module, doc.toObject(), hidden), refs };
 }

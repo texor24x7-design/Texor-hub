@@ -61,6 +61,16 @@ export default {
   },
 
   sample: {
+    packages: [
+      { name: 'Bridal package', category: 'Packages', packagePricing: 'fixed', priceMinor: rs(5999), components: [
+        { name: 'Haircut & styling', quantity: 1 }, { name: 'Global hair colour', quantity: 1 },
+        { name: 'Hydrating facial', quantity: 1 }, { name: 'Gel manicure', quantity: 1 },
+      ] },
+      { name: 'Groom package', category: 'Packages', packagePricing: 'percent', packageDiscountPct: 15, components: [
+        { name: 'Haircut & styling', quantity: 1 }, { name: 'Beard trim & shape', quantity: 1 },
+        { name: 'Hydrating facial', quantity: 1 },
+      ] },
+    ],
     services: [
       { name: 'Haircut & styling', category: 'Hair', unit: 'Service', duration: 45, taxRate: 5, priceMinor: rs(599), custom: { for: 'unisex' } },
       { name: 'Global hair colour', category: 'Hair', unit: 'Service', duration: 120, taxRate: 5, priceMinor: rs(3499), custom: { for: 'women' } },

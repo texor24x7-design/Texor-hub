@@ -81,6 +81,15 @@ export default {
       { name: 'Masala chai', category: 'Beverages', unit: 'Glass', hsn: '996331', taxRate: 5, priceMinor: rs(40), custom: { foodType: 'veg' } },
       { name: 'Fresh lime soda', category: 'Beverages', unit: 'Glass', hsn: '996331', taxRate: 5, priceMinor: rs(90), custom: { foodType: 'vegan' } },
     ],
+    packages: [
+      { name: 'Veg thali', category: 'Combos', packagePricing: 'fixed', priceMinor: rs(349), components: [
+        { name: 'Dal makhani', quantity: 1 }, { name: 'Butter naan', quantity: 2 },
+        { name: 'Gulab jamun (2 pcs)', quantity: 1 }, { name: 'Masala chai', quantity: 1 },
+      ] },
+      { name: 'Biryani combo', category: 'Combos', packagePricing: 'percent', packageDiscountPct: 10, components: [
+        { name: 'Chicken biryani', variant: 'Full', quantity: 1 }, { name: 'Fresh lime soda', quantity: 1 },
+      ] },
+    ],
     records: {
       c_tables: [1, 2, 3, 4, 5, 6].map((n) => ({ tableNo: `T${n}`, status: 'available', area: n > 4 ? 'outdoor' : 'indoor', seats: n % 2 ? 4 : 2 })),
     },

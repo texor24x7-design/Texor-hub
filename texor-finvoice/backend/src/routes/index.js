@@ -10,6 +10,9 @@ import * as records from '../controllers/record.controller.js';
 import * as files from '../controllers/file.controller.js';
 import * as docs from '../controllers/document.controller.js';
 import * as designs from '../controllers/design.controller.js';
+import * as schedules from '../controllers/schedule.controller.js';
+import * as razorpay from '../controllers/razorpay.controller.js';
+import * as ledger from '../controllers/ledger.controller.js';
 import * as integrations from '../controllers/integration.controller.js';
 import { sendSchema, smtpSchema, whatsappSchema } from '../services/delivery.service.js';
 import * as ops from '../controllers/operations.controller.js';
@@ -129,8 +132,9 @@ export function createApiRouter() {
   w.delete('/records/:module/:id', authorize(byParam, 'delete'), records.remove);
 
   // ── Quotations & invoices ───────────────────────────────────────────────────
-  const docKind = (req, _res, next) => (['invoices', 'quotations'].includes(req.params.kind) ? next() : next('route'));
+  const docKind = (req, _res, next) => (['invoices', 'quotations', 'credit_notes', 'debit_notes'].includes(req.params.kind) ? next() : next('route'));
   const kindParam = (req) => req.params.kind;
+  const noteKind = (req, _res, next) => (['credit_notes', 'debit_notes'].includes(req.params.kind) ? next() : next('route'));
   w.get('/documents/:kind', docKind, authorize(kindParam, 'view'), docs.list);
   w.post('/documents/:kind', docKind, authorize(kindParam, 'create'), docs.create);
   w.get('/documents/:kind/:id', docKind, authorize(kindParam, 'view'), docs.get);
@@ -149,6 +153,7 @@ export function createApiRouter() {
   w.get('/integrations/gmail/connect', integrations.connectGmail);
   w.put('/integrations/smtp', authorize('settings', 'edit'), validate(smtpSchema), integrations.saveSmtp);
   w.put('/integrations/whatsapp', authorize('settings', 'edit'), validate(whatsappSchema), integrations.saveWhatsapp);
+  w.put('/integrations/razorpay', authorize('settings', 'edit'), validate(razorpay.razorpaySchema), razorpay.save);
   w.delete('/integrations/:id', integrations.remove);
 
   // ── Designs ─────────────────────────────────────────────────────────────────
@@ -158,11 +163,22 @@ export function createApiRouter() {
   w.delete('/designs/:key', authorize('settings', 'edit'), designs.remove);
 
   w.post('/documents/invoices/:id/issue', authorize('invoices', 'approve'), docs.issue);
+  w.post('/documents/:kind/:id/issue-note', noteKind, authorize(kindParam, 'approve'), docs.issueNote);
+  w.post('/documents/invoices/:id/note/:kind', noteKind, authorize(kindParam, 'create'), docs.noteFromInvoice);
   w.post('/documents/invoices/:id/void', authorize('invoices', 'approve'), validate(docs.voidSchema), docs.voidInvoice);
   w.post('/documents/quotations/:id/:action', authorize('quotations', 'approve'), docs.quotationAction);
   w.post('/records/:module/:id/invoice', authorize(byParam, 'view'), docs.fromRecord);
 
   // ── Payments ────────────────────────────────────────────────────────────────
+  w.get('/schedules', authorize('schedules', 'view'), schedules.list);
+  w.post('/schedules', authorize('schedules', 'create'), validate(schedules.scheduleSchema), schedules.create);
+  w.patch('/schedules/:id', authorize('schedules', 'edit'), validate(schedules.updateSchema), schedules.update);
+  w.delete('/schedules/:id', authorize('schedules', 'delete'), schedules.remove);
+
+  w.post('/documents/invoices/:id/payment-link', authorize('payments', 'create'), razorpay.link);
+  w.get('/customers/:id/statement', authorize('customers', 'view'), ledger.statement);
+  w.get('/customers/:id/statement/export', authorize('customers', 'export'), ledger.statementCsv);
+
   w.get('/payments', authorize('payments', 'view'), docs.listPayments);
   w.post('/documents/invoices/:id/payments', authorize('payments', 'create'), docs.recordPayment);
   w.delete('/payments/:id', authorize('payments', 'delete'), docs.deletePayment);

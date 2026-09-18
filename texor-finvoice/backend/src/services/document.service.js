@@ -25,13 +25,28 @@ import { moduleOf, parseBody, requireUsableModule } from './metadata.service.js'
 import { can, hiddenFields } from './rbac.service.js';
 import { escapeRegex } from './record.service.js';
 import { record as audit } from './audit.service.js';
+import Note from '../models/Note.js';
 import * as stock from './stock.service.js';
 
-const MODELS = { invoices: Invoice, quotations: Quotation };
+/**
+ * Credit and debit notes share one collection and are told apart by `noteKind`,
+ * the same way products and services share `Item`. `where` is folded into every
+ * query and every new document so the two can never leak into each other.
+ */
+const DOCUMENTS = {
+  invoices: { model: Invoice },
+  quotations: { model: Quotation },
+  credit_notes: { model: Note, where: { noteKind: 'credit' } },
+  debit_notes: { model: Note, where: { noteKind: 'debit' } },
+};
+const MODELS = Object.fromEntries(Object.entries(DOCUMENTS).map(([kind, d]) => [kind, d.model]));
 const DAY = 24 * 60 * 60 * 1000;
 
+export const isNote = (kind) => kind === 'credit_notes' || kind === 'debit_notes';
+const scopeOf = (kind) => DOCUMENTS[kind]?.where ?? {};
+
 const modelFor = (kind) => {
-  const model = MODELS[kind];
+  const model = DOCUMENTS[kind]?.model;
   if (!model) throw ApiError.notFound('Unknown document type.');
   return model;
 };
@@ -56,9 +71,11 @@ export function addDuration(date, duration, unit) {
 
 // ── numbering ─────────────────────────────────────────────────────────────────
 
+export const DEFAULT_PREFIX = { invoices: 'INV', quotations: 'QT', credit_notes: 'CN', debit_notes: 'DN' };
+
 export async function nextNumber(workspace, kind, date, { session } = {}) {
   const fy = india.financialYear(date, workspace.fyStartMonth ?? 4);
-  const prefix = (workspace.preferences?.numbering?.[kind] ?? (kind === 'invoices' ? 'INV' : 'QT')).toUpperCase();
+  const prefix = (workspace.preferences?.numbering?.[kind] ?? DEFAULT_PREFIX[kind] ?? 'DOC').toUpperCase();
   const seq = await nextValue(`num:${workspace._id}:${kind}:${fy}`, { session });
   const number = [prefix, fy, String(seq).padStart(4, '0')].filter(Boolean).join('/');
   return { number, fy };
@@ -78,6 +95,7 @@ const lineInput = z.object({
   unit: z.string().trim().max(30).default(''),
   priceMinor: z.number().int().min(0).max(1e13),
   discountPct: z.number().min(0).max(100).default(0),
+  discountAmountMinor: z.number().int().min(0).max(1e13).nullish(),
   taxRate: z.number().min(0).max(100).default(0),
   cessRate: z.number().min(0).max(100).default(0),
   priceIncludesTax: z.boolean().default(false),
@@ -113,10 +131,15 @@ function parseDocument(workspace, kind, body, { hidden, partial = false }) {
 
 // ── shaping ───────────────────────────────────────────────────────────────────
 
+/** What an invoice still owes once payments and credit notes are taken off. */
+export const amountDue = (doc) => Math.max((doc.totals?.totalMinor ?? 0) - (doc.amountPaidMinor ?? 0) - (doc.creditedMinor ?? 0), 0);
+
 export function documentState(kind, doc) {
   if (kind === 'invoices') {
-    const due = (doc.totals?.totalMinor ?? 0) - (doc.amountPaidMinor ?? 0);
+    const due = amountDue(doc);
     if (['issued', 'partial'].includes(doc.status) && doc.dueDate && new Date(doc.dueDate) < startOfToday() && due > 0) return 'overdue';
+    // Settled by a credit note rather than by money. Not "paid", and not owing.
+    if (['issued', 'partial'].includes(doc.status) && due === 0 && (doc.creditedMinor ?? 0) > 0) return 'credited';
     return doc.status;
   }
   if (doc.status === 'sent' && doc.validUntil && new Date(doc.validUntil) < startOfToday()) return 'expired';
@@ -128,7 +151,7 @@ export function serializeDocument(kind, doc, hidden = []) {
   out.custom = { ...(doc.custom ?? {}) };
   for (const key of hidden) { delete out[key]; delete out.custom[key]; }
   out.state = documentState(kind, doc);
-  if (kind === 'invoices') out.amountDueMinor = Math.max((doc.totals?.totalMinor ?? 0) - (doc.amountPaidMinor ?? 0), 0);
+  if (kind === 'invoices') out.amountDueMinor = amountDue(doc);
   return out;
 }
 
@@ -157,8 +180,18 @@ async function loadItems(workspaceId, lines, { session } = {}) {
 
 /** Applies the tax engine to `doc` in place. */
 function recompute(doc, workspace, items) {
-  doc.lines.forEach((line) => {
+  doc.lines.forEach((line, index) => {
     const item = line.item ? items.get(String(line.item)) : null;
+    // A package is billed by expanding it into its parts, never as itself: a
+    // single-price bundle would be a mixed supply, taxable in full at the
+    // highest rate of any component. The editor expands on pick; this is the
+    // guard for anything else that reaches the API.
+    if (item?.kind === 'package') {
+      throw ApiError.badRequest('Some fields need attention.', [{
+        field: `lines.${index}.item`,
+        message: `${item.name} is a package. Bill the products and services in it instead, each at its own GST rate.`,
+      }]);
+    }
     line.kind = item?.kind ?? 'custom';
   });
   const result = computeDocument({
@@ -214,7 +247,7 @@ const searchTextFor = (doc) => [doc.number, doc.billTo?.name, doc.billTo?.phone,
 
 async function findDocument(req, kind, id, { session } = {}) {
   if (!mongoose.isValidObjectId(id)) throw ApiError.notFound('Document not found.');
-  const filter = { _id: id, workspace: req.workspace._id, deletedAt: null };
+  const filter = { _id: id, workspace: req.workspace._id, deletedAt: null, ...scopeOf(kind) };
   if (req.scope === 'own') filter.createdBy = req.user._id;
   const doc = await modelFor(kind).findOne(filter).session(session ?? null);
   if (!doc) throw ApiError.notFound(`${moduleOf(req.workspace, kind).labelSingular} not found.`);
@@ -228,7 +261,7 @@ const label = (req, kind) => moduleOf(req.workspace, kind).labelSingular;
 export async function list(req, kind, query = {}) {
   requireUsableModule(req.workspace, kind);
   const model = modelFor(kind);
-  const filter = { workspace: req.workspace._id, deletedAt: null };
+  const filter = { workspace: req.workspace._id, deletedAt: null, ...scopeOf(kind) };
   if (req.scope === 'own') filter.createdBy = req.user._id;
 
   const today = startOfToday();
@@ -237,13 +270,17 @@ export async function list(req, kind, query = {}) {
     if (state === 'overdue') Object.assign(filter, { status: { $in: ['issued', 'partial'] }, dueDate: { $lt: today } });
     else if (state === 'unpaid') filter.status = { $in: ['issued', 'partial'] };
     else if (['draft', 'issued', 'partial', 'paid', 'void'].includes(state)) filter.status = state;
+  } else if (isNote(kind)) {
+    if (['draft', 'issued', 'void'].includes(state)) filter.status = state;
   } else if (state === 'expired') {
     Object.assign(filter, { status: 'sent', validUntil: { $lt: today } });
   } else if (['draft', 'sent', 'accepted', 'declined', 'converted'].includes(state)) {
     filter.status = state;
   }
 
-  if (query.customer && mongoose.isValidObjectId(query.customer)) filter.customer = query.customer;
+  // Cast it: `find` would coerce the string itself, but an aggregation pipeline
+  // does no casting, so the sums below would quietly match nothing.
+  if (query.customer && mongoose.isValidObjectId(query.customer)) filter.customer = new mongoose.Types.ObjectId(String(query.customer));
   if (query.q) filter.searchText = { $regex: escapeRegex(String(query.q).toLowerCase().slice(0, 100)) };
   const from = query.from ? new Date(String(query.from)) : null;
   const to = query.to ? new Date(String(query.to)) : null;
@@ -258,7 +295,7 @@ export async function list(req, kind, query = {}) {
   const [docs, total, sums] = await Promise.all([
     model.find(filter).select('-lines -seller -taxSummary').sort({ date: -1, createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     model.countDocuments(filter),
-    model.aggregate([{ $match: filter }, { $group: { _id: null, totalMinor: { $sum: '$totals.totalMinor' }, paidMinor: { $sum: '$amountPaidMinor' } } }]),
+    model.aggregate([{ $match: filter }, { $group: { _id: null, totalMinor: { $sum: '$totals.totalMinor' }, paidMinor: { $sum: '$amountPaidMinor' }, creditedMinor: { $sum: '$creditedMinor' } } }]),
   ]);
 
   const hidden = hiddenFields(req.workspace, req.member, kind);
@@ -267,7 +304,7 @@ export async function list(req, kind, query = {}) {
     total,
     page,
     limit,
-    sums: { totalMinor: sums[0]?.totalMinor ?? 0, paidMinor: sums[0]?.paidMinor ?? 0 },
+    sums: { totalMinor: sums[0]?.totalMinor ?? 0, paidMinor: sums[0]?.paidMinor ?? 0, creditedMinor: sums[0]?.creditedMinor ?? 0 },
   };
 }
 
@@ -301,6 +338,7 @@ export async function create(req, kind, body, { source = null, quotation = null 
 
   const doc = new (modelFor(kind))({
     ...input,
+    ...scopeOf(kind),
     workspace: ws._id,
     placeOfSupply: input.placeOfSupply || customer.stateCode || customer.shippingAddress?.stateCode || ws.stateCode || '',
     billTo: customerSnapshot(customer),
@@ -430,6 +468,10 @@ function warrantiesFor(doc, items, userId) {
       itemName: [line.description, line.variant && !line.description.includes(line.variant) ? `(${line.variant})` : ''].filter(Boolean).join(' '),
       startDate: doc.date,
       endDate: addDuration(doc.date, item.warranty.duration, item.warranty.unit),
+      scope: item.warranty.scope ?? 'parts_labour',
+      includes: item.warranty.includes ?? [],
+      excludes: item.warranty.excludes ?? [],
+      transferable: item.warranty.transferable ?? false,
       coverage: item.warranty.coverage,
       source: 'invoice',
       invoice: doc._id,
@@ -495,6 +537,110 @@ export async function issueInvoice(req, id) {
   return serializeDocument('invoices', issued.toObject());
 }
 
+/**
+ * Issues a credit or debit note.
+ *
+ * A credit note reduces what the customer owes; a debit note adds to it. Both
+ * move the customer's receivable, and a credit note can put returned goods back
+ * on the shelf. All of it in one transaction, like issuing an invoice, so a
+ * half-applied note is impossible.
+ */
+export async function issueNote(req, kind, id) {
+  const ws = req.workspace;
+  const sign = kind === 'credit_notes' ? -1 : 1;
+  let issued;
+
+  await mongoose.connection.transaction(async (session) => {
+    const doc = await findDocument(req, kind, id, { session });
+    if (doc.status !== 'draft') throw ApiError.conflict(`This note is already ${doc.status}.`);
+    if (!doc.lines.length) throw ApiError.badRequest('Add at least one line before issuing.');
+
+    const customer = await findCustomer(ws._id, doc.customer, { session });
+    const items = await loadItems(ws._id, doc.lines, { session });
+
+    let parent = null;
+    if (doc.invoice) {
+      parent = await Invoice.findOne({ _id: doc.invoice, workspace: ws._id, deletedAt: null }).session(session);
+      if (!parent) throw ApiError.badRequest('The invoice this note belongs to no longer exists.');
+      if (parent.status === 'void') throw ApiError.conflict('That invoice was voided, so a note against it would double-count.');
+    }
+
+    doc.billTo = customerSnapshot(customer);
+    doc.seller = sellerSnapshot(ws);
+    doc.taxMode = ws.gstin ? 'gst' : 'none';
+    recompute(doc, ws, items);
+
+    // A credit note cannot give back more than the invoice is still worth.
+    if (parent && sign === -1) {
+      const room = parent.totals.totalMinor - (parent.creditedMinor ?? 0);
+      if (doc.totals.totalMinor > room) {
+        throw ApiError.badRequest('Some fields need attention.', [{
+          field: 'lines',
+          message: `That is more than ${parent.number} still carries. At most ${(room / 100).toFixed(2)} can be credited.`,
+        }]);
+      }
+    }
+
+    Object.assign(doc, await nextNumber(ws, kind, doc.date, { session }));
+    doc.status = 'issued';
+    doc.issuedAt = new Date();
+    doc.publicToken = randomToken(24);
+    doc.searchText = searchTextFor(doc);
+    doc.updatedBy = req.user._id;
+    await doc.save({ session });
+
+    // Returned goods go back on the shelf unless this was a price correction.
+    if (sign === -1 && doc.restock) {
+      for (const line of doc.lines) {
+        const item = line.item ? items.get(String(line.item)) : null;
+        if (item?.kind === 'product' && item.trackStock && line.quantity) {
+          await stock.move({ workspace: ws._id, item: item._id, quantity: line.quantity, reason: 'return', serials: line.serials, invoice: doc.invoice ?? null, user: req.user._id }, { session });
+        }
+      }
+    }
+
+    if (parent) {
+      parent.creditedMinor = (parent.creditedMinor ?? 0) + (sign === -1 ? doc.totals.totalMinor : -doc.totals.totalMinor);
+      if (['issued', 'partial'].includes(parent.status) && parent.amountPaidMinor >= parent.totals.totalMinor - parent.creditedMinor) {
+        parent.status = 'paid';
+        parent.paidAt ??= new Date();
+      }
+      await parent.save({ session });
+    }
+
+    await Customer.updateOne({ _id: doc.customer }, { $inc: { receivableMinor: sign * doc.totals.totalMinor } }, { session });
+    issued = doc;
+  });
+
+  await audit(req, { action: `${kind}.issued`, module: kind, recordId: issued._id, summary: `Issued ${issued.number} against ${issued.invoiceNumber || 'no invoice'}`, metadata: { totalMinor: issued.totals.totalMinor } });
+  return serializeDocument(kind, issued.toObject());
+}
+
+/** Drafts a note that mirrors an invoice, so a full return is one click. */
+export async function noteFromInvoice(req, kind, invoiceId) {
+  requireUsableModule(req.workspace, kind);
+  const invoice = await findDocument(req, 'invoices', invoiceId);
+  if (invoice.status === 'draft') throw ApiError.conflict('Issue this invoice before raising a note against it.');
+  if (invoice.status === 'void') throw ApiError.conflict('A void invoice has nothing to credit.');
+
+  const body = {
+    customer: String(invoice.customer),
+    date: new Date().toISOString(),
+    placeOfSupply: invoice.placeOfSupply,
+    reference: invoice.number,
+    discount: invoice.discount?.value ? { type: invoice.discount.type, value: invoice.discount.value } : null,
+    roundOff: invoice.roundOff,
+    lines: invoice.lines.map((l) => ({
+      item: l.item ? String(l.item) : null, variant: l.variant, description: l.description, hsn: l.hsn,
+      quantity: l.quantity, unit: l.unit, priceMinor: l.priceMinor, discountPct: l.discountPct,
+      taxRate: l.taxRate, cessRate: l.cessRate, priceIncludesTax: l.priceIncludesTax, serials: [], custom: l.custom ?? {},
+    })),
+  };
+  const draft = await create(req, kind, body);
+  await modelFor(kind).updateOne({ _id: draft._id }, { $set: { invoice: invoice._id, invoiceNumber: invoice.number } });
+  return { ...draft, invoice: String(invoice._id), invoiceNumber: invoice.number };
+}
+
 export async function voidInvoice(req, id, reason = '') {
   let voided;
   await mongoose.connection.transaction(async (session) => {
@@ -542,7 +688,7 @@ export async function transitionQuotation(req, id, action) {
   return serializeDocument('quotations', doc.toObject());
 }
 
-const COPIED_LINE_FIELDS = ['item', 'variant', 'description', 'hsn', 'quantity', 'unit', 'priceMinor', 'discountPct', 'taxRate', 'cessRate', 'priceIncludesTax', 'serials', 'custom'];
+const COPIED_LINE_FIELDS = ['item', 'variant', 'description', 'hsn', 'quantity', 'unit', 'priceMinor', 'discountPct', 'discountAmountMinor', 'taxRate', 'cessRate', 'priceIncludesTax', 'serials', 'custom'];
 const copyLine = (line) => Object.fromEntries(COPIED_LINE_FIELDS.map((k) => [k, k === 'item' && line.item ? String(line.item) : line[k]]));
 
 export async function convertQuotation(req, id) {
@@ -665,12 +811,12 @@ export async function recordPayment(req, invoiceId, body) {
 
     // Atomic and capped: two cashiers recording the same payment at once cannot overpay the invoice.
     invoice = await Invoice.findOneAndUpdate(
-      { _id: doc._id, status: { $in: ['issued', 'partial'] }, $expr: { $lte: [{ $add: ['$amountPaidMinor', input.amountMinor] }, '$totals.totalMinor'] } },
+      { _id: doc._id, status: { $in: ['issued', 'partial'] }, $expr: { $lte: [{ $add: ['$amountPaidMinor', input.amountMinor] }, { $subtract: ['$totals.totalMinor', '$creditedMinor'] }] } },
       [
         { $set: { amountPaidMinor: { $add: ['$amountPaidMinor', input.amountMinor] } } },
         { $set: {
-          status: { $cond: [{ $gte: ['$amountPaidMinor', '$totals.totalMinor'] }, 'paid', 'partial'] },
-          paidAt: { $cond: [{ $gte: ['$amountPaidMinor', '$totals.totalMinor'] }, new Date(), null] },
+          status: { $cond: [{ $gte: ['$amountPaidMinor', { $subtract: ['$totals.totalMinor', '$creditedMinor'] }] }, 'paid', 'partial'] },
+          paidAt: { $cond: [{ $gte: ['$amountPaidMinor', { $subtract: ['$totals.totalMinor', '$creditedMinor'] }] }, new Date(), null] },
         } },
       ],
       { returnDocument: 'after', session, updatePipeline: true },
@@ -748,7 +894,15 @@ export async function findPublic(token) {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{24,64}$/.test(token)) return null;
   for (const [kind, model] of Object.entries(MODELS)) {
     const doc = await model.findOne({ publicToken: token, deletedAt: null }).lean();
-    if (doc) return { kind, doc };
+    if (doc) {
+      // First open by the customer. Only ever set once, so it means "when they first saw it".
+      if (!doc.viewedAt) {
+        const viewedAt = new Date();
+        await model.updateOne({ _id: doc._id, viewedAt: null }, { $set: { viewedAt } });
+        doc.viewedAt = viewedAt;
+      }
+      return { kind, doc };
+    }
   }
   return null;
 }

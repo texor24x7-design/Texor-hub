@@ -39,10 +39,39 @@ export const DEFAULT_MESSAGES = {
   'email.subject': '{{document.label}} {{document.number}} from {{business.name}}',
   'email.body': 'Hi {{customer.name}},\n\nPlease find {{document.label}} {{document.number}} for {{document.total}} attached.\n\nYou can also view it online: {{document.link}}\n\nThank you,\n{{business.name}}',
   whatsapp: 'Hi {{customer.name}}, here is your {{document.label}} {{document.number}} from {{business.name}} for {{document.total}}.\n\nView or download: {{document.link}}',
+
+  'reminder.email.subject': 'Reminder: {{document.label}} {{document.number}} is due',
+  'reminder.email.body': 'Hi {{customer.name}},\n\nThis is a gentle reminder that {{document.label}} {{document.number}} for {{document.amountDue}} was due on {{document.dueDate}}.\n\nYou can view and pay it here: {{document.link}}\n\nIf you have already paid, please ignore this message.\n\nThank you,\n{{business.name}}',
+  'reminder.whatsapp': 'Hi {{customer.name}}, a gentle reminder that {{document.label}} {{document.number}} for {{document.amountDue}} was due on {{document.dueDate}}.\n\nView or pay: {{document.link}}\n\nIf you have already paid, please ignore this.',
+
+  'expiring.email.subject': '{{document.Label}} {{document.number}} expires on {{document.validUntil}}',
+  'expiring.email.body': 'Hi {{customer.name}},\n\nJust a note that {{document.label}} {{document.number}} for {{document.total}} is valid until {{document.validUntil}}.\n\nYou can review it here: {{document.link}}\n\nHappy to revise it if anything has changed.\n\n{{business.name}}',
+  'expiring.whatsapp': 'Hi {{customer.name}}, your {{document.label}} {{document.number}} for {{document.total}} is valid until {{document.validUntil}}.\n\nReview it here: {{document.link}}',
+
+  'expiring.email.subject.warranties': 'Your {{document.label}} on {{item.name}} ends on {{warranty.endDate}}',
+  'expiring.email.body.warranties': 'Hi {{customer.name}},\n\nThe {{document.label}} on your {{item.name}} ends on {{warranty.endDate}} — {{warranty.daysLeft}} days from now.\n\nDetails: {{document.link}}\n\nGet in touch if you would like it looked at, renewed or serviced before then.\n\n{{business.name}}',
+  'expiring.whatsapp.warranties': 'Hi {{customer.name}}, the {{document.label}} on your {{item.name}} ends on {{warranty.endDate}} ({{warranty.daysLeft}} days left).\n\nDetails: {{document.link}}\n\nGet in touch if you would like it serviced or renewed.',
 };
+
+const shortDate = (value) => (value ? new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
 function messageContext(workspace, kind, doc) {
   const label = moduleOf(workspace, kind).labelSingular;
+  // A warranty has no number, no totals and no PDF — it is a card, not a bill.
+  if (kind === 'warranties') {
+    return {
+      'business.name': workspace.name,
+      'business.phone': workspace.phone,
+      'customer.name': doc.customer?.name ?? '',
+      'document.label': label.toLowerCase(),
+      'document.Label': label,
+      'document.number': doc.serial || doc.invoiceNumber || '',
+      'item.name': doc.itemName ?? '',
+      'warranty.endDate': shortDate(doc.endDate),
+      'warranty.daysLeft': String(Math.max(0, Math.ceil((new Date(doc.endDate) - Date.now()) / 86400000))),
+      'document.link': doc.shareToken ? `${env.publicOrigin}/warranty/${doc.shareToken}` : '',
+    };
+  }
   const due = kind === 'invoices' ? Math.max(doc.totals.totalMinor - doc.amountPaidMinor, 0) : doc.totals.totalMinor;
   return {
     'business.name': workspace.name,
@@ -53,7 +82,9 @@ function messageContext(workspace, kind, doc) {
     'document.number': doc.number ?? '',
     'document.total': formatMoney(doc.totals.totalMinor, doc.currency),
     'document.amountDue': formatMoney(due, doc.currency),
-    'document.dueDate': doc.dueDate ? new Date(doc.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '',
+    'document.dueDate': shortDate(doc.dueDate),
+    'document.validUntil': shortDate(doc.validUntil),
+    'document.daysOverdue': String(doc.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(doc.dueDate)) / 86400000)) : 0),
     'document.link': doc.publicToken ? `${env.publicOrigin}/d/${doc.publicToken}` : '',
   };
 }
@@ -61,9 +92,16 @@ function messageContext(workspace, kind, doc) {
 /** Plain-text interpolation; unknown tags become nothing. */
 export const fill = (template, ctx) => String(template ?? '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => ctx[key] ?? '');
 
-export function composeFor(workspace, kind, doc) {
+/**
+ * `variant` picks a different set of wordings for the same document — a payment
+ * reminder reads nothing like the covering note that first sent the invoice.
+ * Falls back to the plain wording when a workspace has not customised it.
+ */
+export function composeFor(workspace, kind, doc, variant = '') {
   const saved = workspace.preferences?.messages ?? {};
-  const pick = (key) => saved[`${key}.${kind}`] ?? saved[key] ?? DEFAULT_MESSAGES[key];
+  const v = variant ? `${variant}.` : '';
+  const pick = (key) => saved[`${v}${key}.${kind}`] ?? saved[`${v}${key}`]
+    ?? DEFAULT_MESSAGES[`${v}${key}`] ?? saved[`${key}.${kind}`] ?? saved[key] ?? DEFAULT_MESSAGES[key];
   const ctx = messageContext(workspace, kind, doc);
   const subject = fill(pick('email.subject'), ctx);
   return {
@@ -92,8 +130,12 @@ const publicIntegration = ({ _id, type, user, account, config, status, lastError
 
 export async function listIntegrations(req) {
   const rows = await Integration.find({ workspace: req.workspace._id }).lean();
+  const razorpay = rows.find((r) => r.type === 'razorpay');
   return {
     gmailAvailable: env.gmailEnabled,
+    razorpay: razorpay
+      ? { connected: true, keyId: razorpay.config?.keyId ?? '', hasWebhookSecret: Boolean(razorpay.config?.hasWebhookSecret), webhookUrl: `${env.apiOrigin}/api/webhooks/razorpay/${req.workspace.slug}` }
+      : { connected: false, webhookUrl: `${env.apiOrigin}/api/webhooks/razorpay/${req.workspace.slug}` },
     integrations: rows.map(publicIntegration),
     mine: rows.filter((r) => r.type === 'gmail' && String(r.user) === String(req.user._id)).map(publicIntegration)[0] ?? null,
   };
@@ -252,14 +294,32 @@ async function buildMime({ from, to, cc, subject, text, attachment }) {
 
 export async function sendDocument(req, kind, id, input) {
   const { document } = await documents.get(req, kind, id);
+  return deliverDocument({
+    workspace: req.workspace,
+    kind,
+    document,
+    input,
+    actor: { _id: req.user._id, name: req.member.name || req.user.displayName },
+    ip: req.ip,
+  });
+}
+
+/**
+ * Sends one already-loaded document over one channel, logs it and stamps it.
+ *
+ * Split out of `sendDocument` so the background sweep can reuse exactly this
+ * path: it has a workspace and a document but no request, no session and no
+ * person. `actor` is null when the sender is the system.
+ */
+export async function deliverDocument({ workspace: ws, kind, document, input, actor = null, ip = '', variant = '' }) {
   if (kind === 'invoices' && document.status === 'draft') throw ApiError.conflict('Issue this invoice before sending it — a draft has no number yet.');
   if (document.status === 'void') throw ApiError.conflict('A void invoice cannot be sent.');
 
-  const ws = req.workspace;
-  const composed = composeFor(ws, kind, document);
+  const req = { workspace: ws, user: actor ? { _id: actor._id } : null, member: { name: actor?.name ?? 'Finvoice' }, ip };
+  const composed = composeFor(ws, kind, document, variant);
   const subject = input.subject || composed.subject;
   const channel = input.channel;
-  const log = { workspace: ws._id, kind, document: document._id, channel, subject, sentBy: req.user._id, sentByName: req.member.name || req.user.displayName };
+  const log = { workspace: ws._id, kind, document: document._id, channel, subject, sentBy: actor?._id ?? null, sentByName: actor?.name ?? 'Finvoice' };
 
   const result = { channel };
   try {
@@ -273,11 +333,11 @@ export async function sendDocument(req, kind, id, input) {
       if (!z.email().safeParse(to).success) throw ApiError.badRequest('Some fields need attention.', [{ field: 'to', message: 'Enter the customer\'s email address.' }]);
 
       const integration = await Integration.findOne(channel === 'gmail'
-        ? { workspace: ws._id, type: 'gmail', user: req.user._id }
+        ? { workspace: ws._id, type: 'gmail', user: actor?._id ?? null }
         : { workspace: ws._id, type: 'smtp', user: null }).select('+secret');
       if (!integration) throw ApiError.badRequest(channel === 'gmail' ? 'Connect your Gmail account in Settings → Integrations first.' : 'Set up SMTP in Settings → Integrations first.');
 
-      const pdfInput = input.attachPdf ? await renderInput(ws, kind, document) : null;
+      const pdfInput = input.attachPdf && MODELS[kind] ? await renderInput(ws, kind, document) : null;
       const attachment = pdfInput ? { filename: pdfFilename(kind, document, ws), content: env.dryRun ? Buffer.from('%PDF-1.7 dry run') : await toPdf(pdfInput), contentType: 'application/pdf' } : null;
       const text = input.message || composed.body;
       const fromName = channel === 'smtp' ? integration.config.fromName || ws.name : ws.name;
@@ -314,8 +374,9 @@ export async function sendDocument(req, kind, id, input) {
       const ctx = messageContext(ws, kind, document);
       const filename = pdfFilename(kind, document, ws);
 
+      const withPdf = input.attachPdf !== false && Boolean(MODELS[kind]);
       let mediaId = 'dry-run-media';
-      if (!env.dryRun) {
+      if (!env.dryRun && withPdf) {
         const pdf = await toPdf(await renderInput(ws, kind, document));
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
@@ -360,9 +421,11 @@ export async function sendDocument(req, kind, id, input) {
 
   // A quotation that has gone out is "sent"; an invoice records when it first went.
   const Model = MODELS[kind];
-  const update = { $set: { sentAt: document.sentAt ?? new Date() } };
-  if (kind === 'quotations' && document.status === 'draft') update.$set.status = 'sent';
-  await Model.updateOne({ _id: document._id, workspace: ws._id }, update);
+  if (Model) {
+    const update = { $set: { sentAt: document.sentAt ?? new Date() } };
+    if (kind === 'quotations' && document.status === 'draft') update.$set.status = 'sent';
+    await Model.updateOne({ _id: document._id, workspace: ws._id }, update);
+  }
 
   await audit(req, { action: `${kind}.sent`, module: kind, recordId: document._id, summary: `Sent ${document.number} by ${channel.replace('_', ' ')}` });
   return result;

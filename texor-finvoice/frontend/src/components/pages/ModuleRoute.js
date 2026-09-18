@@ -11,6 +11,7 @@ import { ModuleList } from '@/components/records/ModuleList';
 import { RecordCreate, RecordDetail, RecordEdit } from '@/components/records/RecordPages';
 import { screenFor, useWorkspace } from '@/lib/workspace';
 import { Payments } from './Payments';
+import { Schedules } from './Schedules';
 import { ProTeaser } from './ProTeaser';
 import { Staff } from './Staff';
 import { Team } from './Team';
@@ -38,6 +39,7 @@ export function ModuleRoute({ moduleKey, mode = 'list', id }) {
   if (screen === 'settings') return <Redirect to={href('/settings/business')} />;
   if (screen === 'team') return <Team module={m} />;
   if (screen === 'payments') return <Payments module={m} />;
+  if (screen === 'schedules') return <Schedules module={m} />;
 
   if (screen === 'documents') {
     if (mode === 'new') return can(m.key, 'create') ? <DocumentEditor module={m} /> : <Missing />;

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { AlertTriangle, ArrowDownRight, ArrowUpRight, CalendarCheck, FileClock, IndianRupee, LogIn, LogOut, Package, ShieldAlert, TrendingUp, Wallet } from 'lucide-react';
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, CalendarCheck, FileClock, Hourglass, IndianRupee, LogIn, LogOut, Package, ShieldAlert, TrendingUp, Wallet } from 'lucide-react';
 import { Icon } from '@/components/Icon';
 import { Badge, Button, ButtonLink, SkeletonRows, StatusBadge, useToast } from '@/components/ui';
 import { invalidate, useResource } from '@/lib/data';
@@ -75,6 +75,41 @@ const WIDGETS = {
       <div className="stat-foot">{data.absent} absent · {data.leave} on leave{data.unmarked ? ` · ${data.unmarked} not marked` : ''}{data.late ? ` · ${data.late} late` : ''}</div>
     </Link>
   ),
+  receivables_aging: ({ data, currency, href }) => {
+    const bars = [
+      { key: 'current', label: 'Not due', minor: data.current, tone: 'var(--brand-400)' },
+      { key: 'd30', label: '1–30 days', minor: data.d30, tone: '#e8b923' },
+      { key: 'd60', label: '31–60', minor: data.d60, tone: '#e08b2f' },
+      { key: 'd90', label: '61–90', minor: data.d90, tone: '#d9603c' },
+      { key: 'older', label: '90+', minor: data.older, tone: 'var(--danger)' },
+    ].filter((b) => b.minor > 0);
+    return (
+      <section className="card span-2">
+        <div className="card-header">
+          <h2 className="row"><Hourglass size={16} />How old the money is</h2>
+          <span className="small muted">{money(data.totalMinor, currency)} outstanding</span>
+        </div>
+        <div className="card-body stack-sm">
+          {bars.length ? (
+            <>
+              <div className="aging-bar" role="img" aria-label={bars.map((b) => `${b.label} ${money(b.minor, currency)}`).join(', ')}>
+                {bars.map((b) => <span key={b.key} style={{ width: `${(b.minor / data.totalMinor) * 100}%`, background: b.tone }} />)}
+              </div>
+              <div className="aging-key">
+                {bars.map((b) => (
+                  <Link key={b.key} href={href(b.key === 'current' ? '/invoices?state=unpaid' : '/invoices?state=overdue')} className="aging-key-item">
+                    <span className="aging-dot" style={{ background: b.tone }} />
+                    <span className="grow">{b.label}</span>
+                    <span className="num">{money(b.minor, currency)}</span>
+                  </Link>
+                ))}
+              </div>
+            </>
+          ) : <p className="small muted">Nothing outstanding. Every invoice is settled.</p>}
+        </div>
+      </section>
+    );
+  },
   overdue: ({ data, currency, href }) => (
     <section className="card span-2">
       <div className="card-header"><h2 className="row"><AlertTriangle size={16} color="var(--danger)" />Overdue invoices</h2></div>

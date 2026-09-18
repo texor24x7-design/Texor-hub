@@ -26,7 +26,13 @@ function initialValues(module, record) {
  * in the order the workspace arranged them, skipping what is hidden for the
  * workspace or for this person's role.
  */
-export function RecordForm({ module, record, refs, onSubmit, onCancel, submitLabel = 'Save', extra, extraValues }) {
+/**
+ * `formId` hands the submit button to the caller: the form carries that id and
+ * drops its own sticky action row, so a dialog footer can drive it with
+ * `<button type="submit" form={formId}>` instead of floating a page-styled bar
+ * over the fields.
+ */
+export function RecordForm({ module, record, refs, onSubmit, onCancel, submitLabel = 'Save', extra, extraValues, formId }) {
   const { hidden } = useWorkspace();
   const [values, setValues] = useState(() => initialValues(module, record));
   const [errors, setErrors] = useState({});
@@ -73,7 +79,7 @@ export function RecordForm({ module, record, refs, onSubmit, onCancel, submitLab
   }
 
   return (
-    <form className="stack-lg" onSubmit={submit} noValidate>
+    <form id={formId} className="stack-lg" onSubmit={submit} noValidate>
       {error && !Object.keys(errors).length ? <Alert kind="error">{error}</Alert> : null}
       {error && Object.keys(errors).length ? <Alert kind="error" title={error}>{Object.values(errors).filter(Boolean).slice(0, 3).join(' ')}</Alert> : null}
 
@@ -105,10 +111,12 @@ export function RecordForm({ module, record, refs, onSubmit, onCancel, submitLab
 
       {extra}
 
-      <div className="row row-end" style={{ position: 'sticky', bottom: 0, padding: '0.75rem 0', background: 'linear-gradient(to top, var(--bg) 70%, transparent)' }}>
-        {onCancel ? <Button variant="secondary" onClick={onCancel}>Cancel</Button> : null}
-        <Button type="submit" loading={busy}>{submitLabel}</Button>
-      </div>
+      {formId ? null : (
+        <div className="row row-end" style={{ position: 'sticky', bottom: 0, padding: '0.75rem 0', background: 'linear-gradient(to top, var(--bg) 70%, transparent)' }}>
+          {onCancel ? <Button variant="secondary" onClick={onCancel}>Cancel</Button> : null}
+          <Button type="submit" loading={busy}>{submitLabel}</Button>
+        </div>
+      )}
     </form>
   );
 }

@@ -15,13 +15,22 @@ const { Schema } = mongoose;
 const invoiceSchema = new Schema({
   ...documentFields(),
   status: { type: String, enum: ['draft', 'issued', 'partial', 'paid', 'void'], default: 'draft', index: true },
+  // Which reminder offsets have already gone out, so a sweep never repeats one.
+  remindedOffsets: { type: [Number], default: [] },
   dueDate: { type: Date, default: null },
   amountPaidMinor: { type: Number, default: 0, min: 0 },
+  // Credit notes reduce what is owed without money moving; debit notes add to it.
+  creditedMinor: { type: Number, default: 0 },
   issuedAt: { type: Date, default: null },
   paidAt: { type: Date, default: null },
   voidedAt: { type: Date, default: null },
   voidReason: { type: String, default: '' },
   quotation: { type: Schema.Types.ObjectId, ref: 'Quotation', default: null },
+  /** The Razorpay payment link raised for this invoice, if one was. */
+  paymentLink: {
+    type: new Schema({ id: String, url: String, amountMinor: Number, createdAt: Date }, { _id: false }),
+    default: null,
+  },
 });
 
 invoiceSchema.plugin(recordPlugin);

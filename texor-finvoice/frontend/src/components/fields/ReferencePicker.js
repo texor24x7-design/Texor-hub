@@ -4,14 +4,20 @@
  * Search-as-you-type picker for a linked record: a customer, a vehicle, a
  * staff member, a catalogue item.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { ChevronDown, Plus, X } from 'lucide-react';
 import { useDebounced } from '@/lib/data';
 import { money } from '@/lib/format';
+import { partsTotal } from '@/lib/shared/packages.mjs';
 import { useWorkspace } from '@/lib/workspace';
+import { ComboList, useCombo } from './combo';
 
-const CATALOGUE = new Set(['items', 'products', 'services']);
+const CATALOGUE = new Set(['items', 'products', 'services', 'packages']);
+
+/** What a package will actually bill for, so the picker shows a real number. */
+const packagePrice = (pkg) => (pkg.packagePricing === 'percent'
+  ? Math.round(partsTotal(pkg) * (1 - (Number(pkg.packageDiscountPct) || 0) / 100))
+  : pkg.priceMinor);
 
 export function useSearch(refModule, query, { enabled = true } = {}) {
   const { api, module } = useWorkspace();
@@ -26,7 +32,15 @@ export function useSearch(refModule, query, { enabled = true } = {}) {
     const request = CATALOGUE.has(refModule)
       ? api.get('/items', { q: debounced, limit: 25 }).then((r) => r.items
         .filter((i) => refModule === 'items' || `${i.kind}s` === refModule)
-        .map((i) => ({ id: i._id, title: i.name, subtitle: [i.sku, i.variants?.length ? `${i.variants.length} variants` : ''].filter(Boolean).join(' · '), amount: i.priceMinor, raw: i })))
+        .map((i) => ({
+          id: i._id,
+          title: i.name,
+          subtitle: i.kind === 'package'
+            ? [`${(i.components ?? []).length} items`, i.packagePricing === 'percent' ? `${i.packageDiscountPct}% off` : 'package price'].filter(Boolean).join(' · ')
+            : [i.sku, i.variants?.length ? `${i.variants.length} variants` : ''].filter(Boolean).join(' · '),
+          amount: i.kind === 'package' ? packagePrice(i) : i.priceMinor,
+          raw: i,
+        })))
       : module(refModule)
         ? api.get(`/records/${refModule}`, { q: debounced, limit: 25 }).then((r) => r.records.map((rec) => ({ id: rec._id, title: rec.title || rec.name || rec.itemName || 'Untitled', subtitle: rec.phone || rec.designation || rec.serial || '', raw: rec })))
         : Promise.resolve([]);
@@ -39,57 +53,15 @@ export function useSearch(refModule, query, { enabled = true } = {}) {
 
 export function ReferencePicker({ refModule, value, title, onChange, placeholder, invalid, id, onCreate, createLabel, autoFocus }) {
   const { currency, module } = useWorkspace();
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [label, setLabel] = useState(title ?? '');
-  const [box, setBox] = useState(null);
-  const wrap = useRef(null);
-  const list = useRef(null);
+  const { open, setOpen, box, wrap, list, place } = useCombo();
   const { results, loading } = useSearch(refModule, query, { enabled: open });
 
   useEffect(() => { setLabel(title ?? ''); }, [title]);
-
-  /**
-   * The list is rendered in a portal, fixed to the input's position.
-   *
-   * Inside a document's items table it would otherwise be trapped: that table
-   * scrolls sideways, and a box with `overflow-x: auto` clips vertically too —
-   * which turned the suggestions into a tiny scrollable sliver.
-   */
-  const place = useCallback(() => {
-    const input = wrap.current?.querySelector('input');
-    if (!input) return;
-    const rect = input.getBoundingClientRect();
-    const below = window.innerHeight - rect.bottom;
-    const height = Math.min(320, Math.max(below - 16, 160));
-    setBox({
-      left: Math.min(rect.left, window.innerWidth - Math.max(rect.width, 260) - 8),
-      width: Math.max(rect.width, 260),
-      top: below < 200 && rect.top > below ? undefined : rect.bottom + 4,
-      bottom: below < 200 && rect.top > below ? window.innerHeight - rect.top + 4 : undefined,
-      maxHeight: below < 200 && rect.top > below ? Math.min(320, rect.top - 16) : height,
-    });
-  }, []);
-
+  // Results arrive after the list is already open, so re-pin it when they do.
   useLayoutEffect(() => { if (open) place(); }, [open, place, results.length]);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => {
-      if (!wrap.current?.contains(e.target) && !list.current?.contains(e.target)) setOpen(false);
-    };
-    const onMove = () => place();
-    document.addEventListener('mousedown', onDown);
-    // `true` so the ancestors that actually scroll (the items table, the page) are heard.
-    window.addEventListener('scroll', onMove, true);
-    window.addEventListener('resize', onMove);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      window.removeEventListener('scroll', onMove, true);
-      window.removeEventListener('resize', onMove);
-    };
-  }, [open, place]);
 
   const choose = (row) => {
     setLabel(row.title);
@@ -128,13 +100,8 @@ export function ReferencePicker({ refModule, value, title, onChange, placeholder
           <ChevronDown size={15} color="var(--text-subtle)" />
         </span>
       </div>
-      {open && box ? createPortal((
-        <div
-          className="combo-list"
-          role="listbox"
-          ref={list}
-          style={{ position: 'fixed', left: box.left, width: box.width, top: box.top, bottom: box.bottom, maxHeight: box.maxHeight, right: 'auto' }}
-        >
+      {open ? (
+        <ComboList box={box} listRef={list}>
           {loading && !results.length ? <div className="combo-empty">Searching…</div> : null}
           {!loading && !results.length ? <div className="combo-empty">{query ? `No ${noun} matches “${query}”.` : `No ${noun}s yet.`}</div> : null}
           {results.map((row, index) => (
@@ -151,8 +118,8 @@ export function ReferencePicker({ refModule, value, title, onChange, placeholder
               </div>
             </>
           ) : null}
-        </div>
-      ), document.body) : null}
+        </ComboList>
+      ) : null}
     </div>
   );
 }

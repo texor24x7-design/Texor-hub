@@ -8,6 +8,7 @@ const csv = (value) => (value ?? '').split(',').map((entry) => entry.trim()).fil
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4001),
+  SWEEP_INTERVAL_MINUTES: z.coerce.number().int().min(0).max(1440).default(5),
 
   API_ORIGIN: z.url().optional(),
   APP_ORIGIN: z.url(),
@@ -82,6 +83,7 @@ export const env = {
   uploadMaxBytes: raw.UPLOAD_MAX_MB * 1024 * 1024,
   gmailEnabled: Boolean(raw.GOOGLE_CLIENT_ID && raw.GOOGLE_CLIENT_SECRET && raw.GOOGLE_REDIRECT_URI),
   dryRun: raw.DELIVERY_DRY_RUN === '1',
+  sweepIntervalMs: raw.SWEEP_INTERVAL_MINUTES * 60000,
 };
 
 export default env;

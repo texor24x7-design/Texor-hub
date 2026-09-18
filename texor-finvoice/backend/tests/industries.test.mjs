@@ -31,7 +31,8 @@ for (const pack of industries) {
   const customer = await call(owner, `${W}/records/customers`, { method: 'POST', body: { name: 'Sample Customer', phone: '9820012345', custom: {} } });
   check('a customer can be added with the pack\'s required fields', customer.status === 201, customer.body);
 
-  const item = items[0];
+  // A package is not billable as itself, so bill something that is.
+  const item = items.find((i) => i.kind !== 'package');
   const lines = item
     ? [{ item: item._id, description: item.name, variant: item.variants?.[0]?.name ?? '', quantity: 1, priceMinor: item.variants?.[0]?.priceMinor ?? item.priceMinor, taxRate: item.taxRate, priceIncludesTax: item.priceIncludesTax, hsn: item.hsn, serials: item.trackSerials ? ['PACK-SN-1'] : [] }]
     : [{ description: 'Consulting', quantity: 1, priceMinor: 100000, taxRate: 18 }];
@@ -39,6 +40,12 @@ for (const pack of industries) {
   check('an invoice drafts from the sample catalogue', invoice.status === 201, invoice.body);
   const issued = await call(owner, `${W}/documents/invoices/${invoice.body.document?._id}/issue`, { method: 'POST' });
   check('and issues', issued.body.document?.status === 'issued', issued.body);
+
+  const pkg = items.find((i) => i.kind === 'package');
+  if (pkg) {
+    const refused = await call(owner, `${W}/documents/invoices`, { method: 'POST', body: { customer: customer.body.record?._id, lines: [{ item: pkg._id, description: pkg.name, quantity: 1, priceMinor: pkg.priceMinor, taxRate: 0 }] } });
+    check('a package cannot be billed as one line', refused.status === 400 && /is a package/i.test(JSON.stringify(refused.body)), refused.body);
+  }
 
   const html = await call(owner, `${W}/documents/invoices/${invoice.body.document?._id}/html`);
   check(`it renders in the pack's ${boot.body.workspace.preferences.design} design`, html.status === 200 && String(html.body).includes(issued.body.document?.number), String(html.body).slice(0, 200));

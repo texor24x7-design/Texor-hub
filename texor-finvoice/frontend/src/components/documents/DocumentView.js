@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Ban, CheckCircle2, Copy, Download, FileCheck2, MoreHorizontal, Pencil, Receipt, Send, ShieldCheck, Trash2, Wallet, XCircle } from 'lucide-react';
+import { Ban, CheckCircle2, Copy, CreditCard, Download, FileCheck2, FileMinus2, FilePlus2, MoreHorizontal, Pencil, Printer, Receipt, Repeat, Send, ShieldCheck, Trash2, Wallet, XCircle } from 'lucide-react';
 import { Alert, Badge, Button, ButtonLink, Dialog, Field, Menu, MenuItem, PageHeader, SkeletonRows, StatusBadge, useConfirm, useToast } from '@/components/ui';
 import { Activity } from '@/components/records/Activity';
 import { invalidate, useResource } from '@/lib/data';
 import { date, dateTime, money, toDateInput } from '@/lib/format';
 import { useWorkspace } from '@/lib/workspace';
 import { PaymentDialog, SendDialog } from './DocumentActions';
+import { RepeatDialog } from './RepeatDialog';
+import { ThermalPrint, rollWidthOf } from './ThermalPrint';
 
 /** The server-rendered document in a sandboxed frame: no scripts, same markup as the PDF. */
 function Preview({ kind, id, design, version }) {
@@ -48,10 +50,28 @@ export function DocumentView({ module, id }) {
   const [paying, setPaying] = useState(false);
   // Arriving from "Save & send" — open the send sheet straight away.
   const [sending, setSending] = useState(() => params.get('send') === '1');
+  const [repeating, setRepeating] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [busy, setBusy] = useState(null);
   const [version, setVersion] = useState(0);
+
+  // Which design this document prints on, and whether that design is a roll.
+  // Both the document and the designs have to be in before this can be decided:
+  // falling back to the workspace default early would print an A4 invoice on a
+  // workspace whose default happens to be a roll.
+  const rollMm = data && designs
+    ? rollWidthOf(designs.designs?.find((d) => d.key === (data.document.design || prefs.design || 'classic')))
+    : null;
+
+  // Arriving straight from an issue, on a roll: run the printer once, then drop
+  // the flag so a refresh does not print it again.
+  useEffect(() => {
+    if (!rollMm || params.get('printed') !== '1') return;
+    setPrinting(true);
+    router.replace(`${window.location.pathname}${params.get('send') === '1' ? '?send=1' : ''}`, { scroll: false });
+  }, [rollMm, params, router]);
 
   if (error) return <Alert kind="error" title={`Could not open this ${module.labelSingular.toLowerCase()}`}>{error.message}</Alert>;
   if (!data) return <SkeletonRows rows={10} />;
@@ -72,6 +92,19 @@ export function DocumentView({ module, id }) {
   }
 
   const issue = () => act('issue', () => api.post(`/documents/invoices/${id}/issue`), `${module.labelSingular} issued`);
+  const issueNote = () => act('issue', () => api.post(`/documents/${kind}/${id}/issue-note`), `${module.labelSingular} issued`);
+
+  /** Raises a Razorpay link for what is still owed and copies it to the clipboard. */
+  async function paymentLink() {
+    const result = await act('link', () => api.post(`/documents/invoices/${id}/payment-link`), 'Payment link copied');
+    if (result?.url) navigator.clipboard?.writeText(result.url);
+  }
+
+  /** Drafts a note that mirrors this invoice and opens it, so the lines can be trimmed. */
+  async function raiseNote(noteKind) {
+    const result = await act('note', () => api.post(`/documents/invoices/${id}/note/${noteKind}`), 'Draft note created');
+    if (result?.document) router.push(href(`/${noteKind}/${result.document._id}/edit`));
+  }
   const transition = (action, label) => act(action, () => api.post(`/documents/quotations/${id}/${action}`), label);
   async function convert() {
     const result = await act('convert', () => api.post(`/documents/quotations/${id}/convert`), 'Draft invoice created');
@@ -106,7 +139,12 @@ export function DocumentView({ module, id }) {
   const needsIssuer = isInvoice && doc.status === 'draft' && !can('invoices', 'approve');
   const pdfUrl = api.url(`/documents/${kind}/${id}/pdf?download=1`);
   const publicLink = doc.publicToken && !(isInvoice && doc.status === 'draft') ? `${window.location.origin}/d/${doc.publicToken}` : null;
+
   const invoices = moduleOf('invoices');
+  const schedules = moduleOf('schedules');
+  const isNote = kind === 'credit_notes' || kind === 'debit_notes';
+  const creditNotes = moduleOf('credit_notes');
+  const debitNotes = moduleOf('debit_notes');
 
   return (
     <>
@@ -119,6 +157,7 @@ export function DocumentView({ module, id }) {
           <>
             {editable && can(kind, 'edit') ? <ButtonLink variant="secondary" href={href(`/${kind}/${id}/edit`)} icon={<Pencil />}>Edit</ButtonLink> : null}
             {isInvoice && doc.status === 'draft' && can('invoices', 'approve') ? <Button icon={<FileCheck2 />} onClick={issue} loading={busy === 'issue'}>Issue invoice</Button> : null}
+            {isNote && doc.status === 'draft' && can(kind, 'approve') ? <Button icon={<FileCheck2 />} onClick={issueNote} loading={busy === 'issue'}>Issue {module.labelSingular.toLowerCase()}</Button> : null}
             {isInvoice && ['issued', 'partial'].includes(doc.status) && can('payments', 'create') ? <Button icon={<Wallet />} onClick={() => setPaying(true)}>Record payment</Button> : null}
             {!isInvoice && ['draft', 'sent', 'accepted'].includes(doc.status) && invoices && can('invoices', 'create') ? <Button icon={<Receipt />} onClick={convert} loading={busy === 'convert'}>Convert to {invoices.labelSingular.toLowerCase()}</Button> : null}
             {doc.status !== 'void' ? <Button variant="secondary" icon={<Send />} onClick={sendNow} loading={busy === 'send'} disabled={needsIssuer} title={needsIssuer ? `A ${module.labelSingular.toLowerCase()} has to be issued before it can be sent, and you do not have permission to issue.` : undefined}>Send</Button> : null}
@@ -132,6 +171,11 @@ export function DocumentView({ module, id }) {
                 </>
               ) : null}
               {!isInvoice && doc.status === 'draft' && can('quotations', 'approve') ? <MenuItem icon={<Send />} onClick={() => transition('send', 'Marked sent')}>Mark sent without sending</MenuItem> : null}
+              {rollMm && doc.status !== 'draft' ? <MenuItem icon={<Printer />} onClick={() => setPrinting(true)}>Print the receipt</MenuItem> : null}
+              {isInvoice && ['issued', 'partial'].includes(doc.status) && doc.amountDueMinor > 0 && can('payments', 'create') ? <MenuItem icon={<CreditCard />} onClick={paymentLink}>Copy a payment link</MenuItem> : null}
+              {isInvoice && doc.status !== 'draft' && doc.status !== 'void' && schedules && can('schedules', 'create') ? <MenuItem icon={<Repeat />} onClick={() => setRepeating(true)}>Repeat this invoice…</MenuItem> : null}
+              {isInvoice && doc.status !== 'draft' && doc.status !== 'void' && creditNotes && can('credit_notes', 'create') ? <MenuItem icon={<FileMinus2 />} onClick={() => raiseNote('credit_notes')}>Raise a credit note</MenuItem> : null}
+              {isInvoice && doc.status !== 'draft' && doc.status !== 'void' && debitNotes && can('debit_notes', 'create') ? <MenuItem icon={<FilePlus2 />} onClick={() => raiseNote('debit_notes')}>Raise a debit note</MenuItem> : null}
               {isInvoice && ['issued', 'partial', 'paid'].includes(doc.status) && can('invoices', 'approve') ? <MenuItem icon={<Ban />} danger onClick={() => setVoiding(true)}>Void invoice</MenuItem> : null}
               {((isInvoice && doc.status === 'draft') || (!isInvoice && doc.status !== 'converted')) && can(kind, 'delete') ? <MenuItem icon={<Trash2 />} danger onClick={remove}>Delete</MenuItem> : null}
             </Menu>
@@ -155,6 +199,8 @@ export function DocumentView({ module, id }) {
             <dl className="kv" style={{ marginTop: '0.5rem' }}>
               <dt>Total</dt><dd>{money(doc.totals.totalMinor, currency)}</dd>
               {isInvoice ? <><dt>Received</dt><dd>{money(doc.amountPaidMinor, currency)}</dd></> : null}
+              {isInvoice && doc.creditedMinor ? <><dt>{doc.creditedMinor > 0 ? 'Credited' : 'Debited'}</dt><dd>{money(Math.abs(doc.creditedMinor), currency)}</dd></> : null}
+              {isNote && doc.reason ? <><dt>Reason</dt><dd>{doc.reason}</dd></> : null}
               {doc.totals.taxMinor ? <><dt>{doc.interState ? 'IGST' : 'GST'}</dt><dd>{money(doc.totals.taxMinor, currency)}</dd></> : null}
               {isInvoice ? (
                 <>
@@ -163,8 +209,9 @@ export function DocumentView({ module, id }) {
                     ? <input type="date" className="input input-sm" style={{ width: 150, marginLeft: 'auto' }} defaultValue={toDateInput(doc.dueDate)} onBlur={(e) => e.target.value !== toDateInput(doc.dueDate) && setDue(e.target.value)} aria-label="Due date" />
                     : date(doc.dueDate)}</dd>
                 </>
-              ) : <><dt>Valid until</dt><dd>{date(doc.validUntil)}</dd></>}
+              ) : isNote ? null : <><dt>Valid until</dt><dd>{date(doc.validUntil)}</dd></>}
               {doc.sentAt ? <><dt>First sent</dt><dd>{dateTime(doc.sentAt)}</dd></> : null}
+              {doc.viewedAt ? <><dt>First opened</dt><dd>{dateTime(doc.viewedAt)}</dd></> : null}
               {related.quotation ? <><dt>From</dt><dd><Link href={href(`/quotations/${doc.quotation}`)}>{related.quotation.number}</Link></dd></> : null}
               {related.invoice ? <><dt>Invoice</dt><dd><Link href={href(`/invoices/${doc.invoice}`)}>{related.invoice.number ?? 'Draft'}</Link></dd></> : null}
             </dl>
@@ -221,6 +268,8 @@ export function DocumentView({ module, id }) {
       </div>
 
       {isInvoice ? <PaymentDialog open={paying} onClose={() => setPaying(false)} document={doc} onRecorded={refresh} /> : null}
+      <ThermalPrint open={printing} onClose={() => setPrinting(false)} kind={kind} id={id} design={doc.design} widthMm={rollMm ?? 80} pdfUrl={pdfUrl} />
+      <RepeatDialog open={repeating} onClose={() => setRepeating(false)} document={doc} />
       <SendDialog open={sending} onClose={() => { setSending(false); if (params.get('send')) router.replace(href(`/${kind}/${id}`)); }} kind={kind} document={doc} onSent={() => { refresh(); reloadDeliveries(); }} />
       <Dialog open={voiding} onClose={() => setVoiding(false)} size="narrow" title={`Void ${doc.number}?`} description="The number stays used, stock goes back and warranties from this invoice are voided. This cannot be undone."
         footer={<><Button variant="secondary" onClick={() => setVoiding(false)}>Cancel</Button><Button variant="danger" loading={busy === 'void'} onClick={async () => { await act('void', () => api.post(`/documents/invoices/${id}/void`, { reason: voidReason }), 'Invoice voided'); setVoiding(false); }}>Void invoice</Button></>}>

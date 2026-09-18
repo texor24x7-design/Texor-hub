@@ -24,7 +24,7 @@ const TEST_API = `http://localhost:${TEST_PORT}`;
 /** Pure logic — no server, no database. */
 const UNIT = ['money.test.mjs', 'india.test.mjs', 'tax.test.mjs', 'render.test.mjs', 'signature.test.mjs', 'ratelimit.test.mjs'];
 /** End to end, against the spawned API. */
-const E2E = ['foundation.test.mjs', 'documents.test.mjs', 'operations.test.mjs', 'industries.test.mjs'];
+const E2E = ['foundation.test.mjs', 'documents.test.mjs', 'operations.test.mjs', 'industries.test.mjs', 'sweep.test.mjs', 'notes.test.mjs', 'razorpay.test.mjs', 'ledger.test.mjs', 'packages.test.mjs'];
 
 const only = process.argv.slice(2);
 const selected = (file) => only.length === 0 || only.some((word) => file.includes(word));
@@ -83,7 +83,7 @@ if (e2e.length) {
   const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI, ...cleanEnv } = process.env;
 
   const server = spawn(process.execPath, ['src/server.js'], {
-    env: { ...cleanEnv, MONGODB_URI: uri, PORT: String(TEST_PORT), LOG_LEVEL: 'error', DELIVERY_DRY_RUN: '1', APP_ORIGIN: 'http://localhost:3101', CORS_ORIGINS: 'http://localhost:3101' },
+    env: { ...cleanEnv, MONGODB_URI: uri, PORT: String(TEST_PORT), LOG_LEVEL: 'error', DELIVERY_DRY_RUN: '1', SWEEP_INTERVAL_MINUTES: '0', APP_ORIGIN: 'http://localhost:3101', CORS_ORIGINS: 'http://localhost:3101' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';

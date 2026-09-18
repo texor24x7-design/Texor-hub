@@ -6,6 +6,11 @@ import { Alert, Loading } from '@/components/ui';
 import { api, fileUrl } from '@/lib/api';
 import { date } from '@/lib/format';
 
+const SCOPE_LABELS = {
+  parts_labour: 'Parts & labour', parts: 'Parts only', labour: 'Labour only',
+  replacement: 'Replacement', service: 'Service / workmanship',
+};
+
 export default function WarrantyCard({ params }) {
   const { token } = use(params);
   const [data, setData] = useState(null);
@@ -40,10 +45,18 @@ export default function WarrantyCard({ params }) {
             <dt>Registered to</dt><dd>{w.customer}</dd>
             <dt>Valid from</dt><dd>{date(w.startDate)}</dd>
             <dt>Valid until</dt><dd>{date(w.endDate)}</dd>
+            {w.scope ? <><dt>Cover</dt><dd>{SCOPE_LABELS[w.scope] ?? w.scope}</dd></> : null}
+            <dt>Transferable</dt><dd>{w.transferable ? 'Yes, with proof of purchase' : 'No — covers the original buyer'}</dd>
             {w.invoiceNumber ? <><dt>Invoice</dt><dd className="mono">{w.invoiceNumber}</dd></> : null}
             {w.claims.length ? <><dt>Claims</dt><dd>{w.claims.length}</dd></> : null}
           </dl>
-          {w.coverage ? <div><div className="section-title">What is covered</div><p className="small" style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{w.coverage}</p></div> : null}
+          {w.includes?.length ? (
+            <div><div className="section-title">What is covered</div><ul className="points-list" style={{ marginTop: 6 }}>{w.includes.map((point, i) => <li key={i}>{point}</li>)}</ul></div>
+          ) : null}
+          {w.excludes?.length ? (
+            <div><div className="section-title">What is not covered</div><ul className="points-list" style={{ marginTop: 6 }}>{w.excludes.map((point, i) => <li key={i}>{point}</li>)}</ul></div>
+          ) : null}
+          {w.coverage ? <div><div className="section-title">Notes</div><p className="small" style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{w.coverage}</p></div> : null}
           <div className="divider" />
           <div className="small muted">To make a claim, contact {business.name}{business.phone ? <> on <a href={`tel:${business.phone}`}>{business.phone}</a></> : null}{business.email ? <> or <a href={`mailto:${business.email}`}>{business.email}</a></> : null}.</div>
         </div>

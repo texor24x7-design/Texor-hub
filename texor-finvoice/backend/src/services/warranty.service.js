@@ -74,6 +74,7 @@ export async function publicCard(token) {
   return {
     warranty: {
       itemName: warranty.itemName, serial: warranty.serial, startDate: warranty.startDate, endDate: warranty.endDate, coverage: warranty.coverage,
+      scope: warranty.scope, includes: warranty.includes ?? [], excludes: warranty.excludes ?? [], transferable: Boolean(warranty.transferable),
       invoiceNumber: warranty.invoiceNumber, customer: warranty.customer?.name ?? '', state,
       claims: warranty.claims.map(({ reportedAt, status }) => ({ reportedAt, status })),
     },

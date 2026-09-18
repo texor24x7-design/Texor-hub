@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Search } from 'lucide-react';
 import { Icon } from '@/components/Icon';
 import { ButtonLink, EmptyState, PageHeader, Pagination, SkeletonRows, StatusBadge, Tabs } from '@/components/ui';
@@ -19,23 +19,40 @@ const TABS = {
     { value: '', label: 'All' }, { value: 'draft', label: 'Drafts' }, { value: 'sent', label: 'Sent' }, { value: 'accepted', label: 'Accepted' },
     { value: 'expired', label: 'Expired' }, { value: 'declined', label: 'Declined' }, { value: 'converted', label: 'Converted' },
   ],
+  credit_notes: [{ value: '', label: 'All' }, { value: 'draft', label: 'Drafts' }, { value: 'issued', label: 'Issued' }, { value: 'void', label: 'Void' }],
+  debit_notes: [{ value: '', label: 'All' }, { value: 'draft', label: 'Drafts' }, { value: 'issued', label: 'Issued' }, { value: 'void', label: 'Void' }],
 };
 
 export function DocumentList({ module }) {
   const { api, slug, href, can, currency } = useWorkspace();
   const router = useRouter();
   const kind = module.key;
-  const [state, setState] = useState('');
-  const [q, setQ] = useState('');
+  // Filters live in the URL so the dashboard can link straight to one, and so
+  // Back and bookmarks behave the way people expect.
+  const urlParams = useSearchParams();
+  const state = urlParams.get('state') ?? '';
+  const [q, setQ] = useState(() => urlParams.get('q') ?? '');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const search = useDebounced(q);
   useEffect(() => setPage(1), [state, search, from, to]);
 
+  const setFilter = (patch) => {
+    const next = new URLSearchParams(urlParams);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value) next.set(key, value); else next.delete(key);
+    }
+    router.replace(`?${next}`, { scroll: false });
+  };
+  const setState = (value) => setFilter({ state: value });
+  // Keep typing snappy: the box is local, the URL catches up with the debounce.
+  useEffect(() => { if (search !== (urlParams.get('q') ?? '')) setFilter({ q: search }); }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const params = useMemo(() => ({ state, q: search, from, to: to ? `${to}T23:59:59` : '', page }), [state, search, from, to, page]);
   const { data, loading, error } = useResource(`documents:${slug}:${kind}:${JSON.stringify(params)}`, () => api.get(`/documents/${kind}`, params));
   const isInvoice = kind === 'invoices';
+  const isNote = kind === 'credit_notes' || kind === 'debit_notes';
   const printable = module.fields.filter((f) => f.custom && f.printable && ['text', 'select'].includes(f.type)).slice(0, 1);
 
   return (
@@ -78,7 +95,7 @@ export function DocumentList({ module }) {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Number</th><th>Customer</th>{printable.map((f) => <th key={f.key}>{f.label}</th>)}<th>Date</th><th>{isInvoice ? 'Due' : 'Valid until'}</th><th>Status</th>
+                    <th>Number</th><th>Customer</th>{printable.map((f) => <th key={f.key}>{f.label}</th>)}<th>Date</th><th>{isInvoice ? 'Due' : isNote ? 'Against' : 'Valid until'}</th><th>Status</th>
                     <th className="num">Amount</th>{isInvoice ? <th className="num">Balance</th> : null}
                   </tr>
                 </thead>
@@ -89,7 +106,7 @@ export function DocumentList({ module }) {
                       <td><div className="cell-title">{d.billTo?.name}</div>{d.billTo?.phone ? <div className="cell-sub">{d.billTo.phone}</div> : null}</td>
                       {printable.map((f) => <td key={f.key}>{f.options?.find((o) => o.value === d.custom?.[f.key])?.label ?? d.custom?.[f.key] ?? '—'}</td>)}
                       <td className="nowrap">{date(d.date)}</td>
-                      <td className="nowrap">{date(isInvoice ? d.dueDate : d.validUntil)}</td>
+                      <td className="nowrap">{isNote ? (d.invoiceNumber || <span className="subtle">—</span>) : date(isInvoice ? d.dueDate : d.validUntil)}</td>
                       <td><StatusBadge status={d.state} /></td>
                       <td className="num strong">{money(d.totals.totalMinor, currency)}</td>
                       {isInvoice ? <td className="num">{d.status === 'void' || d.status === 'draft' ? <span className="subtle">—</span> : money(d.amountDueMinor, currency)}</td> : null}

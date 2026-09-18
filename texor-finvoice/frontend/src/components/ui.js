@@ -80,7 +80,7 @@ export function Badge({ tone = 'neutral', plain, children, title }) {
 
 const STATUS_TONES = {
   draft: 'neutral', issued: 'blue', sent: 'blue', partial: 'amber', paid: 'green', void: 'neutral', overdue: 'red',
-  accepted: 'green', declined: 'red', converted: 'violet', expired: 'amber',
+  accepted: 'green', declined: 'red', converted: 'violet', expired: 'amber', credited: 'violet',
   active: 'green', expiring: 'amber', claimed: 'violet',
   present: 'green', absent: 'red', half_day: 'amber', leave: 'blue', holiday: 'neutral', week_off: 'neutral',
   invited: 'amber', disabled: 'neutral', open: 'amber', in_progress: 'blue', resolved: 'green', rejected: 'red',

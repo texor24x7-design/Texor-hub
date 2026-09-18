@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import env from './config/env.js';
 import { createApiRouter } from './routes/index.js';
+import { razorpay as razorpayWebhook } from './controllers/webhook.controller.js';
 import { errorHandler, notFound } from './middleware/error.js';
 
 export function createApp() {
@@ -37,6 +38,10 @@ export function createApp() {
 
   // The secret signs the short-lived PKCE transaction cookie.
   app.use(cookieParser(env.COOKIE_SECRET));
+  // Signature verification needs the exact bytes Razorpay signed, so this one
+  // route is mounted ahead of the JSON parser.
+  app.post('/api/webhooks/razorpay/:workspace', express.raw({ type: '*/*', limit: '256kb' }), (req, res, next) => razorpayWebhook(req, res).catch(next));
+
   app.use(express.json({ limit: '256kb' }));
 
   app.use('/api', createApiRouter());

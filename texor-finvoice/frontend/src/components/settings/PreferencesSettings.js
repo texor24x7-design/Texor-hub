@@ -9,7 +9,7 @@ import { useWorkspace } from '@/lib/workspace';
 import { SettingsLayout } from './SettingsLayout';
 
 const WIDGET_LABELS = {
-  sales_today: "Today's sales", sales_month: 'Sales, last 30 days', receivables: 'Money to collect', overdue: 'Overdue invoices', quotes_open: 'Open quotations',
+  sales_today: "Today's sales", sales_month: 'Sales, last 30 days', receivables: 'Money to collect', receivables_aging: 'How old the money is', overdue: 'Overdue invoices', quotes_open: 'Open quotations',
   low_stock: 'Low stock', warranties_expiring: 'Warranties ending soon', attendance_today: 'Attendance today', top_items: 'Best sellers',
   payment_modes_today: 'Collected today by mode', recent_invoices: 'Recent invoices',
 };

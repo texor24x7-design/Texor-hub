@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import * as records from '../services/record.service.js';
 import Item from '../models/Item.js';
+import Invoice from '../models/Invoice.js';
 import { history as stockHistory, move as moveStock } from '../services/stock.service.js';
 import { can } from '../services/rbac.service.js';
 import { hiddenFields } from '../services/rbac.service.js';
@@ -36,19 +37,71 @@ export const importRows = async (req, res) => res.json(await records.importRows(
  * together, limited to the kinds this person may view, with cost price removed
  * for roles that hide it.
  */
+const RECENT_DAYS = 30;
+
+/** Item ids by how often they were billed in the last 30 days, most first. */
+async function recentlyBilled(workspace, limit) {
+  const since = new Date(Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000);
+  const rows = await Invoice.aggregate([
+    { $match: { workspace, deletedAt: null, issuedAt: { $gte: since }, status: { $ne: 'void' } } },
+    { $unwind: '$lines' },
+    { $match: { 'lines.item': { $ne: null } } },
+    { $group: { _id: '$lines.item', count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: limit },
+  ]);
+  return rows.map((r) => r._id);
+}
+
+/** The ranked items first, in rank order, then alphabetical fill up to `limit`. */
+async function byRank(filter, ranked, limit, select) {
+  const top = await Item.find({ ...filter, _id: { $in: ranked } }).select(select).lean();
+  const rank = new Map(ranked.map((id, i) => [String(id), i]));
+  top.sort((a, b) => rank.get(String(a._id)) - rank.get(String(b._id)));
+  if (top.length >= limit) return top.slice(0, limit);
+  const fill = await Item.find({ ...filter, _id: { $nin: top.map((i) => i._id) } })
+    .sort({ name: 1 }).limit(limit - top.length).select(select).lean();
+  return [...top, ...fill];
+}
+
 export async function searchItems(req, res) {
-  const kinds = ['product', 'service'].filter((kind) => can(req.workspace, req.member, `${kind}s`, 'view'));
+  const kinds = ['product', 'service', 'package'].filter((kind) => can(req.workspace, req.member, `${kind}s`, 'view'));
   if (!kinds.length) throw ApiError.forbidden('Your role cannot see the catalogue.');
 
   const filter = { workspace: req.workspace._id, deletedAt: null, kind: { $in: kinds } };
   const q = String(req.query.q ?? '').trim().toLowerCase().slice(0, 100);
   if (q) filter.$or = [{ searchText: { $regex: records.escapeRegex(q) } }, { barcode: q }];
 
-  const items = await Item.find(filter).sort({ name: 1 }).limit(Math.min(Number(req.query.limit) || 25, 100))
-    .select('kind name sku barcode hsn unit priceMinor costMinor taxRate cessRate priceIncludesTax variants trackStock stock trackSerials warranty category image custom').lean();
+  const limit = Math.min(Number(req.query.limit) || 25, 100);
+  const select = 'kind name sku barcode hsn unit priceMinor costMinor taxRate cessRate priceIncludesTax variants trackStock stock trackSerials warranty category image custom components packagePricing packageDiscountPct';
 
-  const hide = { product: hiddenFields(req.workspace, req.member, 'products'), service: hiddenFields(req.workspace, req.member, 'services') };
-  for (const item of items) for (const key of hide[item.kind]) delete item[key];
+  // Browsing with no query: most shops sell the same few things all day, so lead
+  // with what they actually billed recently instead of a cold alphabetical page.
+  const ranked = q ? [] : await recentlyBilled(req.workspace._id, limit);
+  const items = ranked.length
+    ? await byRank(filter, ranked, limit, select)
+    : await Item.find(filter).sort({ name: 1 }).limit(limit).select(select).lean();
+
+  const hide = {
+    product: hiddenFields(req.workspace, req.member, 'products'),
+    service: hiddenFields(req.workspace, req.member, 'services'),
+    package: hiddenFields(req.workspace, req.member, 'packages'),
+  };
+  for (const item of items) for (const key of hide[item.kind] ?? []) delete item[key];
+
+  // A package is billed by expanding it, so the picker needs each component's
+  // own price and tax — they are what the lines are built from.
+  const componentIds = items.flatMap((i) => (i.components ?? []).map((c) => c.item).filter(Boolean));
+  if (componentIds.length) {
+    const parts = await Item.find({ _id: { $in: componentIds }, workspace: req.workspace._id, deletedAt: null }).select(select).lean();
+    const byId = new Map(parts.map((p) => [String(p._id), p]));
+    for (const item of items) {
+      if (item.kind !== 'package') continue;
+      item.components = (item.components ?? [])
+        .map((c) => ({ ...c, item: byId.get(String(c.item)) ?? null }))
+        .filter((c) => c.item);
+    }
+  }
   res.json({ items });
 }
 

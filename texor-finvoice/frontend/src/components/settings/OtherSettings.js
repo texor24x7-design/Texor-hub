@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Check, ExternalLink, Mail, MessageCircle, Rocket, Send, Server, Trash2 } from 'lucide-react';
+import { Check, Copy, CreditCard, ExternalLink, Mail, MessageCircle, Rocket, Send, Server, Trash2 } from 'lucide-react';
 import { Alert, Badge, Button, Field, Switch, useConfirm, useToast } from '@/components/ui';
 import { Activity } from '@/components/records/Activity';
 import { useResource } from '@/lib/data';
@@ -14,18 +14,29 @@ const DEFAULTS = {
   'email.body': 'Hi {{customer.name}},\n\nPlease find {{document.label}} {{document.number}} for {{document.total}} attached.\n\nYou can also view it online: {{document.link}}\n\nThank you,\n{{business.name}}',
   whatsapp: 'Hi {{customer.name}}, here is your {{document.label}} {{document.number}} from {{business.name}} for {{document.total}}.\n\nView or download: {{document.link}}',
 };
-const MESSAGE_TAGS = ['customer.name', 'document.label', 'document.number', 'document.total', 'document.amountDue', 'document.dueDate', 'document.link', 'business.name', 'business.phone'];
+const REMINDER_DEFAULTS = {
+  'reminder.email.subject': 'Reminder: {{document.label}} {{document.number}} is due',
+  'reminder.email.body': 'Hi {{customer.name}},\n\nThis is a gentle reminder that {{document.label}} {{document.number}} for {{document.amountDue}} was due on {{document.dueDate}}.\n\nYou can view and pay it here: {{document.link}}\n\nIf you have already paid, please ignore this message.\n\nThank you,\n{{business.name}}',
+  'reminder.whatsapp': 'Hi {{customer.name}}, a gentle reminder that {{document.label}} {{document.number}} for {{document.amountDue}} was due on {{document.dueDate}}.\n\nView or pay: {{document.link}}\n\nIf you have already paid, please ignore this.',
+};
+const MESSAGE_TAGS = ['customer.name', 'document.label', 'document.number', 'document.total', 'document.amountDue', 'document.dueDate', 'document.daysOverdue', 'document.validUntil', 'document.link', 'business.name', 'business.phone'];
+
+const SWEEP_DEFAULTS = { enabled: false, channel: 'smtp', invoiceDays: [-3, 3, 10, 30], quoteDays: 3, warrantyDays: 30 };
+const parseDays = (text) => [...new Set(String(text).split(',').map((d) => Number(d.trim())).filter((d) => Number.isFinite(d) && d >= -90 && d <= 365))].sort((a, b) => a - b).slice(0, 6);
 
 export function MessagesSettings() {
   const { api, prefs, apply, can } = useWorkspace();
   const toast = useToast();
-  const [messages, setMessages] = useState(() => ({ ...DEFAULTS, ...(prefs.messages ?? {}) }));
+  const [messages, setMessages] = useState(() => ({ ...DEFAULTS, ...REMINDER_DEFAULTS, ...(prefs.messages ?? {}) }));
+  const [reminders, setReminders] = useState(() => ({ ...SWEEP_DEFAULTS, ...(prefs.reminders ?? {}) }));
+  const [daysText, setDaysText] = useState(() => (prefs.reminders?.invoiceDays ?? SWEEP_DEFAULTS.invoiceDays).join(', '));
+  const setR = (patch) => setReminders((r) => ({ ...r, ...patch }));
   const [focus, setFocus] = useState('whatsapp');
   const [busy, setBusy] = useState(false);
 
   async function save() {
     setBusy(true);
-    try { apply(await api.patch('/settings/preferences', { messages })); toast('Templates saved'); } catch (error) { toast(error.message, 'error'); } finally { setBusy(false); }
+    try { apply(await api.patch('/settings/preferences', { messages, reminders: { ...reminders, invoiceDays: parseDays(daysText) } })); toast('Templates saved'); } catch (error) { toast(error.message, 'error'); } finally { setBusy(false); }
   }
 
   const field = (key, label, rows) => (
@@ -49,6 +60,45 @@ export function MessagesSettings() {
           {field('email.body', 'Body', 8)}
         </div>
       </section>
+
+      <section className="card">
+        <div className="card-header"><h2>Automatic reminders</h2></div>
+        <div className="card-body stack">
+          <Switch checked={reminders.enabled} onChange={(enabled) => setR({ enabled })}
+            label="Chase overdue invoices and nudge before things expire" />
+          {reminders.enabled ? (
+            <>
+              <Alert kind="info" title="These send without anyone clicking">
+                So they need a channel that works unattended: SMTP or WhatsApp Business, set up under Integrations.
+                The WhatsApp link channel cannot be automated — it opens a chat for a person to send.
+              </Alert>
+              <div className="grid-2">
+                <Field label="Send over">
+                  <select className="input" value={reminders.channel} onChange={(e) => setR({ channel: e.target.value })}>
+                    <option value="smtp">Email (SMTP)</option>
+                    <option value="whatsapp_cloud">WhatsApp Business</option>
+                  </select>
+                </Field>
+                <Field label="Chase an overdue invoice on day" hint="Days from the due date. Negative is before it. One message per number, ever.">
+                  <input className="input" value={daysText} onChange={(e) => setDaysText(e.target.value)} onBlur={() => setDaysText(parseDays(daysText).join(', '))} placeholder="-3, 3, 10, 30" />
+                </Field>
+              </div>
+              <div className="grid-2">
+                <Field label="Warn before a quotation expires" hint="Days. 0 turns it off.">
+                  <input className="input" type="number" min="0" max="90" value={reminders.quoteDays} onChange={(e) => setR({ quoteDays: Number(e.target.value) || 0 })} />
+                </Field>
+                <Field label="Warn before a warranty ends" hint="Days. 0 turns it off. A good moment to offer a renewal or a service.">
+                  <input className="input" type="number" min="0" max="365" value={reminders.warrantyDays} onChange={(e) => setR({ warrantyDays: Number(e.target.value) || 0 })} />
+                </Field>
+              </div>
+              <div className="section-title">Reminder wording</div>
+              {field('reminder.whatsapp', 'WhatsApp message', 5)}
+              {field('reminder.email.subject', 'Email subject')}
+              {field('reminder.email.body', 'Email body', 8)}
+            </>
+          ) : null}
+        </div>
+      </section>
     </SettingsLayout>
   );
 }
@@ -63,6 +113,7 @@ export function IntegrationsSettings() {
   const wa = data?.integrations.find((i) => i.type === 'whatsapp_cloud');
   const [smtpForm, setSmtpForm] = useState(null);
   const [waForm, setWaForm] = useState(null);
+  const [rzpForm, setRzpForm] = useState(null);
   const [busy, setBusy] = useState(null);
   const admin = can('settings', 'edit');
 
@@ -78,6 +129,11 @@ export function IntegrationsSettings() {
   async function saveWa() {
     setBusy('wa');
     try { await api.put('/integrations/whatsapp', waForm); setWaForm(null); reload(); toast('WhatsApp Business connected'); } catch (error) { toast(error.message, 'error'); } finally { setBusy(null); }
+  }
+
+  async function saveRzp() {
+    setBusy('rzp');
+    try { await api.put('/integrations/razorpay', rzpForm); setRzpForm(null); reload(); toast('Razorpay connected'); } catch (error) { toast(error.message, 'error'); } finally { setBusy(null); }
   }
 
   return (
@@ -148,6 +204,50 @@ export function IntegrationsSettings() {
             <div className="row">{wa ? <span className="small muted">Template “{wa.config.templateName}” ({wa.config.templateLanguage})</span> : <span className="small muted">Not connected.</span>}<div className="grow" />
               {admin ? <Button size="sm" variant="secondary" onClick={() => setWaForm({ phoneNumberId: wa?.config.phoneNumberId ?? '', accessToken: '', templateName: wa?.config.templateName ?? '', templateLanguage: wa?.config.templateLanguage ?? 'en' })}>{wa ? 'Edit' : 'Connect'}</Button> : null}
               {wa && admin ? <Button size="sm" variant="danger-ghost" icon={<Trash2 />} onClick={() => remove(wa, 'WhatsApp Business')} /> : null}
+            </div>
+          )}
+        </div>
+      </section>
+      <section className="card">
+        <div className="card-header">
+          <div className="row">
+            <span className="empty-icon" style={{ width: 36, height: 36 }}><CreditCard size={18} /></span>
+            <div>
+              <h2>Razorpay</h2>
+              <p className="small muted">Lets customers pay an invoice by card, netbanking or UPI. Your own Razorpay account — the money goes straight to you and Finvoice never sees your keys.</p>
+            </div>
+          </div>
+          {data?.razorpay?.connected ? <Badge tone="green">{data.razorpay.keyId}</Badge> : null}
+        </div>
+        <div className="card-body stack">
+          {rzpForm ? (
+            <div className="stack">
+              <Alert kind="info" title="Where these come from">
+                Razorpay Dashboard → Settings → API Keys for the key id and secret, and Settings → Webhooks for the webhook secret.
+                {' '}<a href="https://razorpay.com/docs/webhooks/" target="_blank" rel="noreferrer">Razorpay's guide <ExternalLink size={12} /></a>
+              </Alert>
+              <div className="fields-grid">
+                <Field label="Key id"><input className="input mono" value={rzpForm.keyId} onChange={(e) => setRzpForm({ ...rzpForm, keyId: e.target.value.trim() })} placeholder="rzp_live_XXXXXXXXXXXX" autoComplete="off" /></Field>
+                <Field label="Key secret" hint={data?.razorpay?.connected ? 'Leave empty to keep the saved one.' : undefined}><input className="input" type="password" value={rzpForm.keySecret} onChange={(e) => setRzpForm({ ...rzpForm, keySecret: e.target.value })} autoComplete="new-password" /></Field>
+                <Field label="Webhook secret" className="span-2" hint="Set the same value in Razorpay when you add the webhook below.">
+                  <input className="input" type="password" value={rzpForm.webhookSecret} onChange={(e) => setRzpForm({ ...rzpForm, webhookSecret: e.target.value })} autoComplete="new-password" />
+                </Field>
+              </div>
+              <Field label="Webhook URL to add in Razorpay" hint="Subscribe it to the payment_link.paid and payment.captured events.">
+                <div className="row">
+                  <input className="input mono" readOnly value={data?.razorpay?.webhookUrl ?? ''} onFocus={(e) => e.target.select()} />
+                  <Button variant="secondary" icon={<Copy />} aria-label="Copy" onClick={() => { navigator.clipboard?.writeText(data?.razorpay?.webhookUrl ?? ''); toast('Copied'); }} />
+                </div>
+              </Field>
+              <div className="row row-end"><Button variant="secondary" onClick={() => setRzpForm(null)}>Cancel</Button><Button onClick={saveRzp} loading={busy === 'rzp'}>Check & save</Button></div>
+            </div>
+          ) : (
+            <div className="row">
+              {data?.razorpay?.connected
+                ? <span className="small muted">Connected{data.razorpay.hasWebhookSecret ? '' : ' — no webhook secret yet, so payments will not record themselves'}.</span>
+                : <span className="small muted">Not connected.</span>}
+              <div className="grow" />
+              {admin ? <Button size="sm" variant="secondary" onClick={() => setRzpForm({ keyId: data?.razorpay?.keyId ?? '', keySecret: '', webhookSecret: '' })}>{data?.razorpay?.connected ? 'Edit' : 'Connect'}</Button> : null}
             </div>
           )}
         </div>

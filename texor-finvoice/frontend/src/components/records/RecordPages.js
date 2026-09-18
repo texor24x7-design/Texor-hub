@@ -10,11 +10,12 @@ import { FieldValue, readField } from '@/components/fields/FieldValue';
 import { FieldInput } from '@/components/fields/FieldInput';
 import { invalidate, useResource } from '@/lib/data';
 import { date, dateTime, money } from '@/lib/format';
-import { useWorkspace } from '@/lib/workspace';
+import { recordTitle, useWorkspace } from '@/lib/workspace';
 import { Activity } from './Activity';
+import { Statement } from './Statement';
 import { RecordForm } from './RecordForm';
 
-const titleOf = (record) => record?.title || record?.name || record?.itemName || 'Untitled';
+const titleOf = (record, module) => recordTitle(module, record);
 
 export function RecordCreate({ module }) {
   const { api, slug, href } = useWorkspace();
@@ -126,7 +127,7 @@ function CustomerRelated({ id }) {
     <>
       {data?.inv ? (
         <section className="card">
-          <div className="card-header"><h2>{invoices.label}</h2><span className="muted small num">{money(data.inv.sums.totalMinor - data.inv.sums.paidMinor, currency)} owed</span></div>
+          <div className="card-header"><h2>{invoices.label}</h2><span className="muted small num">{money(Math.max(data.inv.sums.totalMinor - data.inv.sums.paidMinor - (data.inv.sums.creditedMinor ?? 0), 0), currency)} owed</span></div>
           {data.inv.documents.length ? data.inv.documents.map((d) => (
             <Link key={d._id} className="list-row" href={href(`/invoices/${d._id}`)}>
               <span className="grow"><span className="strong">{d.number ?? 'Draft'}</span> <span className="subtle">· {date(d.date)}</span></span>
@@ -277,7 +278,7 @@ export function RecordDetail({ module, id }) {
   const invoices = moduleOf('invoices');
 
   async function remove() {
-    if (!(await confirm({ title: `Delete ${titleOf(record)}?`, message: `This ${module.labelSingular.toLowerCase()} will be removed from lists and search.`, confirmLabel: 'Delete', danger: true }))) return;
+    if (!(await confirm({ title: `Delete ${titleOf(record, module)}?`, message: `This ${module.labelSingular.toLowerCase()} will be removed from lists and search.`, confirmLabel: 'Delete', danger: true }))) return;
     try {
       await api.del(`/records/${module.key}/${id}`);
       invalidate(`records:${slug}:${module.key}`);
@@ -320,9 +321,9 @@ export function RecordDetail({ module, id }) {
   return (
     <>
       <PageHeader
-        title={titleOf(record)}
+        title={titleOf(record, module)}
         badge={badge}
-        crumbs={[{ label: module.label, href: href(`/${module.key}`) }, { label: titleOf(record) }]}
+        crumbs={[{ label: module.label, href: href(`/${module.key}`) }, { label: titleOf(record, module) }]}
         description={module.customerLink && refs[record.customer] ? <>For <Link href={href(`/customers/${record.customer}`)}>{refs[record.customer].title}</Link></> : undefined}
         actions={(
           <>
@@ -351,6 +352,7 @@ export function RecordDetail({ module, id }) {
           ) : null}
           <FieldsCard module={module} record={record} refs={refs} />
           {module.key === 'customers' ? <CustomerRelated id={id} /> : null}
+          {module.key === 'customers' ? <Statement customerId={id} /> : null}
           {module.key === 'warranties' ? <ClaimsPanel warranty={record} onChanged={reload} /> : null}
         </div>
         <div className="doc-side">

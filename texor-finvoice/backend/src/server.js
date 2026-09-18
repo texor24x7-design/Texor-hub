@@ -4,6 +4,7 @@ import logger from './utils/logger.js';
 import { connectDatabase, disconnectDatabase } from './config/db.js';
 import { createApp } from './app.js';
 import { closeBrowser } from './services/pdf.service.js';
+import { startSweep } from './services/sweep.service.js';
 
 async function main() {
   await connectDatabase();
@@ -18,8 +19,11 @@ async function main() {
     env: env.NODE_ENV,
   });
 
+  const stopSweep = startSweep(env.sweepIntervalMs);
+
   const shutdown = async (signal) => {
     logger.info(`received ${signal}, shutting down`);
+    stopSweep();
     server.close();
     await closeBrowser();
     await disconnectDatabase();

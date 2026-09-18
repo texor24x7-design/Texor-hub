@@ -18,6 +18,8 @@ export async function remove(req, res) {
 }
 
 export const issue = async (req, res) => res.json({ document: await documents.issueInvoice(req, req.params.id) });
+export const issueNote = async (req, res) => res.json({ document: await documents.issueNote(req, req.params.kind, req.params.id) });
+export const noteFromInvoice = async (req, res) => res.status(201).json({ document: await documents.noteFromInvoice(req, req.params.kind, req.params.id) });
 
 export const voidSchema = z.object({ reason: z.string().trim().max(300).default('') });
 export const voidInvoice = async (req, res) => res.json({ document: await documents.voidInvoice(req, req.params.id, req.body.reason) });
@@ -53,12 +55,16 @@ export async function publicDocument(req, res) {
     return { label: m.label, labelSingular: m.labelSingular, fields: m.fields.filter((f) => !f.hidden).map(({ key: k, label, type, custom, printable, options }) => ({ key: k, label, type, custom, printable, options })) };
   };
 
-  const { workspace: _w, createdBy, updatedBy, searchText, deletedAt, publicToken, ...document } = doc;
+  const { workspace: _w, createdBy, updatedBy, searchText, deletedAt, publicToken, paymentLink, ...document } = doc;
+  const due = kind === 'invoices' ? documents.amountDue(doc) : 0;
+  // Only offer the link while it is still for the right amount; a part payment
+  // since it was raised would otherwise ask the customer for too much.
+  document.payUrl = paymentLink?.url && due > 0 && paymentLink.amountMinor === due ? paymentLink.url : null;
   res.set('cache-control', 'private, no-store');
   res.set('x-robots-tag', 'noindex');
   res.json({
     kind,
-    document: { ...document, state: documents.documentState(kind, doc), amountDueMinor: kind === 'invoices' ? Math.max(doc.totals.totalMinor - doc.amountPaidMinor, 0) : undefined },
+    document: { ...document, state: documents.documentState(kind, doc), amountDueMinor: kind === 'invoices' ? documents.amountDue(doc) : undefined },
     module: labels(kind),
     lines: labels('lines'),
     business: {

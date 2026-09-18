@@ -96,6 +96,17 @@ section('issuing');
   check('a warranty was registered for each serial', warranties.body.total === 2, warranties.body.total);
   check('covering one year less a day', (() => { const w = warranties.body.records[0]; const days = (new Date(w.endDate) - new Date(w.startDate)) / 864e5; return days >= 363 && days <= 365; })());
 
+  const terms = warranties.body.records[0];
+  check('the product\u2019s cover type is carried onto the certificate', terms.scope === 'parts_labour', terms.scope);
+  check('and so are the covered points', Array.isArray(terms.includes) && terms.includes.some((p) => /panel/i.test(p)), terms.includes);
+  check('and the exclusions', Array.isArray(terms.excludes) && terms.excludes.some((p) => /physical damage/i.test(p)), terms.excludes);
+
+  const shared = await call(owner, `${W}/warranties/${terms._id}/share`, { method: 'POST' });
+  const card = await call(null, `/api/public/warranties/${shared.body.token}`);
+  check('the customer\u2019s card shows the same terms',
+    card.body.warranty.includes.length === terms.includes.length && card.body.warranty.excludes.length === terms.excludes.length, card.body.warranty);
+  check('and says whether it transfers', typeof card.body.warranty.transferable === 'boolean');
+
   const customer = await call(owner, `${W}/records/customers/${karnataka.body.record._id}`);
   check("the customer's balance now includes the invoice", customer.body.record.receivableMinor === invoice.totals.totalMinor);
 
@@ -127,6 +138,26 @@ section('public link');
   check('with the business details to print', pub.body.business.gstin === '27AAPFU0939F1ZV');
   const bogus = await call(null, '/api/public/documents/not-a-real-token-at-all-000');
   check('a made-up token is 404', bogus.status === 404);
+
+  const seen = await call(owner, `${W}/documents/invoices/${invoice._id}`);
+  check('opening it stamps when the customer first saw it', Boolean(seen.body.document.viewedAt), seen.body.document);
+
+  await call(null, `/api/public/documents/${invoice.publicToken}`);
+  const again = await call(owner, `${W}/documents/invoices/${invoice._id}`);
+  check('a second open keeps the first-seen time', again.body.document.viewedAt === seen.body.document.viewedAt);
+}
+
+section('catalogue ranking');
+{
+  const browsed = await call(owner, `${W}/items?limit=25`);
+  const names = browsed.body.items.map((i) => i.name);
+  const billed = [tv.name, install.name];
+  check('browsing leads with what was billed recently, not the alphabet',
+    billed.includes(names[0]) && billed.includes(names[1]), names.slice(0, 3));
+  check('and still fills the rest with the untouched catalogue', browsed.body.items.length > billed.length);
+
+  const searched = await call(owner, `${W}/items?q=installation`);
+  check('a query still searches rather than ranks', searched.body.items.every((i) => i.name.toLowerCase().includes('installation')), searched.body.items.map((i) => i.name));
 }
 
 section('payments');

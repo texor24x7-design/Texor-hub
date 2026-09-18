@@ -8,13 +8,29 @@ import { Alert, Button, Dialog, Field, PageHeader, SkeletonRows, Switch, useToas
 import { FieldInput, GstinInput, WIDE_TYPES } from '@/components/fields/FieldInput';
 import { MoneyInput } from '@/components/fields/MoneyInput';
 import { ReferencePicker } from '@/components/fields/ReferencePicker';
+import { RecordForm } from '@/components/records/RecordForm';
 import { invalidate, prefetch } from '@/lib/data';
 import { money, toDateInput } from '@/lib/format';
 import { STATES, stateFromGstin } from '@/lib/shared/india.mjs';
 import { computeDocument } from '@/lib/shared/tax.mjs';
+import { linesFromPackage } from '@/lib/shared/packages.mjs';
 import { useWorkspace } from '@/lib/workspace';
 
 const today = () => toDateInput(new Date());
+
+/**
+ * The lines a picked catalogue row becomes — several of them when it is a
+ * package, which is billed by expanding into its parts rather than as itself.
+ */
+function linesFromPick(item, prefs, quantity = 1) {
+  if (item.kind === 'package') {
+    return linesFromPackage(item, { quantity, prefs }).map((line) => ({
+      ...line,
+      meta: { variants: [], trackSerials: false, trackStock: false, stock: null, kind: 'component', fromPackage: item.name },
+    }));
+  }
+  return [{ ...lineFromItem(item, prefs), quantity }];
+}
 
 function lineFromItem(item, prefs) {
   const variant = item.variants?.[0];
@@ -74,6 +90,110 @@ function QuickCustomer({ open, initialName, onClose, onCreated }) {
   );
 }
 
+const FULL_FORM_ID = 'quick-item-form';
+
+/** Module defaults, with whatever was already typed in the quick form on top. */
+function seedItem(module, form) {
+  const record = { custom: {} };
+  for (const field of module?.fields ?? []) {
+    if (field.default === undefined) continue;
+    if (field.custom) record.custom[field.key] = field.default;
+    else record[field.key] = field.default;
+  }
+  return { ...record, name: form.name, priceMinor: form.priceMinor, taxRate: form.taxRate, hsn: form.hsn };
+}
+
+/**
+ * Add to the catalogue without leaving the document. Starts on the four fields
+ * a counter actually needs, and expands in place to the module's whole form —
+ * navigating to that form instead would take the half-typed document with it.
+ */
+function QuickItem({ open, initialName, onClose, onCreated }) {
+  const { api, slug, can, prefs, currency, module } = useWorkspace();
+  const kinds = ['product', 'service'].filter((k) => can(`${k}s`, 'create'));
+  const [form, setForm] = useState({ kind: 'product', name: '', priceMinor: 0, taxRate: 0, hsn: '' });
+  const [full, setFull] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    setForm({ kind: kinds[0] ?? 'product', name: initialName ?? '', priceMinor: 0, taxRate: prefs.taxRate ?? 0, hsn: '' });
+    setFull(false);
+    setErrors({});
+  }, [open, initialName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const itemModule = module(`${form.kind}s`);
+  const noun = itemModule?.labelSingular.toLowerCase() ?? form.kind;
+
+  // Throws on failure so RecordForm can show the field errors itself.
+  async function create(body) {
+    const { record } = await api.post(`/records/${form.kind}s`, body);
+    invalidate(`records:${slug}:${form.kind}s`);
+    onCreated({ ...record, kind: form.kind });
+  }
+
+  async function saveQuick() {
+    setBusy(true);
+    try {
+      const { kind, ...rest } = form;
+      await create({ ...rest, priceIncludesTax: prefs.priceIncludesTax ?? false });
+    } catch (error) {
+      setErrors({ ...error.fieldErrors, _: error.message });
+    } finally { setBusy(false); }
+  }
+
+  // RecordForm shows the field errors; this only drives the footer's spinner.
+  async function saveFull(values) {
+    setBusy(true);
+    try { await create(values); } finally { setBusy(false); }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} size={full ? 'wide' : undefined}
+      title={`New ${noun}`}
+      description={full ? `Everything this workspace keeps about a ${noun}.` : 'Just the essentials — you can add the rest later.'}
+      footer={full ? (
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form={FULL_FORM_ID} loading={busy}>Add {noun}</Button>
+        </>
+      ) : (
+        <>
+          <Button variant="ghost" onClick={() => setFull(true)}>Add full details</Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={saveQuick} loading={busy}>Add</Button>
+        </>
+      )}>
+      <div className="stack">
+        {errors._ && !Object.keys(errors).some((k) => k !== '_') ? <Alert>{errors._}</Alert> : null}
+        {Object.keys(errors).some((k) => k.startsWith('custom.')) ? (
+          <Alert kind="warning">This {noun} has required details. <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFull(true)}>Fill them in</button></Alert>
+        ) : null}
+        {kinds.length > 1 ? (
+          <Field label="Kind">
+            <select className="input" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+              {kinds.map((k) => <option key={k} value={k}>{module(`${k}s`)?.labelSingular ?? k}</option>)}
+            </select>
+          </Field>
+        ) : null}
+        {full ? (
+          <RecordForm key={form.kind} formId={FULL_FORM_ID} module={itemModule}
+            record={seedItem(itemModule, form)} onSubmit={saveFull} />
+        ) : (
+          <>
+            <Field label="Name" required error={errors.name}><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus /></Field>
+            <div className="grid-2">
+              <Field label="Price" error={errors.priceMinor}><MoneyInput value={form.priceMinor} currency={currency} onChange={(priceMinor) => setForm({ ...form, priceMinor: priceMinor ?? 0 })} /></Field>
+              <Field label="Tax rate" hint="%" error={errors.taxRate}><input className="input" type="number" min="0" max="100" value={form.taxRate} onChange={(e) => setForm({ ...form, taxRate: Number(e.target.value) || 0 })} /></Field>
+            </div>
+            <Field label="HSN / SAC" error={errors.hsn}><input className="input" value={form.hsn} onChange={(e) => setForm({ ...form, hsn: e.target.value })} /></Field>
+          </>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
 /**
  * Create or edit a quotation or invoice. Totals are computed live with the same
  * tax engine the API uses, so what is shown here is what gets stored.
@@ -85,6 +205,7 @@ export function DocumentEditor({ module, id }) {
   const toast = useToast();
   const kind = module.key;
   const isInvoice = kind === 'invoices';
+  const isNote = kind === 'credit_notes' || kind === 'debit_notes';
   const lineModule = moduleOf('lines');
   const customLineFields = (lineModule?.fields ?? []).filter((f) => f.custom && !f.hidden);
   const headerFields = module.fields.filter((f) => f.custom && !f.hidden && !hidden(kind).includes(f.key));
@@ -99,10 +220,37 @@ export function DocumentEditor({ module, id }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
   const [quick, setQuick] = useState(null);
+  const [quickItem, setQuickItem] = useState(null);
   const [barcode, setBarcode] = useState('');
   const [status, setStatus] = useState('draft');
   const [refs, setRefs] = useState({});
   const scanRef = useRef(null);
+  const restored = useRef(false);
+
+  // Losing a half-filled document to a stray navigation is the worst thing this
+  // editor can do, so an unsaved one is mirrored to localStorage as it is typed.
+  const draftKey = `finvoice:draft:${slug}:${kind}`;
+
+  useEffect(() => {
+    if (id || restored.current) return;
+    restored.current = true;
+    if (params.get('customer')) return; // "bill this customer" beats an old draft
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw) return;
+      setDoc(JSON.parse(raw));
+      toast('Restored your unsaved draft');
+    } catch { /* private mode, or a draft from an older shape */ }
+  }, [id, draftKey, params, toast]);
+
+  useEffect(() => {
+    if (id || !restored.current) return;
+    const worth = doc.customer || doc.lines.some((l) => l.item || l.description.trim());
+    try {
+      if (worth) localStorage.setItem(draftKey, JSON.stringify(doc));
+      else localStorage.removeItem(draftKey);
+    } catch { /* ignore */ }
+  }, [doc, id, draftKey]);
 
   useEffect(() => {
     if (!id) {
@@ -142,10 +290,14 @@ export function DocumentEditor({ module, id }) {
   const setLine = (index, patch) => setDoc((d) => ({ ...d, lines: d.lines.map((l, i) => (i === index ? { ...l, ...patch } : l)) }));
   const removeLine = (index) => setDoc((d) => ({ ...d, lines: d.lines.length === 1 ? [blankLine(prefs)] : d.lines.filter((_, i) => i !== index) }));
   const addItem = (item) => setDoc((d) => {
-    const existing = d.lines.findIndex((l) => l.item === item._id && !item.trackSerials && !item.variants?.length);
+    // Scanning the same thing twice bumps the quantity — but a package expands,
+    // so there is no single line of its to bump.
+    const existing = item.kind === 'package'
+      ? -1
+      : d.lines.findIndex((l) => l.item === item._id && !item.trackSerials && !item.variants?.length);
     if (existing >= 0) return { ...d, lines: d.lines.map((l, i) => (i === existing ? { ...l, quantity: l.quantity + 1 } : l)) };
     const lines = d.lines.filter((l) => l.item || l.description);
-    return { ...d, lines: [...lines, lineFromItem(item, prefs)] };
+    return { ...d, lines: [...lines, ...linesFromPick(item, prefs)] };
   });
 
   async function scan(e) {
@@ -164,7 +316,7 @@ export function DocumentEditor({ module, id }) {
     return {
       customer: doc.customer,
       date: doc.date,
-      ...(isInvoice ? { dueDate: doc.dueDate || null } : { validUntil: doc.validUntil || null }),
+      ...(isInvoice ? { dueDate: doc.dueDate || null } : isNote ? {} : { validUntil: doc.validUntil || null }),
       placeOfSupply: doc.placeOfSupply || '',
       reference: doc.reference,
       notes: doc.notes,
@@ -174,6 +326,7 @@ export function DocumentEditor({ module, id }) {
       roundOff: doc.roundOff,
       lines: doc.lines.filter((l) => l.item || l.description.trim()).map(({ meta, _id, grossMinor, discountMinor, taxableMinor, cgstMinor, sgstMinor, igstMinor, cessMinor, totalMinor, kind: _k, ...l }) => ({
         ...l, quantity: Number(l.quantity) || 0, discountPct: Number(l.discountPct) || 0, taxRate: Number(l.taxRate) || 0, cessRate: Number(l.cessRate) || 0,
+        discountAmountMinor: l.discountAmountMinor == null ? null : Math.round(Number(l.discountAmountMinor)) || 0,
         serials: (l.serials ?? []).map((s) => s.trim()).filter(Boolean),
       })),
     };
@@ -187,13 +340,17 @@ export function DocumentEditor({ module, id }) {
       const { document: saved } = id ? await api.patch(`/documents/${kind}/${id}`, body()) : await api.post(`/documents/${kind}`, body());
       // An invoice needs a number before it can go anywhere, so sending issues it too.
       if (then !== 'draft' && isInvoice) await api.post(`/documents/invoices/${saved._id}/issue`);
+      if (then !== 'draft' && isNote) await api.post(`/documents/${kind}/${saved._id}/issue-note`);
+      try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
       invalidate(`documents:${slug}:${kind}`);
       invalidate(`document:${slug}:${kind}:${saved._id}`);
       invalidate(`dashboard:${slug}`);
       // Start composing now so the send sheet is already filled in when it opens.
       if (then === 'send') prefetch(`compose:${slug}:${kind}:${saved._id}`, () => api.get(`/documents/${kind}/${saved._id}/compose`));
       if (then !== 'send') toast(then === 'issue' ? `${module.labelSingular} issued` : 'Saved');
-      router.replace(href(`/${kind}/${saved._id}`) + (then === 'send' ? '?send=1' : ''));
+      // The view decides whether that means a roll of paper or nothing at all.
+      const after = [then === 'send' ? 'send=1' : '', then !== 'draft' ? 'printed=1' : ''].filter(Boolean).join('&');
+      router.replace(href(`/${kind}/${saved._id}`) + (after ? `?${after}` : ''));
     } catch (saveError) {
       setError(saveError.message);
       setErrors(saveError.fieldErrors ?? {});
@@ -202,27 +359,42 @@ export function DocumentEditor({ module, id }) {
     }
   }
 
+  const canSendNow = (!isInvoice && !isNote) || can(kind, 'approve');
+
   // No dependency list: the handler has to see the current `save` and `busy` every render.
   useEffect(() => {
     const onKey = (e) => {
       if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter' || busy) return;
       e.preventDefault();
-      save(!isInvoice || can('invoices', 'approve') ? 'send' : 'draft');
+      save(canSendNow ? 'send' : 'draft');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
 
   if (!loaded) return <SkeletonRows rows={10} />;
-  if (id && isInvoice && status !== 'draft') {
+  if (id && (isInvoice || isNote) && status !== 'draft') {
     return <Alert kind="info" title="This invoice has been issued">Its figures are final. <Link href={href(`/${kind}/${id}`)}>Open it</Link> to record payments, send it, change the due date or void it.</Alert>;
   }
 
   // Only an approver can issue, and an invoice cannot be sent before it is issued.
-  const canSend = !isInvoice || can('invoices', 'approve');
+  const canSend = (!isInvoice && !isNote) || can(kind, 'approve');
+  const canAddItem = can('products', 'create') || can('services', 'create');
   const showSerialColumn = doc.lines.some((l) => l.meta?.trackSerials || l.serials?.length);
   const interState = computed.interState;
   const t = computed.totals;
+  // Savings taken on the lines themselves — a package shares its discount out
+  // this way — kept apart from the document discount so neither row shows the
+  // other's money.
+  const lineDiscountMinor = computed.lines.reduce((sum, l, i) => {
+    const line = doc.lines[i];
+    if (!line) return sum;
+    const gross = Math.round((Number(line.quantity) || 0) * (Number(line.priceMinor) || 0));
+    return sum + (line.discountAmountMinor == null
+      ? Math.round((gross * Math.min(Math.max(Number(line.discountPct) || 0, 0), 100)) / 100)
+      : Math.min(Math.max(Math.round(Number(line.discountAmountMinor)), 0), gross));
+  }, 0);
+  const docDiscountMinor = Math.max(t.discountMinor - lineDiscountMinor, 0);
 
   return (
     <>
@@ -232,8 +404,8 @@ export function DocumentEditor({ module, id }) {
         actions={(
           <>
             <Button variant="secondary" onClick={() => router.back()}>Cancel</Button>
-            <Button variant={canSend ? 'secondary' : 'primary'} loading={busy === 'draft'} onClick={() => save('draft')}>{isInvoice ? 'Save draft' : 'Save'}</Button>
-            {isInvoice && canSend ? <Button variant="secondary" loading={busy === 'issue'} onClick={() => save('issue')}>Save & issue</Button> : null}
+            <Button variant={canSend ? 'secondary' : 'primary'} loading={busy === 'draft'} onClick={() => save('draft')}>{isInvoice || isNote ? 'Save draft' : 'Save'}</Button>
+            {(isInvoice || isNote) && canSend ? <Button variant="secondary" loading={busy === 'issue'} onClick={() => save('issue')}>Save & issue</Button> : null}
             {canSend ? <Button icon={<Send />} loading={busy === 'send'} onClick={() => save('send')} title="Save and send (⌘↵ or Ctrl+↵)">Save & send</Button> : null}
           </>
         )}
@@ -261,7 +433,7 @@ export function DocumentEditor({ module, id }) {
               </Field>
               {isInvoice && module.fields.find((f) => f.key === 'dueDate')?.hidden ? null : isInvoice ? (
                 <Field label={module.fields.find((f) => f.key === 'dueDate')?.label ?? 'Due date'} error={errors.dueDate}><input type="date" className="input" value={doc.dueDate} onChange={(e) => set({ dueDate: e.target.value })} placeholder={prefs.dueDays ? `${prefs.dueDays} days` : ''} /></Field>
-              ) : (
+              ) : isNote ? null : (
                 <Field label={module.fields.find((f) => f.key === 'validUntil')?.label ?? 'Valid until'} error={errors.validUntil}><input type="date" className="input" value={doc.validUntil} onChange={(e) => set({ validUntil: e.target.value })} /></Field>
               )}
             </div>
@@ -320,9 +492,15 @@ export function DocumentEditor({ module, id }) {
                             title={line.description}
                             invalid={Boolean(err('description'))}
                             placeholder="Search products & services…"
-                            onChange={(value, row) => (row ? setDoc((d) => ({ ...d, lines: d.lines.map((l, i) => (i === index ? { ...lineFromItem(row.raw, prefs), quantity: l.quantity || 1 } : l)) })) : setLine(index, { item: null }))}
-                            onCreate={(text) => setLine(index, { item: null, description: text, meta: {} })}
-                            createLabel="Use as a one-off line"
+                            onChange={(value, row) => (row
+                              ? setDoc((d) => {
+                                // A splice, not a map: a package replaces this one row with several.
+                                const picked = linesFromPick(row.raw, prefs, d.lines[index]?.quantity || 1);
+                                return { ...d, lines: [...d.lines.slice(0, index), ...picked, ...d.lines.slice(index + 1)] };
+                              })
+                              : setLine(index, { item: null }))}
+                            onCreate={canAddItem ? (text) => setQuickItem({ index, name: text }) : (text) => setLine(index, { item: null, description: text, meta: {} })}
+                            createLabel={canAddItem ? undefined : 'Use as a one-off line'}
                           />
                           {line.meta?.variants?.length ? (
                             <select className="input input-sm" value={line.variant} onChange={(e) => { const v = line.meta.variants.find((x) => x.name === e.target.value); setLine(index, { variant: e.target.value, priceMinor: v?.priceMinor ?? line.priceMinor }); }}>
@@ -343,7 +521,15 @@ export function DocumentEditor({ module, id }) {
                         <MoneyInput size="sm" value={line.priceMinor} currency={currency} onChange={(priceMinor) => setLine(index, { priceMinor: priceMinor ?? 0 })} />
                         {taxMode === 'gst' ? <label className="check tiny subtle" style={{ marginTop: 4 }}><input type="checkbox" checked={line.priceIncludesTax} onChange={(e) => setLine(index, { priceIncludesTax: e.target.checked })} />incl. GST</label> : null}
                       </td>
-                      <td><input className="input input-sm num" type="number" min="0" max="100" step="any" value={line.discountPct || ''} placeholder="0" onChange={(e) => setLine(index, { discountPct: e.target.value })} aria-label="Discount percent" /></td>
+                      <td>
+                        {line.discountAmountMinor == null ? (
+                          <input className="input input-sm num" type="number" min="0" max="100" step="any" value={line.discountPct || ''} placeholder="0" onChange={(e) => setLine(index, { discountPct: e.target.value })} aria-label="Discount percent" />
+                        ) : (
+                          // A package shares its saving out as exact amounts, so show the
+                          // amount rather than a percentage that would not be the truth.
+                          <MoneyInput size="sm" value={line.discountAmountMinor} currency={currency} onChange={(v) => setLine(index, { discountAmountMinor: v ?? 0 })} />
+                        )}
+                      </td>
                       {taxMode === 'gst' ? (
                         <td>
                           <select className="input input-sm" value={line.taxRate} onChange={(e) => setLine(index, { taxRate: Number(e.target.value) })} aria-label="GST rate">
@@ -372,6 +558,9 @@ export function DocumentEditor({ module, id }) {
             <Button variant="secondary" size="sm" icon={<Plus />} onClick={() => setDoc((d) => ({ ...d, lines: [...d.lines, blankLine(prefs)] }))}>Add line</Button>
             <div className="totals-box" style={{ width: 'min(380px, 100%)' }}>
               <div className="row"><span className="muted">Subtotal</span><span className="num">{money(t.grossMinor, currency)}</span></div>
+              {lineDiscountMinor ? (
+                <div className="row"><span className="muted">Savings on lines</span><span className="num">−{money(lineDiscountMinor, currency)}</span></div>
+              ) : null}
               <div className="row">
                 <span className="row muted" style={{ gap: 6 }}>
                   Discount
@@ -380,7 +569,7 @@ export function DocumentEditor({ module, id }) {
                     ? <div style={{ width: 120 }}><MoneyInput size="sm" value={doc.discount?.value ?? 0} currency={currency} onChange={(value) => set({ discount: { type: 'amount', value: value ?? 0 } })} /></div>
                     : <input className="input input-sm num" style={{ width: 70, height: 28 }} type="number" min="0" max="100" value={doc.discount?.value || ''} placeholder="0" onChange={(e) => set({ discount: { type: 'percent', value: e.target.value } })} aria-label="Discount" />}
                 </span>
-                <span className="num">{t.discountMinor ? `−${money(t.discountMinor, currency)}` : '—'}</span>
+                <span className="num">{docDiscountMinor ? `−${money(docDiscountMinor, currency)}` : '—'}</span>
               </div>
               {taxMode === 'gst' ? (
                 <>
@@ -408,6 +597,9 @@ export function DocumentEditor({ module, id }) {
         </section>
       </div>
 
+      <QuickItem open={quickItem != null} initialName={quickItem?.name}
+        onClose={() => setQuickItem(null)}
+        onCreated={(item) => { setDoc((d) => ({ ...d, lines: d.lines.map((l, i) => (i === quickItem.index ? { ...lineFromItem(item, prefs), quantity: l.quantity || 1 } : l)) })); setQuickItem(null); }} />
       <QuickCustomer open={quick != null} initialName={quick} onClose={() => setQuick(null)} onCreated={(record) => { set({ customer: record._id, customerTitle: record.name, customerState: record.stateCode }); setRefs((r) => ({ ...r, [record._id]: { title: record.name } })); setQuick(null); }} />
     </>
   );

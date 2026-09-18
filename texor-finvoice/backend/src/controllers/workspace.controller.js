@@ -100,12 +100,22 @@ export const preferencesSchema = z.object({
   taxRate: z.number().min(0).max(100),
   priceIncludesTax: z.boolean(),
   units: z.array(z.string().trim().min(1).max(30)).max(50),
+  categories: z.record(z.string(), z.array(z.string().trim().min(1).max(40)).max(200)),
+  reminders: z.object({
+    enabled: z.boolean(),
+    channel: z.enum(['smtp', 'whatsapp_cloud']),
+    invoiceDays: z.array(z.number().int().min(-90).max(365)).max(6),
+    quoteDays: z.number().int().min(0).max(90),
+    warrantyDays: z.number().int().min(0).max(365),
+  }).partial(),
   paymentModes: z.array(z.string().trim().min(1).max(40)).min(1, 'Keep at least one payment mode.').max(30),
   designations: z.array(z.string().trim().min(1).max(40)).max(50),
   numbering: z.object({
     // GST caps an invoice number at 16 characters: PREFX/26-27/0001 is 16.
     invoices: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{0,5}$/, 'Up to 5 letters, digits or hyphens.'),
     quotations: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{0,5}$/, 'Up to 5 letters, digits or hyphens.'),
+    credit_notes: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{0,5}$/, 'Up to 5 letters, digits or hyphens.'),
+    debit_notes: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{0,5}$/, 'Up to 5 letters, digits or hyphens.'),
   }).partial(),
   dueDays: z.number().int().min(0).max(365),
   validityDays: z.number().int().min(0).max(365),
