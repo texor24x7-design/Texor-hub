@@ -20,8 +20,12 @@ const minutesOfDay = (timezone, instant) => {
   return h * 60 + m;
 };
 
-/** Ten minutes' grace after the shift starts. */
-function isLate(staff, timezone, checkIn) {
+/**
+ * Ten minutes' grace after the shift starts, judged in the workspace's own time
+ * zone. Exported so the rule can be tested at its boundaries without waiting
+ * for a particular time of day to come round.
+ */
+export function isLate(staff, timezone, checkIn) {
   if (!staff.shiftStart || !checkIn) return false;
   const [h, m] = staff.shiftStart.split(':').map(Number);
   return minutesOfDay(timezone, checkIn) > h * 60 + m + 10;

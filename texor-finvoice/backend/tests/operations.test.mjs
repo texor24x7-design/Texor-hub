@@ -123,7 +123,7 @@ let staffId;
   const washer = await call(owner, `${W}/records/staff`, { method: 'POST', body: { name: 'Sunil (no account)', designation: 'Beautician', shiftStart: '10:00' } });
   check('a staff member without a Texor account can be added', washer.status === 201, washer.body);
   staffId = washer.body.record._id;
-  const ravi = await call(owner, `${W}/records/staff`, { method: 'POST', body: { name: 'Ravi', email: 'ravi@glow.test', designation: 'Stylist', shiftStart: '00:00' } });
+  const ravi = await call(owner, `${W}/records/staff`, { method: 'POST', body: { name: 'Ravi', email: 'ravi@glow.test', designation: 'Stylist', shiftStart: '23:59' } });
   check('a staff member with a matching member email is linked to them', Boolean(ravi.body.record?.member), ravi.body);
 
   const today = (await call(owner, `${W}/attendance/day`)).body.today;
@@ -138,7 +138,10 @@ let staffId;
 
   const checkIn = await call(stylist, `${W}/attendance/me/check-in`, { method: 'POST', body: { location: { lat: 18.52, lng: 73.85, accuracy: 20 } } });
   check('a staff member with an account checks themselves in', checkIn.body.entry?.status === 'present' && checkIn.body.entry.source === 'self', checkIn.body);
-  check('late is judged against their shift start', checkIn.body.entry.late === true);
+  // Whether a check-in counts as late depends on the time of day the suite runs,
+  // so the rule itself is pinned in `attendance.test.mjs`. What is always true is
+  // that a shift starting at 23:59 cannot have been missed yet.
+  check('lateness is judged against their shift start, and this one has not begun', checkIn.body.entry.late === false, checkIn.body.entry);
   const twice = await call(stylist, `${W}/attendance/me/check-in`, { method: 'POST', body: {} });
   check('checking in twice is refused', twice.status === 409);
   const out = await call(stylist, `${W}/attendance/me/check-out`, { method: 'POST', body: {} });
