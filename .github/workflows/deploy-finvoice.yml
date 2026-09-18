@@ -48,7 +48,7 @@ jobs:
             npm ci
 
             echo "==> Running Finvoice tests"
-            npm test
+            NODE_ENV=test npm test
 
             echo "==> Building the frontend"
             cd ../frontend
@@ -56,8 +56,7 @@ jobs:
             npm run build
 
             echo "==> Restarting Finvoice"
-            pm2 restart texor-finvoice-api
-            pm2 restart texor-finvoice-web
+            pm2 restart texor-finvoice
 
             sleep 5
             pm2 status
