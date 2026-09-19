@@ -845,7 +845,8 @@ p { margin: 0; }
   background: var(--surface);
   border-right: 1px solid var(--border);
   display: grid;
-  grid-template-rows: auto 1fr;
+  /* Brand, the fixed four, then a person's labels taking whatever is left. */
+  grid-template-rows: auto auto 1fr;
   align-content: start;
   position: sticky;
   top: 0;
@@ -1589,10 +1590,10 @@ p { margin: 0; }
 
 /* ── a person's own labels, under the fixed four ──────────────────────────── */
 .side__labels {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
+  margin: 0 0.75rem;
+  padding: 0.75rem 0 1.5rem;
   border-top: 1px solid var(--border);
-  overflow-y: auto;
+  align-self: start;
 }
 /* A checkbox with its label beside it. */
 .switch { display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; }

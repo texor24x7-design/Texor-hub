@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   BoldIcon, BulletIcon, CodeIcon, HeadingIcon, HighlightIcon, ItalicIcon, QuoteIcon, TodoIcon,
 } from '@/components/icons';
@@ -97,11 +98,23 @@ export function NoteEditor({
    * updater twice, and a function that reaches outside its own state has to be
    * safe to run twice or not be there at all.
    */
+  /**
+   * Reported when the document changes — and only then.
+   *
+   * `onChange` is read through a ref rather than listed as a dependency. It is
+   * an inline arrow at almost any call site, so as a dependency it re-announced
+   * the unchanged document on every render of the parent; a parent that stores
+   * the draft in state then re-rendered, made a new arrow, and the two chased
+   * each other until React gave up with "Maximum update depth exceeded".
+   */
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
   const settled = useRef(false);
   useEffect(() => {
     if (!settled.current) { settled.current = true; return; }
-    onChange?.({ title, blocks: strip(blocks) });
-  }, [title, blocks, onChange]);
+    onChangeRef.current?.({ title, blocks: strip(blocks) });
+  }, [title, blocks]);
 
   /** Replace one block. `rerender` is what makes the DOM catch up. */
   const putBlock = useCallback((id, produce, { rerender = false, caret } = {}) => {
@@ -222,35 +235,49 @@ export function NoteEditor({
   const addBlockAfter = useCallback((id, type = 'paragraph') => {
     const created = { ...emptyBlock(type), id: freshId(), rev: 1 };
 
-    setBlocks((current) => {
-      const at = current.findIndex((block) => block.id === id);
-      const next = [...current];
-      next.splice(at + 1, 0, created);
-      return next;
+    /**
+     * Drawn and focused before this keydown handler returns.
+     *
+     * It used to be drawn on React's usual schedule and focused a frame later,
+     * and anything typed in that gap went into the block the caret had just
+     * left: "Enter, Second line" produced "…planS" and "econd line". The block
+     * is committed synchronously instead, so the very next keystroke already
+     * has somewhere to go.
+     */
+    flushSync(() => {
+      setBlocks((current) => {
+        const at = current.findIndex((block) => block.id === id);
+        const next = [...current];
+        next.splice(at + 1, 0, created);
+        return next;
+      });
     });
 
-    // After React has drawn it. The editor is small, so one frame is enough.
-    requestAnimationFrame(() => elements.current.get(created.id)?.focus());
+    elements.current.get(created.id)?.focus();
     return created.id;
   }, []);
 
   const removeBlock = useCallback((id) => {
-    setBlocks((current) => {
-      if (current.length === 1) return current;
+    let previous = null;
 
-      const at = current.findIndex((block) => block.id === id);
-      const previous = current[at - 1];
-      const next = current.filter((block) => block.id !== id);
+    // Synchronously, for the same reason as `addBlockAfter`: the block that had
+    // the caret is about to stop existing, and a keystroke arriving before the
+    // caret has moved would go nowhere at all.
+    flushSync(() => {
+      setBlocks((current) => {
+        if (current.length === 1) return current;
 
-      if (previous) {
-        requestAnimationFrame(() => {
-          const el = elements.current.get(previous.id);
-          el?.focus();
-          setSelection(el, previous.text.length);
-        });
-      }
-      return next;
+        const at = current.findIndex((block) => block.id === id);
+        previous = current[at - 1] ?? null;
+        return current.filter((block) => block.id !== id);
+      });
     });
+
+    if (previous) {
+      const el = elements.current.get(previous.id);
+      el?.focus();
+      setSelection(el, previous.text.length);
+    }
   }, []);
 
   const onKeyDown = useCallback((event, block) => {

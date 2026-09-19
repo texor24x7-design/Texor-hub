@@ -153,6 +153,7 @@ export function Board({ scope = 'notes', labelId = null, title, blurb, search = 
                 </section>
               ) : null}
 
+              {rest.length > 0 ? (
               <section className="board__section">
                 {pinned.length > 0 ? <p className="board__label">Everything else</p> : null}
                 <div className="board__grid">
@@ -167,6 +168,7 @@ export function Board({ scope = 'notes', labelId = null, title, blurb, search = 
                   ))}
                 </div>
               </section>
+              ) : null}
             </>
           )}
 

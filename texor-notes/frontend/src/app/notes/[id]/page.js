@@ -34,6 +34,17 @@ function NoteView({ id, user }) {
   const [conflict, setConflict] = useState(null);
 
   /**
+   * Bumped only when the document on screen is replaced from outside — the
+   * first load, somebody else's edit arriving, "show theirs", a restore.
+   *
+   * The editor is keyed on this and not on the note's version, because every
+   * one of this person's own autosaves moves the version too: keyed on that,
+   * the editor was torn down and rebuilt after each save, taking the caret and
+   * the focus with it mid-sentence.
+   */
+  const [revision, setRevision] = useState(0);
+
+  /**
    * The version this editor is working against.
    *
    * Held in a ref rather than state because the saver closes over it: a version
@@ -51,7 +62,7 @@ function NoteView({ id, user }) {
   }, [id]);
 
   useEffect(() => {
-    load().catch((loadError) => setError(loadError.message));
+    load().then(() => setRevision((n) => n + 1)).catch((loadError) => setError(loadError.message));
   }, [load]);
 
   const save = useCallback(async (next) => {
@@ -95,6 +106,7 @@ function NoteView({ id, user }) {
           version.current = fresh.version;
           setNote(fresh);
           setDraft(null);
+          setRevision((n) => n + 1);
         }
       } catch {
         // A blink of network is not worth saying anything about.
@@ -179,7 +191,7 @@ function NoteView({ id, user }) {
         {note.role === 'owner' ? (
           note.deletedAt ? (
             <>
-              <Button size="sm" onClick={async () => { await noteApi.restore(id); await load(); }}>
+              <Button size="sm" onClick={async () => { await noteApi.restore(id); await load(); setRevision((n) => n + 1); }}>
                 <RestoreIcon /> Put back
               </Button>
               <Button
@@ -217,7 +229,7 @@ function NoteView({ id, user }) {
           <button
             type="button"
             className="btn btn--ghost btn--sm"
-            onClick={async () => { setConflict(null); setDraft(null); await load(); }}
+            onClick={async () => { setConflict(null); setDraft(null); await load(); setRevision((n) => n + 1); }}
           >
             Show theirs
           </button>
@@ -241,7 +253,7 @@ function NoteView({ id, user }) {
         <div className="note-page">
           {note.canEdit && !note.deletedAt ? (
             <NoteEditor
-              key={`${id}-${note.version}`}
+              key={`${id}-${revision}`}
               note={shown}
               people={(note.shares ?? []).map((share) => ({
                 texorId: share.email,
