@@ -50,6 +50,14 @@ const PRODUCTS = [
     apiPort: 4003,
     resourceIndicator: 'https://api.payroll.texor.app',
   },
+  {
+    clientId: 'notes',
+    clientName: 'Texor Notes',
+    description: 'Notes, labels and shared thinking.',
+    webPort: 3004,
+    apiPort: 4004,
+    resourceIndicator: 'https://api.notes.texor.app',
+  },
 ];
 
 async function seedAdmin() {
