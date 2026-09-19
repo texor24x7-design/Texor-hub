@@ -26,18 +26,30 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           passphrase: ${{ secrets.EC2_SSH_PASSPHRASE }}
           command_timeout: 30m
+
           script: |
             set -e
 
             echo "==> Starting Texor Finvoice backend deployment"
 
             cd ~/Texor-hub
+
+            echo "==> Fetching latest code"
             git fetch origin main
+
+            echo "==> Checking out deployed commit"
             git checkout --detach ${{ github.sha }}
 
+            echo "==> Loading Node.js"
             export NVM_DIR="$HOME/.nvm"
             source "$NVM_DIR/nvm.sh"
             nvm use 24.21.0
+
+            echo "==> Node version"
+            node --version
+
+            echo "==> npm version"
+            npm --version
 
             echo "==> Installing backend dependencies"
             cd texor-finvoice/backend
@@ -47,16 +59,33 @@ jobs:
             NODE_ENV=test npm test
 
             echo "==> Restarting Finvoice backend"
-            pm2 restart texor-finvoice
+            pm2 restart texor-finvoice --update-env
 
-            sleep 5
-
-            echo "==> PM2 status"
+            echo "==> PM2 status after restart"
             pm2 status
 
-            echo "==> Health check"
-            curl --fail --silent --show-error \
-              http://127.0.0.1:4001/api/health
+            echo "==> Waiting for Finvoice API"
+
+            for i in {1..30}; do
+              if curl --fail --silent --show-error \
+                http://127.0.0.1:4001/api/health; then
+
+                echo ""
+                echo "==> Finvoice API is healthy"
+                break
+              fi
+
+              if [ "$i" -eq 30 ]; then
+                echo ""
+                echo "==> Finvoice API failed to become healthy"
+                echo "==> Last 50 Finvoice log lines:"
+                pm2 logs texor-finvoice --lines 50 --nostream
+                exit 1
+              fi
+
+              echo "Waiting for Finvoice... attempt $i/30"
+              sleep 2
+            done
 
             echo ""
             echo "==> Texor Finvoice backend deployment successful"
