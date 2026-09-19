@@ -18,7 +18,7 @@ import ApiError from '../utils/ApiError.js';
 import Connection from '../models/Connection.js';
 import User from '../models/User.js';
 import { sha256 } from '../utils/ids.js';
-import { USER_TOKEN_PREFIX, appLabelFor, keyFromToken } from '../services/apikey.service.js';
+import { USER_TOKEN_PREFIX, appLabelFor, isTrusted, keyFromToken } from '../services/apikey.service.js';
 
 /**
  * No timing-safe compare here, and none needed: the lookup is by the SHA-256 of
@@ -34,9 +34,13 @@ export async function requireApiKey(req, _res, next) {
     const key = await keyFromToken(presented);
     if (!key) throw ApiError.unauthorized('That API key is not valid.');
 
-    const { user, label } = await accountFor(key, req);
+    const maker = await User.findOne({ texorId: key.ownerTexorId }).select('email').lean().exec();
+    const trusted = isTrusted(maker?.email);
+
+    const { user, label } = await accountFor(key, req, trusted);
 
     req.apiKey = key;
+    req.apiKeyTrusted = trusted;
     req.user = user;
     req.actor = { texorId: user.texorId, viaApiKey: true };
     req.apiLabel = label;
@@ -57,13 +61,13 @@ export async function requireApiKey(req, _res, next) {
 }
 
 /** The account this call acts on, and the label its notes belong under. */
-async function accountFor(key, req) {
+async function accountFor(key, req, trusted) {
   const onBehalf = req.body?.owner;
 
   if (onBehalf) {
-    if (!key.trusted) {
+    if (!trusted) {
       throw ApiError.forbidden(
-        'This key can only write notes into its own account. Ask an administrator about a trusted key.',
+        'This key can only write notes into its own account. To let it write for other people, add the address of the account that made it to TRUSTED_KEY_EMAILS in Texor Notes and restart.',
       );
     }
     if (!onBehalf.texorId) throw ApiError.badRequest('An owner needs a texorId.');

@@ -95,7 +95,7 @@ export async function whoAmI(req, res) {
   res.json({
     app: req.apiKey.appName,
     mode: req.apiKey.mode,
-    trusted: req.apiKey.trusted,
+    trusted: req.apiKeyTrusted,
     owner: { texorId: req.user.texorId, email: req.user.email, name: req.user.displayName },
     label: req.apiLabel ? String(req.apiLabel._id) : null,
     webhook: Boolean(req.apiKey.webhookUrl),

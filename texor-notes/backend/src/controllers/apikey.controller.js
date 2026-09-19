@@ -14,7 +14,7 @@ import Connection from '../models/Connection.js';
 import Label from '../models/Label.js';
 import ApiError from '../utils/ApiError.js';
 import { randomToken, sha256 } from '../utils/ids.js';
-import { appLabelFor, createKey, keyFromToken, presentKey, revokeKey, USER_TOKEN_PREFIX } from '../services/apikey.service.js';
+import { appLabelFor, createKey, isTrusted, keyFromToken, presentKey, revokeKey, USER_TOKEN_PREFIX } from '../services/apikey.service.js';
 
 export const keySchema = z.object({
   appName: z.string().min(1, 'What is the app called?').max(60),
@@ -28,7 +28,8 @@ export async function listKeys(req, res) {
   const labels = await Label.find({ _id: { $in: keys.map((key) => key.label).filter(Boolean) } }).lean().exec();
   const byId = new Map(labels.map((label) => [String(label._id), label]));
 
-  res.json({ keys: keys.map((key) => presentKey(key, { label: byId.get(String(key.label)) })) });
+  const trusted = isTrusted(req.user.email);
+  res.json({ keys: keys.map((key) => presentKey(key, { label: byId.get(String(key.label)), trusted })) });
 }
 
 export async function postKey(req, res) {
@@ -41,7 +42,7 @@ export async function postKey(req, res) {
   });
 
   res.status(201).json({
-    key: presentKey(key, { label }),
+    key: presentKey(key, { label, trusted: isTrusted(req.user.email) }),
     /**
      * The only response in the product that carries these. They are hashes in
      * the database a moment later, so there is no second chance to read them —

@@ -97,7 +97,7 @@ section('what a key cannot do');
   });
   check('an ordinary key asking to own a note for somebody else is refused',
     onBehalf.status === 403, `HTTP ${onBehalf.status}`);
-  check('in terms that point at the fix', /trusted key/i.test(onBehalf.body.error?.message ?? ''));
+  check('in terms that point at the fix', /TRUSTED_KEY_EMAILS/.test(onBehalf.body.error?.message ?? ''));
 
   const nothing = await call(null, '/api/v1/notes');
   check('no key at all is a 401', nothing.status === 401);
@@ -144,6 +144,50 @@ section('a first-party key, writing into the account of whoever wrote the note')
   const placeholder = await mongoose.connection.db.collection('users').findOne({ texorId: 'tx-never' });
   check('who gets a placeholder rather than an invented account',
     placeholder?.signedInAt === null, JSON.stringify(placeholder?.signedInAt));
+}
+
+section('trust follows the deployment, not the day the key was made');
+{
+  /**
+   * The order anybody sets this up in: make Texor Talk's key, paste it into
+   * Talk, then remember TRUSTED_KEY_EMAILS. When trust was stamped onto the key
+   * at creation, that key stayed untrusted for ever and every meeting note was
+   * quietly refused. Here the key's maker becomes a trusted address after the
+   * key already exists — standing in for the env being edited and the API
+   * restarted — and the same key starts working.
+   */
+  const late = await call(dev, '/api/keys', { method: 'POST', body: { appName: 'Made early' } });
+  const push = () => withKey(late.body.token, '/api/v1/notes', {
+    method: 'POST',
+    body: { externalId: 'early-1', title: 'For By', owner: { texorId: 'tx-by', email: 'by@texor.app' } },
+  });
+
+  check('an untrusted key naming an owner is refused', (await push()).status === 403);
+
+  const users = mongoose.connection.db.collection('users');
+  await users.updateOne({ texorId: 'tx-dev' }, { $set: { email: 'trusted@texor.app' } });
+  await users.updateOne({ texorId: 'tx-first' }, { $set: { email: 'first@texor.app' } });
+
+  const now = await push();
+  check('the same key works once its maker is trusted, without being made again',
+    now.status === 201, `HTTP ${now.status} ${JSON.stringify(now.body).slice(0, 120)}`);
+  check('and the settings screen says so', (await call(dev, '/api/keys')).body.keys.every((k) => k.trusted === true));
+
+  await users.updateOne({ texorId: 'tx-dev' }, { $set: { email: 'dev@texor.app' } });
+  check('taking the address off the list takes the trust away from keys it already made',
+    (await withKey(late.body.token, '/api/v1/notes', {
+      method: 'POST', body: { externalId: 'early-2', owner: { texorId: 'tx-by' } },
+    })).status === 403);
+  await users.updateOne({ texorId: 'tx-first' }, { $set: { email: 'trusted@texor.app' } });
+
+  // A trusted key made in "its own users" mode still files a note that names
+  // its owner — which is what Talk does — rather than demanding a token.
+  const userMode = await call(first, '/api/keys', { method: 'POST', body: { appName: 'Talk, user mode', mode: 'user' } });
+  const named = await withKey(userMode.body.token, '/api/v1/notes', {
+    method: 'POST',
+    body: { externalId: 'um-1', title: 'Named', owner: { texorId: 'tx-by', email: 'by@texor.app' } },
+  });
+  check('a trusted key in user mode can still name the owner', named.status === 201, `HTTP ${named.status}`);
 }
 
 section('deleting through the API');

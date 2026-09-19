@@ -15,6 +15,20 @@ import { randomToken, sha256 } from '../utils/ids.js';
 export const KEY_PREFIX = 'ntk_live_';
 export const USER_TOKEN_PREFIX = 'ntu_';
 
+/**
+ * May a key made by this person say who a note belongs to?
+ *
+ * Answered from TRUSTED_KEY_EMAILS on every request rather than stamped onto
+ * the key when it was made. Stamped, it had two faults: listing yourself after
+ * creating Texor Talk's key did nothing until the key was thrown away and made
+ * again — which is exactly the order anybody sets this up in — and taking an
+ * address off the list left every key it had already made still trusted.
+ * Trust is a property of the deployment, so the deployment is asked.
+ */
+export function isTrusted(email) {
+  return Boolean(email) && env.trustedKeyEmails.includes(String(email).toLowerCase());
+}
+
 /** Enough of a key to recognise it in a list, and not enough to use it. */
 const displayPrefix = (key) => key.slice(0, KEY_PREFIX.length + 4);
 
@@ -51,11 +65,6 @@ export async function createKey({ user, appName, mode = 'owner', webhookUrl = ''
     prefix: displayPrefix(token),
     hash: sha256(token),
     mode,
-    /**
-     * Trust is a property of the deployment, not of the request that asked for
-     * it. Nobody can make their own key trusted by saying so.
-     */
-    trusted: env.trustedKeyEmails.includes(String(user.email).toLowerCase()),
     webhookUrl,
     webhookSecret: webhookUrl ? randomToken(24) : '',
     redirectUris,
@@ -101,13 +110,13 @@ export async function keyFromToken(token) {
   return ApiKey.findOne({ hash: sha256(token), revokedAt: null }).exec();
 }
 
-export function presentKey(key, { label } = {}) {
+export function presentKey(key, { label, trusted = false } = {}) {
   return {
     id: String(key._id),
     appName: key.appName,
     prefix: key.prefix,
     mode: key.mode,
-    trusted: key.trusted,
+    trusted,
     webhookUrl: key.webhookUrl || '',
     redirectUris: key.redirectUris ?? [],
     label: label ? { id: String(label._id), name: label.name } : key.label ? String(key.label) : null,
@@ -117,4 +126,4 @@ export function presentKey(key, { label } = {}) {
   };
 }
 
-export default { createKey, revokeKey, keyFromToken, presentKey, appLabelFor, KEY_PREFIX, USER_TOKEN_PREFIX };
+export default { isTrusted, createKey, revokeKey, keyFromToken, presentKey, appLabelFor, KEY_PREFIX, USER_TOKEN_PREFIX };

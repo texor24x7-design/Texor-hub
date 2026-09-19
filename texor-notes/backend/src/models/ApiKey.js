@@ -37,17 +37,6 @@ const apiKeySchema = new Schema(
      */
     mode: { type: String, enum: ['owner', 'user'], default: 'owner' },
 
-    /**
-     * May this key say who a note belongs to?
-     *
-     * Only for first-party products — Texor Talk files a meeting note in the
-     * account of whoever wrote it, and there is no other way for it to do that
-     * without asking every person in the company to paste a key into it. It is
-     * an impersonation capability, so it is granted by TRUSTED_KEY_EMAILS in
-     * the deployment's environment and never from inside the product.
-     */
-    trusted: { type: Boolean, default: false },
-
     /** The locked label every note from this key is filed under. */
     label: { type: Schema.Types.ObjectId, ref: 'Label', default: null },
 
