@@ -182,7 +182,7 @@ if (existsSync(`${FRONTEND}/tests`)) {
 
 await waitForHealth();
 
-for (const file of ['notes.test.mjs', 'labels.test.mjs', 'sharing.test.mjs']) {
+for (const file of ['notes.test.mjs', 'labels.test.mjs', 'sharing.test.mjs', 'public-api.test.mjs']) {
   failures += (await runSuite(file)) === 0 ? 0 : 1;
 }
 

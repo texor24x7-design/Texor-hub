@@ -20,6 +20,8 @@ import mongoose from 'mongoose';
 import Note, { NOTE_COLOURS } from '../models/Note.js';
 import Label from '../models/Label.js';
 import NoteEvent from '../models/NoteEvent.js';
+import ApiKey from '../models/ApiKey.js';
+import { syncOut } from './public.controller.js';
 import ApiError from '../utils/ApiError.js';
 import { canWrite, isOwner, labelRolesFor, roleOf } from '../services/access.service.js';
 import {
@@ -320,6 +322,16 @@ export async function updateNote(req, res) {
   }
 
   res.json({ note: presentNote(note, actor, role) });
+
+  /**
+   * The other half of two-way sync, after the response rather than before it.
+   *
+   * A note that came from an app is edited here, and that app is told. Only for
+   * a change made *here* — an edit that arrived over the API does not come back
+   * through this function, which is what stops the two products handing the
+   * same edit to each other for ever.
+   */
+  if (replacingDocument && !actor.viaApiKey) syncOut(note, { ApiKey });
 }
 
 /**
@@ -342,6 +354,8 @@ export async function deleteNote(req, res) {
   });
 
   res.json({ ok: true, deletedAt: note.deletedAt });
+
+  if (!actor.viaApiKey) syncOut(note, { ApiKey });
 }
 
 export async function restoreNote(req, res) {
