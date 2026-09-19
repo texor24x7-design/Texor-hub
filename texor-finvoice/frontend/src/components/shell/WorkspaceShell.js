@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Grid3x3, Menu as MenuIcon, Plus, Search } from 'lucide-react';
+import { ArrowLeftRight, ChevronsUpDown, Grid3x3, Menu as MenuIcon, Plus, Search } from 'lucide-react';
 import { Icon } from '@/components/Icon';
 import { Alert, Button, ConfirmProvider, Loading, Menu, MenuItem, ToastProvider } from '@/components/ui';
-import { api, auth } from '@/lib/api';
+import { api, auth, fileUrl } from '@/lib/api';
 import { PRODUCTS } from '@/lib/ecosystem';
 import { WorkspaceContext, screenFor, useWorkspaceValue } from '@/lib/workspace';
 import { CommandPalette } from './CommandPalette';
@@ -53,6 +53,12 @@ export function WorkspaceShell({ slug, children }) {
 
   const value = useWorkspaceValue(slug, boot, setBoot, user);
 
+  const [shortcut, setShortcut] = useState('⌘K');
+  useEffect(() => {
+    const mac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent);
+    if (!mac) setShortcut('Ctrl K');
+  }, []);
+
   useEffect(() => {
     if (boot?.workspace?.branding?.accent) document.documentElement.style.setProperty('--ws-accent', boot.workspace.branding.accent);
   }, [boot?.workspace?.branding?.accent]);
@@ -74,7 +80,7 @@ export function WorkspaceShell({ slug, children }) {
               <header className="topbar print-hide">
                 <Button variant="ghost" className="menu-toggle" icon={<MenuIcon />} aria-label="Open navigation" onClick={() => setNavOpen(true)} />
                 <button type="button" className="search-trigger" onClick={() => setPalette(true)}>
-                  <Search aria-hidden="true" /><span>Search or jump to…</span><span className="kbd">⌘K</span>
+                  <Search aria-hidden="true" /><span>Search or jump to…</span><span className="kbd">{shortcut}</span>
                 </button>
                 <div className="grow" />
                 {/* The rest of Texor. One account carries somebody across all of it. */}
@@ -101,6 +107,22 @@ export function WorkspaceShell({ slug, children }) {
                     ))}
                   </div>
                 </Menu>
+                {/* Which business you are working in, beside the actions that
+                    act on it rather than tucked above the navigation. */}
+                <Menu align="right" trigger={({ toggle }) => (
+                  <button type="button" className="ws-pill" onClick={toggle} title={`${boot.workspace.name} · ${value.industry?.name ?? ''}`}>
+                    {boot.workspace.branding?.logo
+                      ? <img className="ws-pill-logo" src={fileUrl(boot.workspace.branding.logo)} alt="" />
+                      : <span className="ws-pill-initial">{boot.workspace.name.slice(0, 1).toUpperCase()}</span>}
+                    <span className="ws-pill-name ellipsis">{boot.workspace.name}</span>
+                    <ChevronsUpDown size={14} />
+                  </button>
+                )}>
+                  <div className="menu-label">{boot.workspace.edition === 'pro' ? 'Finvoice Pro' : 'Finvoice Lite'}</div>
+                  <MenuItem href="/workspaces" icon={<ArrowLeftRight />}>Switch business</MenuItem>
+                  <MenuItem href="/onboarding" icon={<Plus />}>Add another business</MenuItem>
+                </Menu>
+
                 {creatable.length ? (
                   <Menu align="right" trigger={({ toggle }) => <Button icon={<Plus />} onClick={toggle}>New</Button>}>
                     {creatable.slice(0, 12).map((m) => (

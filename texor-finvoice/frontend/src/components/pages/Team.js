@@ -11,7 +11,7 @@ import { useWorkspace } from '@/lib/workspace';
 const ACTION_LABELS = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', export: 'Export', approve: 'Approve' };
 const APPROVE_HINTS = { invoices: 'issue & void', quotations: 'send & decide', staff: 'mark others', warranties: 'resolve claims', gst: 'file' };
 
-function Members({ data, reload }) {
+export function Members({ data, reload }) {
   const { api, slug, can, member: me } = useWorkspace();
   const toast = useToast();
   const confirm = useConfirm();
@@ -107,7 +107,7 @@ function explicitGrants(role, modules) {
   return grants;
 }
 
-function Roles({ data, reload }) {
+export function Roles({ data, reload }) {
   const { api, modules, can, apply } = useWorkspace();
   const toast = useToast();
   const confirm = useConfirm();

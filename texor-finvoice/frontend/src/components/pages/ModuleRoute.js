@@ -13,7 +13,7 @@ import { screenFor, useWorkspace } from '@/lib/workspace';
 import { Payments } from './Payments';
 import { Schedules } from './Schedules';
 import { ProTeaser } from './ProTeaser';
-import { Staff } from './Staff';
+import { People } from './People';
 import { Team } from './Team';
 
 function Missing() {
@@ -51,6 +51,6 @@ export function ModuleRoute({ moduleKey, mode = 'list', id }) {
   if (mode === 'new') return can(m.key, 'create') ? <RecordCreate module={m} /> : <Missing />;
   if (mode === 'edit') return can(m.key, 'edit') ? <RecordEdit module={m} id={id} /> : <Missing />;
   if (mode === 'view') return <RecordDetail module={m} id={id} />;
-  if (screen === 'staff') return <Staff module={m} />;
+  if (screen === 'staff') return <People module={m} />;
   return <ModuleList module={m} />;
 }

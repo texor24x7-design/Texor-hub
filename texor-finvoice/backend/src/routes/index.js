@@ -13,10 +13,11 @@ import * as designs from '../controllers/design.controller.js';
 import * as schedules from '../controllers/schedule.controller.js';
 import * as razorpay from '../controllers/razorpay.controller.js';
 import * as ledger from '../controllers/ledger.controller.js';
+import * as people from '../controllers/people.controller.js';
 import * as integrations from '../controllers/integration.controller.js';
 import { sendSchema, smtpSchema, whatsappSchema } from '../services/delivery.service.js';
 import * as ops from '../controllers/operations.controller.js';
-import { checkSchema, markSchema } from '../services/attendance.service.js';
+import { bulkSchema, checkSchema, markSchema } from '../services/attendance.service.js';
 import { claimSchema, claimUpdateSchema } from '../services/warranty.service.js';
 import { designSchema } from '../services/design.service.js';
 import { ALLOWED_TYPES } from '../services/file.service.js';
@@ -91,6 +92,7 @@ export function createApiRouter() {
   w.get('/search', ops.search);
 
   // ── Team ────────────────────────────────────────────────────────────────────
+  w.get('/people', authorize('staff', 'view'), people.list);
   w.get('/team', authorize('team', 'view'), team.listMembers);
   w.post('/team/invites', authorize('team', 'edit'), validate(team.inviteSchema), team.invite);
   w.patch('/team/members/:id', authorize('team', 'edit'), validate(team.memberPatchSchema), team.updateMember);
@@ -114,6 +116,7 @@ export function createApiRouter() {
   w.get('/attendance/day', authorize('staff', 'view'), ops.day);
   w.get('/attendance/register', authorize('staff', 'view'), ops.register);
   w.get('/attendance/register/export', authorize('staff', 'export'), ops.registerCsv);
+  w.put('/attendance/day', authorize('staff', 'approve'), validate(bulkSchema), ops.markDay);
   w.put('/attendance/:staff/:date', authorize('staff', 'approve'), validate(markSchema), ops.mark);
 
   // ── Warranty claims ─────────────────────────────────────────────────────────

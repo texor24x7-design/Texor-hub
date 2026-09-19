@@ -399,6 +399,7 @@ export function DocumentEditor({ module, id }) {
   return (
     <>
       <PageHeader
+        sticky
         title={id ? `Edit ${module.labelSingular.toLowerCase()}` : `New ${module.labelSingular.toLowerCase()}`}
         crumbs={[{ label: module.label, href: href(`/${kind}`) }, { label: id ? 'Edit' : 'New' }]}
         actions={(

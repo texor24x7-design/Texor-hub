@@ -74,7 +74,13 @@ export const auth = {
   },
 };
 
-export const fileUrl = (key) => (key ? `${API_ORIGIN}/api/files/${encodeURIComponent(key)}` : null);
+/**
+ * An uploaded file, by its key — or an absolute URL passed straight through.
+ * A picture from a Texor Account is already a URL (Google serves avatars off
+ * lh3.googleusercontent.com), and treating one as a file key builds
+ * `/api/files/https%3A%2F%2F…`, which 404s.
+ */
+export const fileUrl = (key) => (!key ? null : /^https?:\/\//i.test(key) ? key : `${API_ORIGIN}/api/files/${encodeURIComponent(key)}`);
 
 /** Everything under one workspace. */
 export function workspaceApi(slug) {

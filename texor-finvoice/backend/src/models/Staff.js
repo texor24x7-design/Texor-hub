@@ -18,6 +18,11 @@ const staffSchema = new Schema({
   joinedOn: { type: Date, default: null },
   shiftStart: { type: String, default: '' },
   shiftEnd: { type: String, default: '' },
+  /** What they are paid, and on what basis. Empty `salaryKind` means unpaid here. */
+  salaryKind: { type: String, enum: ['', 'monthly', 'daily'], default: '' },
+  salaryMinor: { type: Number, default: 0, min: 0 },
+  salaryBasis: { type: String, enum: ['days26', 'days30', 'worked'], default: 'days30' },
+
   active: { type: Boolean, default: true },
   member: { type: Schema.Types.ObjectId, ref: 'Member', default: null },
 });

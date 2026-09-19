@@ -9,6 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useId, useRef, useSt
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Info, X } from 'lucide-react';
 import Link from 'next/link';
 import { initials } from '@/lib/format';
+import { ComboList, useCombo } from './fields/combo';
 
 /**
  * `dark` swaps in the variant whose wordmark is drawn in white. Inverting the
@@ -135,9 +136,13 @@ export function EmptyState({ icon, title, children, action }) {
   );
 }
 
-export function PageHeader({ title, description, crumbs = [], actions, badge }) {
+/**
+ * `sticky` keeps the header — and so the save and cancel buttons — in reach on a
+ * long page. It rides under the topbar rather than over it.
+ */
+export function PageHeader({ title, description, crumbs = [], actions, badge, sticky }) {
   return (
-    <div className="page-header">
+    <div className={`page-header${sticky ? ' page-header--sticky' : ''}`}>
       <div className="grow">
         {crumbs.length ? (
           <nav className="crumbs" aria-label="Breadcrumb">
@@ -213,26 +218,42 @@ export function Dialog({ open, onClose, title, description, children, footer, si
   );
 }
 
-/** A dropdown menu that closes on outside click, Escape, or choosing an item. */
+/**
+ * A dropdown menu that closes on outside click, Escape, or choosing an item.
+ *
+ * The panel is rendered in a portal, not absolutely inside the trigger. Every
+ * table here sits in `.table-wrap`, whose `overflow-x: auto` also makes it
+ * scroll vertically — so an absolutely-placed panel was clipped by the table
+ * and grew a scrollbar inside it rather than opening over the page. A one-row
+ * table showed this at its worst. `ReferencePicker` solved the same problem
+ * first; this reuses its machinery.
+ *
+ * `up` is no longer needed — the panel flips by measurement — but is still
+ * accepted so existing callers keep working.
+ */
 export function Menu({ trigger, children, align = 'left', up = false }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const { open, setOpen, box, wrap, list } = useCombo(children, { anchor: 'self', align, minWidth: 200, stretch: false });
+
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [open]);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, setOpen]);
 
   return (
-    <div className="menu-wrap" ref={ref}>
+    <div className="menu-wrap" ref={wrap}>
       {trigger({ open, toggle: () => setOpen((o) => !o) })}
       {open ? (
-        <div className={`menu${align === 'right' ? ' align-right' : ''}${up ? ' up' : ''}`} role="menu" onClick={(e) => { if (e.target.closest('.menu-item')) setOpen(false); }}>
+        <ComboList
+          box={box}
+          listRef={list}
+          className="menu"
+          role="menu"
+          onClick={(e) => { if (e.target.closest('.menu-item')) setOpen(false); }}
+        >
           {children}
-        </div>
+        </ComboList>
       ) : null}
     </div>
   );

@@ -14,7 +14,7 @@ export function Icon({ name, size, className, ...props }) {
 /** A curated set for the module icon picker. */
 export const MODULE_ICONS = [
   'layout-dashboard', 'users', 'user-round', 'contact', 'building-2', 'store', 'receipt', 'receipt-indian-rupee', 'file-text', 'file-pen-line',
-  'wallet', 'indian-rupee', 'credit-card', 'banknote', 'package', 'boxes', 'sparkles', 'spray-can', 'wrench', 'cog', 'shield-check',
+  'wallet', 'indian-rupee', 'credit-card', 'banknote', 'banknote-arrow-down', 'hand-coins', 'package', 'boxes', 'sparkles', 'spray-can', 'wrench', 'cog', 'shield-check',
   'calendar-check', 'calendar-clock', 'calendar-days', 'clipboard-list', 'clipboard-check', 'car', 'car-front', 'bike', 'truck', 'utensils-crossed',
   'chef-hat', 'coffee', 'armchair', 'scissors', 'tv', 'smartphone', 'laptop', 'plug', 'folder-kanban', 'kanban', 'briefcase-business', 'pen-tool',
   'megaphone', 'tag', 'tags', 'star', 'heart', 'gift', 'map-pin', 'phone', 'mail', 'message-circle', 'clock', 'timer', 'hammer', 'paintbrush',

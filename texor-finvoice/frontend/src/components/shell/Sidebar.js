@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ArrowLeftRight, ChevronsUpDown, LogOut, Plus, UserRound } from 'lucide-react';
+import { LogOut, UserRound } from 'lucide-react';
 import { Icon } from '@/components/Icon';
 import { Avatar, Menu, MenuItem } from '@/components/ui';
-import { ACCOUNTS_ORIGIN, auth, fileUrl } from '@/lib/api';
+import { ACCOUNTS_ORIGIN, auth } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace';
 
 /**
@@ -28,7 +28,7 @@ function groupModules(modules, groups) {
 }
 
 export function Sidebar({ onNavigate }) {
-  const { boot, workspace, modules, href, user, member, industry } = useWorkspace();
+  const { boot, workspace, modules, href, user, member } = useWorkspace();
   const pathname = usePathname();
   const groups = groupModules(modules, boot.groups ?? []);
   const locked = modules.filter((m) => m.locked);
@@ -41,22 +41,11 @@ export function Sidebar({ onNavigate }) {
   return (
     <aside className="sidebar" aria-label="Main navigation">
       <div className="sidebar-head">
-        <Menu trigger={({ toggle }) => (
-          <button type="button" className="ws-switch" onClick={toggle}>
-            <span className={`ws-logo${workspace.branding?.logo ? ' ws-logo--image' : ''}`}>
-            {workspace.branding?.logo ? <img src={fileUrl(workspace.branding.logo)} alt="" /> : workspace.name.slice(0, 1).toUpperCase()}
-          </span>
-            <span className="grow">
-              <span className="ws-name ellipsis" style={{ display: 'block' }}>{workspace.name}</span>
-              <span className="ws-meta"><Icon name={industry?.icon} size={11} />{industry?.name}</span>
-            </span>
-            <ChevronsUpDown size={15} color="#7f9690" />
-          </button>
-        )}>
-          <div className="menu-label">{workspace.edition === 'pro' ? 'Finvoice Pro' : 'Finvoice Lite'}</div>
-          <MenuItem href="/workspaces" icon={<ArrowLeftRight />}>Switch business</MenuItem>
-          <MenuItem href="/onboarding" icon={<Plus />}>Add another business</MenuItem>
-        </Menu>
+        {/* The product's mark. Which business you are in is chosen from the
+            topbar, next to New, where the actions are. */}
+        <Link href={href('')} className="brand-home" aria-label="Finvoice home">
+          <img src="/brand/finvoice-logo-dark.svg" alt="Finvoice" className="brand-mark" />
+        </Link>
       </div>
 
       <nav className="sidebar-nav" onClick={(e) => { if (e.target.closest('a')) onNavigate?.(); }}>

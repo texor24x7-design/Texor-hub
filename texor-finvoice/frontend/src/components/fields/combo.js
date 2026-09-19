@@ -12,28 +12,38 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-/** `watch` re-places the list whenever its contents change size. */
-export function useCombo(watch) {
+/**
+ * `watch` re-places the list whenever its contents change size.
+ *
+ * `anchor` is what the panel hangs off: the combobox's `input`, or `'self'` for
+ * a menu, whose wrapper is the trigger. `stretch` matches the panel to the
+ * anchor's width, which suits an input and not a 28px icon button.
+ */
+export function useCombo(watch, { anchor = 'input', align = 'left', minWidth = 260, stretch = true } = {}) {
   const [open, setOpen] = useState(false);
   const [box, setBox] = useState(null);
   const wrap = useRef(null);
   const list = useRef(null);
 
   const place = useCallback(() => {
-    const input = wrap.current?.querySelector('input');
-    if (!input) return;
-    const rect = input.getBoundingClientRect();
+    const el = anchor === 'self' ? wrap.current : wrap.current?.querySelector(anchor);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
     const below = window.innerHeight - rect.bottom;
     const height = Math.min(320, Math.max(below - 16, 160));
+    // Not enough room below, and more above: open upwards instead.
     const flip = below < 200 && rect.top > below;
+    const width = stretch ? Math.max(rect.width, minWidth) : undefined;
     setBox({
-      left: Math.min(rect.left, window.innerWidth - Math.max(rect.width, 260) - 8),
-      width: Math.max(rect.width, 260),
+      ...(align === 'right'
+        ? { right: Math.max(window.innerWidth - rect.right, 8) }
+        : { left: Math.min(rect.left, window.innerWidth - (width ?? minWidth) - 8) }),
+      width,
       top: flip ? undefined : rect.bottom + 4,
       bottom: flip ? window.innerHeight - rect.top + 4 : undefined,
       maxHeight: flip ? Math.min(320, rect.top - 16) : height,
     });
-  }, []);
+  }, [anchor, align, minWidth, stretch]);
 
   useLayoutEffect(() => { if (open) place(); }, [open, place, watch]);
 
@@ -57,14 +67,25 @@ export function useCombo(watch) {
   return { open, setOpen, box, wrap, list, place };
 }
 
-export function ComboList({ box, listRef, children }) {
+export function ComboList({ box, listRef, className = 'combo-list', role = 'listbox', children, ...rest }) {
   if (!box) return null;
   return createPortal(
     <div
-      className="combo-list"
-      role="listbox"
+      className={className}
+      role={role}
       ref={listRef}
-      style={{ position: 'fixed', left: box.left, width: box.width, top: box.top, bottom: box.bottom, maxHeight: box.maxHeight, right: 'auto' }}
+      // The unset side must be `auto`, or the stylesheet's `left: 0; right: 0`
+      // would stretch the panel across the viewport.
+      style={{
+        position: 'fixed',
+        left: box.left ?? 'auto',
+        right: box.right ?? 'auto',
+        width: box.width,
+        top: box.top,
+        bottom: box.bottom,
+        maxHeight: box.maxHeight,
+      }}
+      {...rest}
     >
       {children}
     </div>,

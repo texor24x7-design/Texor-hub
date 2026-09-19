@@ -34,7 +34,7 @@ export function isLate(staff, timezone, checkIn) {
 const worked = (entry) => (entry.checkIn && entry.checkOut ? Math.max(Math.round((entry.checkOut - entry.checkIn) / 60000), 0) : 0);
 
 async function activeStaff(workspaceId) {
-  return Staff.find({ workspace: workspaceId, deletedAt: null, active: true }).select('name designation photo shiftStart shiftEnd member email phone').sort({ name: 1 }).lean();
+  return Staff.find({ workspace: workspaceId, deletedAt: null, active: true }).select('name designation photo shiftStart shiftEnd member email phone salaryKind salaryMinor salaryBasis').sort({ name: 1 }).lean();
 }
 
 export async function day(req, date) {
@@ -46,6 +46,30 @@ export async function day(req, date) {
   let unmarked = 0;
   for (const row of rows) { if (row.entry) counts[row.entry.status] += 1; else unmarked += 1; }
   return { date: target, today: dayIn(req.workspace.timezone), rows, counts: { ...counts, unmarked, late: entries.filter((e) => e.late).length } };
+}
+
+/**
+ * What a month of attendance is worth.
+ *
+ * A daily wage pays for the days that count. A monthly salary is reduced by the
+ * days lost — and what one day costs depends on the basis: ÷26 is the statutory
+ * convention, ÷30 the common private practice, and ÷ the month's own length the
+ * literal reading. Getting that divisor wrong quietly underpays people, so it is
+ * a setting on the person rather than a constant here.
+ */
+export function payFor(staff, totals, daysInMonth) {
+  if (!staff.salaryKind || !staff.salaryMinor) return null;
+  const amount = staff.salaryMinor;
+  const payableDays = totals.payable;
+  const lopDays = totals.absent;
+
+  if (staff.salaryKind === 'daily') {
+    return { kind: 'daily', amountMinor: Math.round(amount * payableDays), rateMinor: amount, payableDays, lopDays, lopMinor: 0 };
+  }
+  const basis = staff.salaryBasis === 'days26' ? 26 : staff.salaryBasis === 'worked' ? daysInMonth : 30;
+  const perDay = amount / basis;
+  const lopMinor = Math.min(Math.round(perDay * lopDays), amount);
+  return { kind: 'monthly', amountMinor: amount - lopMinor, grossMinor: amount, perDayMinor: Math.round(perDay), basis, payableDays, lopDays, lopMinor };
 }
 
 export async function register(req, month) {
@@ -71,7 +95,8 @@ export async function register(req, month) {
       const totals = { present: 0, half_day: 0, absent: 0, leave: 0, holiday: 0, week_off: 0, late: 0, minutes: 0 };
       for (const mark of Object.values(marks)) { totals[mark.status] += 1; if (mark.late) totals.late += 1; totals.minutes += mark.minutes ?? 0; }
       totals.payable = totals.present + totals.half_day / 2 + totals.holiday + totals.week_off + totals.leave;
-      return { ...s, marks, totals };
+      const pay = payFor(s, totals, days);
+      return { ...s, marks, totals, pay };
     }),
   };
 }
@@ -110,6 +135,44 @@ async function ownStaff(req) {
     staff = await Staff.findOneAndUpdate({ workspace: req.workspace._id, email: req.member.email, member: null, deletedAt: null, active: true }, { member: req.member._id }, { returnDocument: 'after' }).lean();
   }
   return staff;
+}
+
+export const bulkSchema = z.object({
+  date: z.string().regex(dayPattern, 'Choose a day.'),
+  marks: z.array(z.object({ staff: z.string(), status: z.enum(STATUSES) })).min(1).max(500),
+});
+
+/**
+ * Marks a whole day in one request.
+ *
+ * Marking a normal morning used to cost one request per person, fired in a
+ * serial loop from the browser. On a normal day almost everybody is present, so
+ * this is the call that makes "everyone present" a single tap.
+ */
+export async function markDay(req, { date, marks }) {
+  if (date > dayIn(req.workspace.timezone)) {
+    throw ApiError.badRequest('Attendance cannot be marked for a day that has not happened yet.');
+  }
+  const wanted = new Map(marks.map((m) => [String(m.staff), m.status]));
+  const staff = await Staff.find({ _id: { $in: [...wanted.keys()] }, workspace: req.workspace._id, deletedAt: null }).select('name shiftStart').lean();
+
+  const ops = staff.map((person) => {
+    const status = wanted.get(String(person._id));
+    const set = { status, source: 'manager', markedBy: req.user._id };
+    // A day someone was not at work has no punches on it.
+    if (!['present', 'half_day'].includes(status)) Object.assign(set, { checkIn: null, checkOut: null, minutes: 0, late: false });
+    return {
+      updateOne: {
+        filter: { workspace: req.workspace._id, staff: person._id, date },
+        update: { $set: set, $setOnInsert: { note: '' } },
+        upsert: true,
+      },
+    };
+  });
+  if (ops.length) await Attendance.bulkWrite(ops);
+
+  await audit(req, { action: 'attendance.marked_day', module: 'staff', summary: `Marked ${ops.length} ${ops.length === 1 ? 'person' : 'people'} on ${date}` });
+  return { marked: ops.length, date };
 }
 
 export async function me(req) {

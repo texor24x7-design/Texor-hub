@@ -113,7 +113,7 @@ export const CORE_MODULES = [
   },
 
   {
-    key: 'expenses', label: 'Expenses', labelSingular: 'Expense', icon: 'wallet-minus', edition: 'lite', group: 'operations', actions: CRUD,
+    key: 'expenses', label: 'Expenses', labelSingular: 'Expense', icon: 'banknote-arrow-down', edition: 'lite', group: 'operations', actions: CRUD,
     titleField: 'description',
     fields: [
       field('description', 'What it was for', 'text', { required: true, locked: true }),
@@ -241,7 +241,7 @@ export const CORE_MODULES = [
   },
 
   {
-    key: 'staff', label: 'Staff & attendance', labelSingular: 'Staff member', icon: 'calendar-check', edition: 'lite', group: 'people', actions: [...CRUD, 'approve'],
+    key: 'staff', label: 'People', labelSingular: 'Person', icon: 'users-round', edition: 'lite', group: 'people', actions: [...CRUD, 'approve'],
     titleField: 'name',
     fields: [
       field('name', 'Name', 'text', { required: true, locked: true }),
@@ -252,6 +252,20 @@ export const CORE_MODULES = [
       field('joinedOn', 'Joined on', 'date'),
       field('shiftStart', 'Shift starts', 'time', { section: 'Shift' }),
       field('shiftEnd', 'Shift ends', 'time', { section: 'Shift' }),
+      field('salaryKind', 'Paid', 'select', {
+        section: 'Pay', default: '',
+        options: [{ value: '', label: 'Not paid through Finvoice' }, { value: 'monthly', label: 'A monthly salary' }, { value: 'daily', label: 'A daily wage' }],
+      }),
+      field('salaryMinor', 'Amount', 'currency', { section: 'Pay', help: 'Per month, or per day worked.' }),
+      field('salaryBasis', 'A day is worth', 'select', {
+        section: 'Pay', default: 'days30',
+        options: [
+          { value: 'days30', label: 'Monthly pay ÷ 30' },
+          { value: 'days26', label: 'Monthly pay ÷ 26 (statutory)' },
+          { value: 'worked', label: 'Monthly pay ÷ days in the month' },
+        ],
+        help: 'Only used for a monthly salary, to work out a day of loss of pay.',
+      }),
       field('active', 'Active', 'checkbox', { default: true }),
     ],
   },
@@ -261,7 +275,13 @@ export const CORE_MODULES = [
     actions: CRUD, titleField: 'title', fields: [],
   },
 
-  { key: 'team', label: 'Team & roles', labelSingular: 'Team', icon: 'user-cog', edition: 'lite', group: 'admin', actions: ['view', 'edit'], fields: [] },
+  /**
+   * Access lives inside People now, as its own tab — two sidebar entries for the
+   * same humans was the confusing part. The key stays so every role definition,
+   * permission and pack override keeps working; `page: false` only removes the
+   * separate screen.
+   */
+  { key: 'team', label: 'Roles & access', labelSingular: 'Role', icon: 'user-cog', edition: 'lite', group: 'admin', actions: ['view', 'edit'], fields: [], page: false },
   { key: 'settings', label: 'Settings', labelSingular: 'Settings', icon: 'settings', edition: 'lite', group: 'admin', actions: ['view', 'edit'], fields: [] },
 
   // Finvoice Pro — registered so the sidebar can show what upgrading unlocks.

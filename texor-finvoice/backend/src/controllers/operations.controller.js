@@ -5,6 +5,7 @@ import { dashboard as buildDashboard, search as runSearch } from '../services/da
 export const day = async (req, res) => res.json(await attendance.day(req, req.query.date));
 export const register = async (req, res) => res.json(await attendance.register(req, req.query.month));
 export const mark = async (req, res) => res.json({ entry: await attendance.mark(req, req.params.staff, req.params.date, req.body) });
+export const markDay = async (req, res) => res.json(await attendance.markDay(req, req.body));
 export const me = async (req, res) => res.json(await attendance.me(req));
 export const checkIn = async (req, res) => res.json({ entry: await attendance.check(req, 'in', req.body) });
 export const checkOut = async (req, res) => res.json({ entry: await attendance.check(req, 'out', req.body) });
