@@ -93,6 +93,11 @@ const server = spawn(
       LOG_LEVEL: 'error',
       APP_ORIGIN: TEST_API,
       CORS_ORIGINS: TEST_API,
+      // Lets the suite sign an edit as Texor Notes would. Only the inbound half:
+      // with no origin and no key set, nothing is ever pushed out.
+      NOTES_WEBHOOK_SECRET: 'test-notes-secret',
+      NOTES_API_ORIGIN: '',
+      NOTES_API_KEY: '',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   },
@@ -168,7 +173,7 @@ let failures = 0;
  * rule fails in a second rather than after a full media negotiation.
  */
 for (const file of ['speaker.test.mjs', 'fullscreen.test.mjs', 'media-errors.test.mjs', 'tile-layout.test.mjs', 'quality.test.mjs',
-  'notes-doc.test.mjs', 'meeting-lifecycle.test.mjs']) {
+  'notes-doc.test.mjs', 'meeting-lifecycle.test.mjs', 'notes-sync.test.mjs']) {
   failures += (await runSuite(file)) === 0 ? 0 : 1;
 }
 

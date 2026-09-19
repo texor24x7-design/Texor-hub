@@ -19,6 +19,7 @@ import {
   preview,
   sanitiseBlocks,
 } from '../services/notes.service.js';
+import { pushDelete, pushNote } from '../services/notes-sync.service.js';
 
 /**
  * The block schema is deliberately loose.
@@ -297,6 +298,10 @@ export async function createNote(req, res) {
   res.status(201).json({
     note: presentNote(note, req.user.texorId, { people: taggablePeople(meeting) }),
   });
+
+  // After the response, never before it: see notes-sync.service.js. A no-op
+  // unless this deployment is wired to Texor Notes.
+  pushNote(note, req.user);
 }
 
 /**
@@ -330,6 +335,10 @@ export async function updateNote(req, res) {
       people: meeting ? taggablePeople(meeting) : undefined,
     }),
   });
+
+  // Only a change to the document is worth a round trip — a pin or a sharing
+  // toggle is Talk's business, not the note's.
+  if (req.body.title !== undefined || req.body.blocks !== undefined) pushNote(note, req.user);
 }
 
 /** Soft delete, so an autosave racing a delete cannot resurrect the note. */
@@ -345,6 +354,9 @@ export async function deleteNote(req, res) {
   await note.save();
 
   res.json({ ok: true });
+
+  // The copy in Notes goes to its owner's trash there, not into the void.
+  pushDelete(note);
 }
 
 export default {

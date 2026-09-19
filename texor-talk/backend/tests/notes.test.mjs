@@ -334,6 +334,67 @@ console.log('\n── a bad id is a 404, not a crash ──');
     (await call(ana, '/api/notes/000000000000000000000000')).status === 404);
 }
 
+console.log('\n── an edit made in Texor Notes, arriving back ──');
+{
+  /**
+   * The inbound half of the mirror, over real HTTP. The runner gives this
+   * server a webhook secret and no Notes origin or key, so edits can arrive
+   * and nothing is ever sent back out — which is also the loop this checks.
+   */
+  const { createHmac } = await import('node:crypto');
+  const SECRET = 'test-notes-secret';
+
+  const mirrored = await call(ana, '/api/notes', {
+    method: 'POST',
+    body: { meetingCode: code, title: 'Mirrored', blocks: [{ type: 'paragraph', text: 'from talk', marks: [] }] },
+  });
+  const mirroredId = mirrored.body.note.id;
+
+  const send = async (payload, secret = SECRET) => {
+    const bytes = JSON.stringify(payload);
+    const res = await fetch(`${API}/api/integrations/notes`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-notes-signature': `sha256=${createHmac('sha256', secret).update(bytes).digest('hex')}`,
+      },
+      body: bytes,
+    });
+    return res.status;
+  };
+
+  const edited = await send({
+    event: 'note.updated',
+    note: {
+      externalId: mirroredId,
+      title: 'Edited in Notes',
+      blocks: [{ type: 'paragraph', text: 'from notes <b>bold</b>', marks: [] }],
+    },
+  });
+  check('a signed edit from Notes is accepted', edited === 200, String(edited));
+
+  const after = await call(ana, `/api/notes/${mirroredId}`);
+  check('and the Talk note now says what it says in Notes', after.body.note?.title === 'Edited in Notes');
+  check('its text crossed as text, not markup',
+    after.body.note?.blocks?.[0]?.text === 'from notes <b>bold</b>');
+
+  const forged = await send({ event: 'note.updated', note: { externalId: mirroredId, title: 'forged' } }, 'wrong');
+  check('an edit not signed by Notes is refused', forged === 401, String(forged));
+  check('and changes nothing',
+    (await call(ana, `/api/notes/${mirroredId}`)).body.note?.title === 'Edited in Notes');
+
+  const unknown = await send({ event: 'note.updated', note: { externalId: '000000000000000000000000', title: 'x' } });
+  check('a change for a note Talk never had is a 404, so Notes stops retrying', unknown === 404);
+
+  const binned = await send({ event: 'note.deleted', note: { externalId: mirroredId } });
+  check('a note trashed in Notes is deleted here too', binned === 200);
+  check('so it leaves the notes list', (await call(ana, `/api/notes/${mirroredId}`)).status === 404);
+
+  const back = await send({ event: 'note.updated', note: { externalId: mirroredId, title: 'Put back' } });
+  check('and one put back in Notes comes back here',
+    back === 200 && (await call(ana, `/api/notes/${mirroredId}`)).body.note?.title === 'Put back');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await mongoose.disconnect();
 process.exit(fail === 0 ? 0 : 1);

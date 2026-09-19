@@ -60,6 +60,23 @@ const schema = z.object({
   // Email domains treated as internal. Anyone else is an external guest, and
   // the external-guest policy applies to them.
   ORG_EMAIL_DOMAINS: z.string().default(''),
+
+  // ── Texor Notes (optional) ─────────────────────────────────────────────────
+  /**
+   * Where meeting notes are mirrored, both ways.
+   *
+   * Off unless both the origin and the key are set, and off means exactly the
+   * product as it was: nothing is sent, nothing is received, Talk's own notes
+   * are the only notes. The key must be a *trusted* one, made by an account
+   * listed in Notes' TRUSTED_KEY_EMAILS — that is what lets a note land in the
+   * account of whoever wrote it rather than in the key owner's.
+   */
+  NOTES_API_ORIGIN: z.string().default(''),
+  NOTES_API_KEY: z.string().default(''),
+  // The secret Notes signs its change notifications with. Shown once, when the
+  // key is created with a webhook address; without it, edits made in Notes are
+  // refused rather than trusted.
+  NOTES_WEBHOOK_SECRET: z.string().default(''),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -84,6 +101,13 @@ export const env = {
 
   adminEmails: lower(csv(raw.ADMIN_EMAILS)),
   orgEmailDomains: lower(csv(raw.ORG_EMAIL_DOMAINS)).map((domain) => domain.replace(/^@/, '')),
+
+  notesSync: {
+    origin: raw.NOTES_API_ORIGIN.replace(/\/$/, ''),
+    key: raw.NOTES_API_KEY,
+    webhookSecret: raw.NOTES_WEBHOOK_SECRET,
+    enabled: Boolean(raw.NOTES_API_ORIGIN && raw.NOTES_API_KEY),
+  },
 
   media: {
     announcedAddress: raw.MEDIA_ANNOUNCED_ADDRESS,

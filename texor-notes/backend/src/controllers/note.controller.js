@@ -377,6 +377,9 @@ export async function restoreNote(req, res) {
   await note.save();
 
   res.json({ note: presentNote(note, actor, role) });
+
+  // Put back here means put back in the app that made it, too.
+  if (!actor.viaApiKey) syncOut(note, { ApiKey });
 }
 
 /** Out of the trash and gone. The one destructive route in the product. */

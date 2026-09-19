@@ -182,6 +182,85 @@ section('telling the app about changes made here');
     JSON.stringify((await call(dev, '/api/keys')).body).includes(withHook.body.webhookSecret) === false);
 }
 
+section('two-way: an edit made here reaches the app that wrote the note');
+{
+  /**
+   * A real HTTP receiver standing in for Texor Talk, so what is checked is the
+   * request that actually leaves this product: its address, its body and its
+   * signature.
+   */
+  const { createServer } = await import('node:http');
+  const received = [];
+  const receiver = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      received.push({ body, signature: req.headers['x-notes-signature'] });
+      res.writeHead(200).end('{}');
+    });
+  });
+  await new Promise((resolve) => { receiver.listen(0, '127.0.0.1', resolve); });
+  const hook = `http://127.0.0.1:${receiver.address().port}/api/integrations/notes`;
+
+  const talk = await call(first, '/api/keys', {
+    method: 'POST', body: { appName: 'Talk mirror', webhookUrl: hook },
+  });
+  const talkKey = talk.body.token;
+  const secret = talk.body.webhookSecret;
+
+  await withKey(talkKey, '/api/v1/notes', {
+    method: 'POST',
+    body: {
+      externalId: 'talk-note-99',
+      title: 'Retro',
+      owner: { texorId: 'tx-by', email: 'by@texor.app', name: 'By Stander' },
+      blocks: [{ type: 'paragraph', text: 'from talk', marks: [] }],
+    },
+  });
+
+  const waitFor = async (count) => {
+    for (let i = 0; i < 40 && received.length < count; i += 1) {
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+    }
+  };
+
+  await waitFor(1);
+  check('a note arriving from the app is not sent straight back to it', received.length === 0,
+    String(received.length));
+
+  const board = await call(bystander, '/api/notes');
+  const retro = board.body.notes.find((note) => note.title === 'Retro');
+  const opened = await call(bystander, `/api/notes/${retro.id}`);
+
+  await call(bystander, `/api/notes/${retro.id}`, {
+    method: 'PATCH',
+    body: { blocks: [{ type: 'paragraph', text: 'edited in notes', marks: [] }], version: opened.body.note.version },
+  });
+  await waitFor(1);
+
+  check('editing it here tells the app that wrote it', received.length === 1, String(received.length));
+
+  const delivered = JSON.parse(received[0]?.body ?? '{}');
+  check("with the app's own identifier, so it knows which of its notes",
+    delivered.note?.externalId === 'talk-note-99');
+  check('and the new text', delivered.note?.blocks?.[0]?.text === 'edited in notes');
+
+  const expected = `sha256=${createHmac('sha256', secret).update(received[0]?.body ?? '').digest('hex')}`;
+  check('signed with the secret the app was given', received[0]?.signature === expected);
+
+  await call(bystander, `/api/notes/${retro.id}`, { method: 'DELETE' });
+  await waitFor(2);
+  check('trashing it here tells the app too',
+    JSON.parse(received[1]?.body ?? '{}').event === 'note.deleted');
+
+  await call(bystander, `/api/notes/${retro.id}/restore`, { method: 'POST' });
+  await waitFor(3);
+  check('and so does putting it back',
+    JSON.parse(received[2]?.body ?? '{}').event === 'note.updated');
+
+  await new Promise((resolve) => { receiver.close(resolve); });
+}
+
 section('taking a key away');
 {
   const keys = await call(dev, '/api/keys');
