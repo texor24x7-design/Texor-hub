@@ -15,10 +15,12 @@ A software ecosystem built around one account.
         ┌──────────────────────┬───────┴────────┬──────────────────────┐
         │                      │                │                      │
 ┌───────┴────────┐   ┌─────────┴──────┐   ┌─────┴──────────┐   ┌───────┴────────┐
-│ finvoice       │   │ talk           │   │ payroll        │   │ …the next one  │
-│ .texor.app     │   │ .texor.app     │   │ .texor.app     │   │                │
-│ invoicing      │   │ meetings       │   │ payroll runs   │   │                │
-└────────────────┘   └────────────────┘   └────────────────┘   └────────────────┘
+│ finvoice       │   │ talk           │   │ payroll        │   │ notes          │
+│ .texor.app     │   │ .texor.app     │   │ .texor.app     │   │ .texor.app     │
+│ invoicing      │   │ meetings       │   │ payroll runs   │   │ notes + an API │
+└────────────────┘   └───────┬────────┘   └────────────────┘   └───────┬────────┘
+                             │                                         │
+                             └──── meeting notes, mirrored both ways ──┘
 ```
 
 Sign in once at `accounts.texor.app` and every product recognises you — the same
@@ -36,6 +38,7 @@ Each product is its own repository, with the same three folders inside:
 | [`texor-finvoice`](./texor-finvoice) | Finvoice — invoicing, inventory, warranties and staff, shaped per industry | api `4001`, web `3001` |
 | [`texor-talk`](./texor-talk) | Texor Talk — meetings (self-hosted SFU) and team messaging | api `4002`, web `3002` |
 | [`texor-payroll`](./texor-payroll) | Texor Payroll — payroll runs and payslips | api `4003`, web `3003` |
+| [`texor-notes`](./texor-notes) | Texor Notes — notes, labels and sharing, plus an API other platforms write into | api `4004`, web `3004` |
 
 ```
 texor-<product>/

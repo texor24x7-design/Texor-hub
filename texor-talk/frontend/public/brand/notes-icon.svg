@@ -1,0 +1,15 @@
+<svg width="110" height="110" viewBox="0 0 110 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    A placeholder mark, drawn rather than designed.
+
+    A sheet with its corner turned up, in the same 110×110 frame the other
+    products use, so the switcher reads as one family. Two files replace it when
+    real artwork exists — this one and notes-logo.svg — and nothing else has to
+    change, because every colour here also lives in globals.css as a token.
+  -->
+  <path d="M20 14a8 8 0 0 1 8-8h38l24 24v58a8 8 0 0 1-8 8H28a8 8 0 0 1-8-8V14Z" fill="#C9821F"/>
+  <path d="M66 6l24 24H74a8 8 0 0 1-8-8V6Z" fill="#8A5411"/>
+  <rect x="34" y="44" width="42" height="6" rx="3" fill="#FFF3E0"/>
+  <rect x="34" y="60" width="42" height="6" rx="3" fill="#FFF3E0"/>
+  <rect x="34" y="76" width="26" height="6" rx="3" fill="#FFF3E0"/>
+</svg>

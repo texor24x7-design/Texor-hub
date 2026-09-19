@@ -17,6 +17,7 @@ const nextConfig = {
     NEXT_PUBLIC_FINVOICE_ORIGIN: origin(process.env.NEXT_PUBLIC_FINVOICE_ORIGIN, 'http://localhost:3001'),
     NEXT_PUBLIC_TALK_ORIGIN: origin(process.env.NEXT_PUBLIC_TALK_ORIGIN, 'http://localhost:3002'),
     NEXT_PUBLIC_PAYROLL_ORIGIN: origin(process.env.NEXT_PUBLIC_PAYROLL_ORIGIN, 'http://localhost:3003'),
+    NEXT_PUBLIC_NOTES_ORIGIN: origin(process.env.NEXT_PUBLIC_NOTES_ORIGIN, 'http://localhost:3004'),
   },
 };
 

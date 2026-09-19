@@ -1,0 +1,83 @@
+name: Deploy Texor Notes
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "texor-notes/**"
+      - ".github/workflows/deploy-notes.yml"
+      
+concurrency:
+    group: texor-ec2-deployment
+    cancel-in-progress: false
+    
+jobs:
+  
+  deploy:
+    name: Deploy Notes to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          passphrase: ${{ secrets.EC2_SSH_PASSPHRASE }}
+          script: |
+            set -e
+
+            echo "==> Starting Texor Notes deployment"
+
+            cd ~/Texor-hub
+
+            echo "==> Fetching latest code"
+            git fetch origin main
+
+            echo "==> Checking out deployed commit"
+            git checkout --detach ${{ github.sha }}
+
+            echo "==> Loading Node.js environment"
+            export NVM_DIR="$HOME/.nvm"
+            source "$NVM_DIR/nvm.sh"
+            nvm use 24.21.0
+
+            echo "==> Node version"
+            node --version
+            echo "==> npm version"
+            npm --version
+
+            echo "==> Installing backend dependencies"
+            cd texor-notes/backend
+            npm ci
+
+            # The test runner runs the frontend's own suites from
+            # texor-notes/frontend, so its dependencies have to be present too.
+            # Without this the suites pass only while a previous manual install
+            # happens to still be on the box, and break on the first dependency
+            # change with an error that says nothing about the cause.
+            echo "==> Installing frontend dependencies"
+            cd ../frontend
+            npm ci
+
+            echo "==> Running Notes tests"
+            cd ../backend
+            npm test
+
+            echo "==> Restarting Notes"
+            pm2 restart texor-notes
+
+            echo "==> Waiting for Notes to start"
+            sleep 5
+
+            echo "==> Checking PM2 status"
+            pm2 status
+
+            echo "==> Checking Notes API"
+            curl --fail --silent --show-error \
+              http://127.0.0.1:4004/api/health
+
+            echo ""
+            echo "==> Texor Notes deployment successful"

@@ -34,6 +34,7 @@ const nextConfig = {
     NEXT_PUBLIC_ACCOUNTS_ORIGIN: origin(process.env.NEXT_PUBLIC_ACCOUNTS_ORIGIN, 'http://localhost:3000'),
     NEXT_PUBLIC_FINVOICE_ORIGIN: origin(process.env.NEXT_PUBLIC_FINVOICE_ORIGIN, 'http://localhost:3001'),
     NEXT_PUBLIC_PAYROLL_ORIGIN: origin(process.env.NEXT_PUBLIC_PAYROLL_ORIGIN, 'http://localhost:3003'),
+    NEXT_PUBLIC_NOTES_ORIGIN: origin(process.env.NEXT_PUBLIC_NOTES_ORIGIN, 'http://localhost:3004'),
 
     // This one is asked of the platform rather than left empty: the host's own
     // address is the one value a deployment can always work out for itself, and

@@ -63,6 +63,15 @@ export const PRODUCTS = [
     tint: '#0f766e',
   },
   {
+    id: 'notes',
+    icon: '/brand/notes-icon.svg',
+    name: 'Texor Notes',
+    blurb: 'Notes, lists and shared thinking',
+    href: origin(process.env.NEXT_PUBLIC_NOTES_ORIGIN, 'http://localhost:3004'),
+    initial: 'N',
+    tint: '#c9821f',
+  },
+  {
     id: 'payroll',
     name: 'Payroll',
     blurb: 'Payroll runs and payslips',
