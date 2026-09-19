@@ -160,7 +160,7 @@ let failures = 0;
  * These need no database and no HTTP, so running them up front means a broken
  * rule fails in a second rather than after a full media negotiation.
  */
-for (const file of ['access.test.mjs']) {
+for (const file of ['notes-doc.test.mjs', 'access.test.mjs']) {
   failures += (await runSuite(file)) === 0 ? 0 : 1;
 }
 
@@ -173,8 +173,7 @@ for (const file of ['access.test.mjs']) {
  */
 if (existsSync(`${FRONTEND}/tests`)) {
   for (const file of [
-    'render.test.mjs', 'autosave.test.mjs', 'notes-doc.test.mjs', 'note-export.test.mjs',
-    'styles.test.mjs',
+    'render.test.mjs', 'autosave.test.mjs', 'note-export.test.mjs', 'styles.test.mjs',
   ]) {
     failures += (await runSuite(file, FRONTEND)) === 0 ? 0 : 1;
   }

@@ -1,0 +1,16 @@
+{
+  "name": "notes-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Texor Notes — notes, labels and a notes API for the Texor ecosystem",
+  "scripts": {
+    "dev": "next dev -p 3004",
+    "build": "next build",
+    "start": "next start -p 3004"
+  },
+  "dependencies": {
+    "next": "^16.3.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}

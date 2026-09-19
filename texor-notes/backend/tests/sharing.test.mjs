@@ -148,6 +148,13 @@ section('sharing a whole label');
   check('the label itself appears in their sidebar',
     labels.body.labels?.some((row) => row.id === labelId && row.role === 'editor'));
 
+  // Opening that label has to show what is in it. Filtering by owner first
+  // showed an empty page on a label that was full.
+  const inside = await call(kim, `/api/notes?label=${labelId}`);
+  check('and opening it shows the notes filed under it',
+    inside.body.notes?.some((row) => row.id === filed.body.note.id),
+    JSON.stringify(inside.body.notes?.length));
+
   await call(ana, `/api/labels/${labelId}/shares/kim@texor.app`, { method: 'DELETE' });
   check('unsharing the label takes the notes back',
     (await call(kim, `/api/notes/${filed.body.note.id}`)).status === 404);

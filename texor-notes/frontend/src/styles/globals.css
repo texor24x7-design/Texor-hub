@@ -1,0 +1,1602 @@
+/*
+ * Texor design tokens.
+ *
+ * Every product in the ecosystem imports the same variable names, so a change
+ * here (or an override of --brand-*) restyles a whole app without touching
+ * component code. Colours are defined once in light and remapped for dark.
+ */
+:root {
+  /*
+   * The scale is built from the logo, not chosen beside it.
+   *
+   * `notes-icon.svg` draws its sheet in #C9821F. That is the product's amber,
+   * so it is `--brand-400` here and every other step is the same hue at a
+   * different lightness — which is why the interface and the mark look like one
+   * thing rather than two ambers that nearly agree.
+   *
+   * Amber because this is the product about paper. It is also the one hue not
+   * already spoken for: Talk is blue, Finvoice teal, Payroll a browner orange.
+   */
+  --brand-400: #c9821f;
+  --brand-500: #b3701a;
+  --brand-600: #8a5411;
+  --brand-700: #6b400c;
+  --brand-050: #fdf6ea;
+
+  --bg: #f7f7f9;
+  --surface: #ffffff;
+  --surface-muted: #f2f3f7;
+  --border: #e3e4ea;
+  --border-strong: #cfd1db;
+
+  --text: #17181d;
+  --text-muted: #61636e;
+  --text-subtle: #8a8c98;
+
+  --danger: #c2334d;
+  --danger-bg: #fdf0f2;
+  --success: #167a5b;
+  --success-bg: #eefaf5;
+
+  --radius: 10px;
+  --radius-lg: 16px;
+  --shadow: 0 1px 2px rgb(20 20 30 / 6%), 0 8px 24px rgb(20 20 30 / 6%);
+
+  /*
+   * The product's typeface, loaded in `app/layout.js`. The system stack behind
+   * it is what renders for the moment before the font arrives and on anything
+   * that fails to load it, so the fallback is a real design, not a placeholder.
+   */
+  --font: var(--font-notes), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/**
+ * This product is light, on every machine.
+ *
+ * There used to be a `prefers-color-scheme: dark` block here redefining every
+ * token. It went because a half-built dark theme is worse than none: the call
+ * screen is dark by design whatever the setting, the brand mark has a light
+ * and a dark cut that are chosen by the *browser* rather than by these tokens,
+ * and the meeting UI carries its own palette — so a system in dark mode
+ * produced a page assembled from three different ideas of what dark meant.
+ *
+ * `color-scheme: light` is the other half of saying so. Without it the browser
+ * still paints its own furniture dark — form controls, scrollbars, the canvas
+ * behind the page — against a light document.
+ */
+:root { color-scheme: light; }
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--brand-600); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3 { margin: 0; line-height: 1.25; letter-spacing: -0.01em; }
+h1 { font-size: 1.5rem; font-weight: 650; }
+h2 { font-size: 1.125rem; font-weight: 620; }
+h3 { font-size: 0.95rem; font-weight: 600; }
+p { margin: 0; }
+
+/* ── layout ───────────────────────────────────────────────────────────────── */
+.auth-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.25rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 2rem;
+}
+
+.auth-card__header { margin-bottom: 1.5rem; }
+.auth-card__header p { color: var(--text-muted); margin-top: 0.4rem; }
+.auth-card__footer {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.stack { display: grid; gap: 1rem; }
+.stack--tight { gap: 0.625rem; }
+.stack--loose { gap: 1.75rem; }
+.row { display: flex; align-items: center; gap: 0.75rem; }
+.row--between { justify-content: space-between; }
+.row--wrap { flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+
+/* ── brand ────────────────────────────────────────────────────────────────── */
+/*
+ * One image, not a mark beside text: the wordmark is part of the supplied
+ * artwork now, so there is nothing here to keep in step with it.
+ */
+.logo { display: inline-block; line-height: 0; }
+.logo__lockup { display: block; height: auto; }
+.logo__icon { display: block; flex: none; }
+
+/* ── forms ────────────────────────────────────────────────────────────────── */
+.field { display: grid; gap: 0.375rem; }
+.field__label { font-size: 0.8125rem; font-weight: 550; color: var(--text); }
+.field__hint { font-size: 0.78rem; color: var(--text-subtle); }
+.field__error { font-size: 0.78rem; color: var(--danger); }
+
+.input {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-500) 22%, transparent);
+}
+.input[aria-invalid='true'] { border-color: var(--danger); }
+.input:disabled { background: var(--surface-muted); color: var(--text-subtle); }
+
+.btn {
+  font: inherit;
+  font-weight: 550;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn--primary { background: var(--brand-600); color: #fff; }
+.btn--primary:hover:not(:disabled) { background: var(--brand-700); }
+.btn--secondary { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
+.btn--secondary:hover:not(:disabled) { background: var(--surface-muted); }
+.btn--ghost { background: transparent; color: var(--text-muted); }
+.btn--ghost:hover:not(:disabled) { background: var(--surface-muted); color: var(--text); }
+.btn--danger { background: transparent; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.btn--danger:hover:not(:disabled) { background: var(--danger-bg); }
+.btn--block { width: 100%; }
+.btn--sm { padding: 0.4rem 0.7rem; font-size: 0.8125rem; }
+
+/* ── feedback ─────────────────────────────────────────────────────────────── */
+.alert {
+  border-radius: var(--radius);
+  padding: 0.7rem 0.85rem;
+  font-size: 0.875rem;
+  border: 1px solid transparent;
+}
+.alert--error { background: var(--danger-bg); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
+.alert--success { background: var(--success-bg); color: var(--success); border-color: color-mix(in srgb, var(--success) 25%, transparent); }
+.alert--info { background: var(--surface-muted); color: var(--text-muted); border-color: var(--border); }
+
+.spinner {
+  width: 1rem; height: 1rem;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 600ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── account console ──────────────────────────────────────────────────────── */
+.console { min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; }
+.console__bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 1.5rem;
+}
+.console__body { width: 100%; max-width: 62rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+.nav { display: flex; gap: 0.25rem; flex-wrap: wrap; margin: 1.5rem 0 2rem; }
+.nav a {
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.nav a:hover { background: var(--surface-muted); color: var(--text); text-decoration: none; }
+.nav a[aria-current='page'] { background: var(--brand-050); color: var(--brand-700); }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+}
+.panel + .panel { margin-top: 1.25rem; }
+.panel__header { margin-bottom: 1.25rem; }
+.panel__header p { color: var(--text-muted); font-size: 0.875rem; margin-top: 0.25rem; }
+
+.list { display: grid; gap: 0.75rem; }
+.list__item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+.list__item strong { font-weight: 580; }
+
+.meta { color: var(--text-subtle); font-size: 0.8125rem; }
+.badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: var(--brand-050);
+  color: var(--brand-700);
+}
+
+.avatar {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--brand-050);
+  color: var(--brand-700);
+  display: grid; place-items: center;
+  font-weight: 650;
+  flex: none;
+  overflow: hidden;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar--lg { width: 56px; height: 56px; font-size: 1.25rem; }
+
+.scopes { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+.scopes li { display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.875rem; }
+.scopes svg { flex: none; margin-top: 0.15rem; color: var(--brand-600); }
+.scopes span { color: var(--text-muted); }
+.scopes strong { color: var(--text); font-weight: 550; display: block; }
+
+.center { text-align: center; }
+.muted { color: var(--text-muted); }
+.mono { font-family: var(--mono); font-size: 0.8125rem; }
+
+
+/* ── the settings dialog ──────────────────────────────────────────────────── */
+.dialog__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgb(32 33 36 / 45%);
+}
+
+.dialog {
+  width: min(56rem, 100%);
+  max-height: min(42rem, 90vh);
+  display: grid;
+  grid-template-columns: 15rem 1fr;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 30%);
+  overflow: hidden;
+}
+.dialog:focus { outline: none; }
+
+.dialog__side { padding: 1.5rem 1rem; border-right: 1px solid var(--border); }
+.dialog__side h2 { font-size: 1.35rem; font-weight: 550; padding: 0 0.6rem 1.25rem; }
+.dialog__side nav { display: grid; gap: 0.15rem; }
+
+.dialog__tab {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+.dialog__tab:hover { background: var(--surface-muted); color: var(--text); }
+.dialog__tab--on { background: var(--brand-050); color: var(--brand-700); font-weight: 550; }
+.dialog__tab-icon { font-size: 1.15rem; display: grid; place-items: center; }
+
+.dialog__main { position: relative; min-width: 0; display: grid; }
+.dialog__close {
+  position: absolute;
+  top: 1rem; right: 1rem;
+  width: 2.25rem; height: 2.25rem;
+  border: 0; border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+.dialog__close:hover { background: var(--surface-muted); color: var(--text); }
+
+.dialog__body { overflow-y: auto; padding: 3.25rem 2rem 2rem; display: grid; gap: 1.75rem; align-content: start; }
+.dialog__note { color: var(--text-subtle); font-size: 0.8125rem; }
+.dialog__error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.85rem;
+  font-size: 0.875rem;
+}
+
+/* A question or two and a button — the same shell as the settings dialog,
+   without its sidebar. */
+.dialog--form { grid-template-columns: 1fr; width: min(27rem, 100%); }
+.dialog--form .dialog__body { padding: 1.4rem 1.5rem 1.5rem; gap: 1rem; }
+.dialog--form h2 { font-size: 1.15rem; font-weight: 550; padding-right: 2.5rem; }
+
+.setting { display: grid; gap: 0.4rem; }
+.setting--row { grid-template-columns: 1fr auto; align-items: start; gap: 1.5rem; }
+.setting__label { font-size: 0.9375rem; font-weight: 550; color: var(--text); }
+.setting__hint { color: var(--text-muted); font-size: 0.8125rem; margin-top: 0.15rem; }
+.setting__select {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+}
+.setting__select:disabled { background: var(--surface-muted); color: var(--text-subtle); }
+
+/* A switch rather than a checkbox: it reads as a state, not a choice to submit. */
+.switchy {
+  position: relative;
+  width: 2.75rem; height: 1.6rem;
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.switchy__knob {
+  position: absolute;
+  top: 0.2rem; left: 0.2rem;
+  width: 1.2rem; height: 1.2rem;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 140ms ease;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+}
+.switchy--on { background: var(--brand-600); }
+.switchy--on .switchy__knob { transform: translateX(1.15rem); }
+
+@media (max-width: 45rem) {
+  .dialog { grid-template-columns: 1fr; max-height: 92vh; }
+  .dialog__side { border-right: 0; border-bottom: 1px solid var(--border); padding: 1.25rem 0.75rem 0.75rem; }
+  .dialog__side h2 { padding-bottom: 0.75rem; }
+  .dialog__side nav { grid-auto-flow: column; overflow-x: auto; }
+  .dialog__body { padding: 2.75rem 1.1rem 1.5rem; gap: 1.25rem; }
+}
+
+
+/* ── the ecosystem switcher ───────────────────────────────────────────────── */
+.apps { position: relative; }
+
+.apps__menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 25;
+  width: min(22rem, calc(100vw - 1.5rem));
+  padding: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+.apps__head {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  padding: 0 0.35rem 0.6rem;
+}
+.apps__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem; }
+
+.apps__item {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  padding: 0.9rem 0.6rem;
+  border-radius: var(--radius);
+  color: var(--text);
+  text-align: center;
+}
+.apps__item:hover { background: var(--surface-muted); text-decoration: none; }
+/* The product you are already in is marked rather than hidden, so the grid is
+   the same shape everywhere and nobody wonders where Talk went. */
+.apps__item--current { background: var(--brand-050); }
+.apps__item--current .apps__name { color: var(--brand-700); font-weight: 600; }
+
+.apps__mark {
+  width: 2.5rem; height: 2.5rem;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+}
+.apps__mark--logo { background: #fff; border: 1px solid var(--border); padding: 3px; object-fit: contain; }
+.apps__name { font-size: 0.8125rem; font-weight: 550; }
+.apps__blurb { font-size: 0.7rem; color: var(--text-subtle); line-height: 1.3; }
+
+@media (max-width: 52rem) {
+  .apps__menu { right: -3rem; }
+}
+
+
+/* ── Notes ────────────────────────────────────────────────────────────────── */
+/*
+ * Two places, one set of rules. The editor lives on a light page and inside the
+ * dark in-call panel, so everything below takes its colours from tokens that
+ * `.meet-notes` overrides — rather than a second copy of the stylesheet that
+ * drifts the first time somebody changes a radius.
+ */
+.note {
+  --note-ink: var(--text);
+  --note-dim: var(--text-subtle);
+  --note-line: var(--border);
+  --note-chip: var(--brand-050);
+  --note-chip-ink: var(--brand-700);
+  position: relative;
+}
+
+.note__title {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--note-ink);
+  font: 600 1.75rem/1.25 var(--font);
+  letter-spacing: -0.02em;
+  padding: 0.25rem 0;
+  margin-bottom: 0.5rem;
+}
+.note__title:focus { outline: none; }
+.note__title::placeholder { color: var(--note-dim); }
+.note__title--read { margin-bottom: 1rem; }
+
+.note--compact .note__title { font-size: 1.125rem; }
+
+.note__blocks { display: grid; gap: 0.15rem; }
+
+.note__block {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.5rem;
+  padding: 0.1rem 0;
+}
+.note__block-main { min-width: 0; grid-column: 2; }
+.note__block > .note__block-main:first-child { grid-column: 1 / -1; }
+
+.note__text {
+  min-height: 1.6em;
+  line-height: 1.65;
+  color: var(--note-ink);
+  outline: none;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+/*
+ * The placeholder shows on the block being written in, and on the first block
+ * of an untouched note so it says what to do. Every other empty block stays
+ * blank, or a half-written note is a wall of grey hints.
+ *
+ * Two selectors for "empty" because `writeBlock` leaves a <br> in an empty
+ * block — without it the line collapses to nothing and cannot be clicked into —
+ * and an element containing a <br> is not `:empty`.
+ */
+.note__text:focus:empty::before,
+.note__text:focus:has(> br:only-child)::before,
+.note__block:first-child .note__text:empty::before,
+.note__block:first-child .note__text:has(> br:only-child)::before {
+  content: attr(data-placeholder);
+  color: var(--note-dim);
+  pointer-events: none;
+}
+
+.note__block--heading .note__text {
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 0.75rem;
+}
+.note__block--bullet .note__text { padding-left: 0; }
+.note__bullet {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--note-dim);
+  margin: 0.72em 0 0 0.4rem;
+}
+.note__check {
+  width: 1.05rem; height: 1.05rem;
+  margin-top: 0.36em;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.note__check--on { background: var(--brand-500); border-color: var(--brand-500); }
+.note__check--on::after {
+  content: '';
+  width: 0.28rem; height: 0.55rem;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+.note__block--done .note__text { color: var(--note-dim); text-decoration: line-through; }
+
+.note__block--quote {
+  border-left: 3px solid var(--brand-500);
+  padding-left: 0.75rem;
+  margin: 0.4rem 0;
+}
+.note__block--quote .note__text { font-style: italic; }
+
+.note__speaker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-bottom: 0.15rem;
+  font: 500 0.75rem var(--font);
+  color: var(--note-dim);
+  cursor: pointer;
+}
+.note__speaker--read { cursor: default; }
+.note__speaker-dot {
+  width: 1.1rem; height: 1.1rem;
+  border-radius: 50%;
+  background: var(--brand-500);
+  color: #fff;
+  display: grid; place-items: center;
+  font-size: 0.6rem; font-weight: 600;
+}
+.note__speaker-at { color: var(--note-dim); opacity: 0.75; }
+
+/* ── inline marks ── */
+.note-bold { font-weight: 650; }
+.note-italic { font-style: italic; }
+.note-code {
+  font-family: var(--mono);
+  font-size: 0.875em;
+  background: var(--surface-muted);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+.note-mention {
+  background: var(--note-chip);
+  color: var(--note-chip-ink);
+  border-radius: 5px;
+  padding: 0.05em 0.28em;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.note-highlight { border-radius: 3px; padding: 0.05em 0.1em; color: inherit; background: none; }
+.note-highlight--yellow { background: #fff2a8; }
+.note-highlight--green  { background: #c3f0d0; }
+.note-highlight--blue   { background: #c5e2ff; }
+.note-highlight--pink   { background: #ffd0e2; }
+.note-highlight--purple { background: #e2d5ff; }
+
+/* ── the bar that appears over a selection ── */
+.note__bar {
+  position: fixed;
+  transform: translate(-50%, calc(-100% - 10px));
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.25rem;
+  border-radius: 10px;
+  background: #23242a;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 30%);
+  animation: note-rise 120ms ease-out;
+}
+@keyframes note-rise {
+  from { opacity: 0; transform: translate(-50%, calc(-100% - 4px)); }
+}
+.note__bar-btn {
+  width: 1.9rem; height: 1.9rem;
+  border: 0; border-radius: 7px;
+  background: transparent;
+  color: #e8eaed;
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+.note__bar-btn:hover { background: rgb(255 255 255 / 12%); }
+.note__bar-btn--on { background: rgb(138 180 248 / 25%); color: #d7e6ff; }
+.note__bar-btn svg { width: 1rem; height: 1rem; }
+.note__bar-sep { width: 1px; height: 1.3rem; background: rgb(255 255 255 / 18%); margin: 0 0.25rem; }
+.note__bar-pen { color: #9aa0a6; display: grid; place-items: center; }
+.note__bar-pen svg { width: 0.95rem; height: 0.95rem; }
+
+.note__swatch {
+  width: 1.15rem; height: 1.15rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  margin: 0 0.05rem;
+}
+.note__swatch--on { border-color: #fff; }
+.note__swatch--yellow { background: #fff2a8; }
+.note__swatch--green  { background: #c3f0d0; }
+.note__swatch--blue   { background: #c5e2ff; }
+.note__swatch--pink   { background: #ffd0e2; }
+.note__swatch--purple { background: #e2d5ff; }
+
+/* ── block controls ── */
+.note__rail {
+  display: flex;
+  gap: 0.2rem;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--note-line);
+}
+.note__rail-btn {
+  width: 2rem; height: 2rem;
+  border: 0; border-radius: 7px;
+  background: transparent;
+  color: var(--note-dim);
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+.note__rail-btn:hover:not(:disabled) { background: var(--surface-muted); color: var(--note-ink); }
+.note__rail-btn--on { background: var(--brand-050); color: var(--brand-700); }
+.note__rail-btn:disabled { opacity: 0.35; cursor: default; }
+.note__rail-btn svg { width: 1.05rem; height: 1.05rem; }
+
+/* ── the @ picker ── */
+.note__mentions {
+  position: fixed;
+  z-index: 85;
+  min-width: 14rem;
+  max-width: 18rem;
+  padding: 0.25rem;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  animation: note-rise 120ms ease-out;
+  transform: none;
+}
+.note__mentions-empty { padding: 0.6rem 0.7rem; color: var(--text-subtle); font-size: 0.8125rem; }
+.note__mention-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 0; border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+}
+.note__mention-row:hover,
+.note__mention-row--on { background: var(--brand-050); }
+.note__mention-face {
+  width: 1.5rem; height: 1.5rem;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+.note__mention-face--letter {
+  background: var(--brand-500);
+  color: #fff;
+  display: grid; place-items: center;
+  font-size: 0.7rem; font-weight: 600;
+}
+.note__mention-name { flex: 1; font-size: 0.875rem; }
+.note__mention-tag { font-size: 0.6875rem; color: var(--text-subtle); }
+.note__speaker-list { display: grid; gap: 0.1rem; max-height: 18rem; overflow-y: auto; }
+.dialog--plain { display: block; max-width: 22rem; width: min(22rem, 92vw); }
+
+/* ── the note page ── */
+.note-page__head { margin-bottom: 0.25rem; }
+.note-page__vis {
+  font-size: 0.8125rem;
+  color: var(--text-subtle);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.note-page__state { font-size: 0.75rem; color: var(--text-subtle); align-self: center; }
+.note-page__state--saved { color: var(--success); }
+.note-page__state--error { color: var(--danger); }
+
+/* ── the library ── */
+.notes__controls {
+  display: flex; flex-wrap: wrap; gap: 0.75rem;
+  align-items: center; justify-content: space-between;
+}
+.notes__tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.notes__tab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.notes__tab--on { background: var(--brand-050); border-color: var(--brand-500); color: var(--brand-700); }
+.notes__search {
+  display: flex; align-items: center; gap: 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  color: var(--text-subtle);
+  background: var(--surface);
+  min-width: min(18rem, 100%);
+}
+.notes__search:focus-within { border-color: var(--brand-500); }
+.notes__search svg { width: 0.95rem; height: 0.95rem; flex: none; }
+.notes__search-input { border: 0; background: transparent; outline: none; flex: 1; font: inherit; color: var(--text); }
+
+.notes__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+}
+.notes__card {
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+  text-align: left;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 120ms, box-shadow 120ms, transform 120ms;
+}
+.notes__card:hover {
+  border-color: var(--brand-500);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.notes__card-top { display: flex; align-items: start; justify-content: space-between; gap: 0.5rem; }
+.notes__card-top h3 { font-size: 0.9375rem; font-weight: 600; }
+.notes__card-vis { color: var(--text-subtle); flex: none; }
+.notes__card-vis svg { width: 0.85rem; height: 0.85rem; }
+.notes__card-preview {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notes__card-foot {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  font-size: 0.75rem; color: var(--text-subtle);
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+.notes__stat { display: inline-flex; align-items: center; gap: 0.2rem; }
+.notes__stat svg { width: 0.8rem; height: 0.8rem; }
+.notes__stat--right { margin-left: auto; }
+.badge--accent { background: var(--brand-050); color: var(--brand-700); }
+.notes__empty { text-align: center; padding: 2.5rem 1rem; }
+.notes__empty h2 { margin-bottom: 0.4rem; }
+.notes__empty p { color: var(--text-muted); max-width: 32rem; margin: 0 auto; }
+
+
+/* ── The shell: a sidebar and a top bar ───────────────────────────────────── */
+.shell {
+  display: grid;
+  /* Both axes stated. An earlier version set only the columns, and a stale
+     `grid-template-rows: auto 1fr` from the rail layout kept applying, making
+     this a 2x2 grid holding two children — which put the top bar beside the
+     page instead of above it. The stale rule is gone; do not reintroduce a
+     second definition of this class. */
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 100dvh;
+  background: var(--bg);
+}
+
+.side {
+  width: 15rem;
+  flex: none;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  align-content: start;
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow-y: auto;
+}
+.side__brand { display: block; padding: 1.35rem 1.25rem; text-decoration: none; color: var(--text); }
+.side__nav { display: grid; gap: 0.15rem; padding: 0.25rem 0.75rem 1.5rem; align-content: start; }
+.side__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font: 500 0.9375rem var(--font);
+  text-decoration: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.side__item:hover { background: var(--surface-muted); color: var(--text); }
+.side__item--on { background: var(--brand-050); color: var(--brand-700); font-weight: 600; }
+.side__icon { display: grid; place-items: center; flex: none; }
+.side__icon svg { width: 1.15rem; height: 1.15rem; }
+.side__scrim { display: none; }
+
+.shell__body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.topbar__burger {
+  display: none;
+  border: 0; background: transparent; color: var(--text-muted);
+  width: 2.25rem; height: 2.25rem; border-radius: 8px; cursor: pointer;
+  place-items: center;
+}
+.topbar__right { display: flex; align-items: center; gap: 0.6rem; margin-left: auto; }
+.shell__main { padding: 1.75rem; min-width: 0; }
+
+@media (max-width: 60rem) {
+  .shell { grid-template-columns: 1fr; }
+  .side {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    box-shadow: var(--shadow);
+  }
+  .side--open { transform: none; }
+  .side__scrim {
+    display: block;
+    position: fixed; inset: 0; z-index: 55;
+    border: 0; background: rgb(15 18 30 / 40%);
+  }
+  .topbar__burger { display: grid; }
+  .topbar { padding: 0.75rem 1rem; }
+  .shell__main { padding: 1rem; }
+}
+
+/* ── the navigation, on a phone ───────────────────────────────────────────── */
+@media (max-width: 40rem) {
+  /*
+   * The drawer takes most of the screen and respects the notch.
+   *
+   * A fixed 15rem panel on a 360px phone leaves a sliver of content behind it
+   * that invites a mis-tap; most of the width, with the scrim taking the rest,
+   * is unambiguous.
+   */
+  .side {
+    width: min(17rem, 82vw);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .side__brand { padding: 1rem 1.1rem; }
+  /* Comfortably past the 44px tap target every phone guideline asks for. */
+  .side__item { padding: 0.8rem 0.85rem; font-size: 1rem; }
+
+  .topbar {
+    padding: 0.55rem 0.75rem;
+    gap: 0.5rem;
+    padding-top: calc(0.55rem + env(safe-area-inset-top, 0px));
+  }
+  .topbar__right { gap: 0.25rem; }
+  .shell__centre { gap: 0.4rem; }
+
+  .joinbar { padding: 0.25rem 0.25rem 0.25rem 0.75rem; }
+  .joinbar__input { font-size: 1rem; min-width: 0; }
+  .joinbar__go { padding: 0.4rem 0.7rem; }
+
+  /*
+   * Everything stays; the icons get smaller instead.
+   *
+   * Hiding the apps menu was tempting and wrong — it is the only way to the
+   * other Texor products, and a phone is exactly where somebody would want to
+   * hop between them. Shrinking the two icon buttons frees the same width.
+   */
+  .shell__icon-btn { width: 2.2rem; height: 2.2rem; font-size: 1.1rem; }
+  .account__trigger img, .account__trigger .avatar { width: 2.1rem; height: 2.1rem; }
+
+  .shell__main { padding: 0.85rem 0.75rem calc(1.5rem + env(safe-area-inset-bottom, 0px)); }
+}
+
+/*
+ * Very narrow.
+ *
+ * The join field keeps the row — pressing Enter submits it, so the visible
+ * "Join" is the one thing here that can go without losing the action.
+ */
+@media (max-width: 24rem) {
+  .joinbar__go { display: none; }
+  .shell__new { padding: 0.55rem; }
+}
+
+/* ── nothing pushes the page sideways ─────────────────────────────────────── */
+/*
+ * A meeting code, a joining URL and an email address are all unbroken strings
+ * that a phone cannot fit, and any one of them will widen the whole document
+ * and leave every screen scrolling horizontally. They break instead.
+ */
+.code,
+.meet__join-link,
+.mcard__code,
+.account__email,
+.note-mention { overflow-wrap: anywhere; }
+
+@media (max-width: 40rem) {
+  html, body { overflow-x: hidden; }
+}
+
+
+/* ── Structural hooks that had no rule of their own ───────────────────────── */
+/*
+ * Each of these is a layout anchor the markup already used. A class in the
+ * markup with nothing behind it is a rule somebody deleted, or one they meant
+ * to write — either way it is worth stating rather than leaving to chance.
+ */
+.welcome__copy { min-width: 0; }
+.note-page { display: grid; gap: 0.25rem; }
+.note--read { padding-top: 0.25rem; }
+
+/* ── A section that is not built yet ──────────────────────────────────────── */
+.soon { display: grid; justify-items: center; gap: 0.5rem; text-align: center; padding: 5rem 1rem; }
+.soon__icon {
+  width: 4rem; height: 4rem; border-radius: 50%;
+  background: var(--brand-050); color: var(--brand-600);
+  display: grid; place-items: center; margin-bottom: 0.5rem;
+}
+.soon__icon svg { width: 1.6rem; height: 1.6rem; }
+.soon h1 { font-size: 1.5rem; font-weight: 640; }
+.soon p { color: var(--text-muted); max-width: 30rem; line-height: 1.6; }
+.soon__note {
+  font-size: 0.8125rem;
+  color: var(--text-subtle);
+  background: var(--surface-muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.9rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+
+/* ── downloading a note ───────────────────────────────────────────────────── */
+
+.dl { position: relative; display: inline-flex; align-items: center; gap: 0.5rem; }
+
+.dl__caret {
+  width: 0; height: 0;
+  margin-left: 0.4rem;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.7;
+}
+
+.dl__menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 40;
+  min-width: 12rem;
+  padding: 0.3rem;
+  display: grid;
+  gap: 0.1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.dl__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9375rem;
+  text-align: left;
+  cursor: pointer;
+}
+.dl__item:hover, .dl__item:focus-visible { background: var(--surface-muted); outline: none; }
+
+/* The extension, so the row says what lands in the downloads folder. */
+.dl__hint { color: var(--text-subtle); font-family: var(--mono); font-size: 0.78rem; }
+
+.dl__failed { color: var(--danger); font-size: 0.8125rem; }
+
+@media (max-width: 40rem) {
+  /* Anchored to the left edge instead, or a menu on a narrow screen opens off
+     the side of it. */
+  .dl__menu { right: auto; left: 0; }
+}
+
+/* ── the floating window ──────────────────────────────────────────────────── */
+
+/**
+ * Picture-in-picture.
+ *
+ * A separate document, so it starts with nothing — `copyStyles` in `lib/pip.js`
+ * hands it this stylesheet and the `.pip` class below goes on its root. Dark
+ * whatever the page is, because it sits over somebody else's work and a white
+ * rectangle on top of an editor is a glare, not a window.
+ */
+.pip, .pip body {
+  margin: 0;
+  height: 100%;
+  background: #202124;
+  color: #e8eaed;
+  overflow: hidden;
+}
+
+.pip__root {
+  /* `100%` of a root that is already the window's height, rather than a
+     viewport unit — there is no browser chrome here to measure against. */
+  height: 100%;
+  display: grid;
+  /* The feed takes what is left; the bar is exactly as tall as it needs. */
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.pip__feed { position: relative; min-height: 0; background: #000; }
+
+/**
+ * `contain`, not `cover`.
+ *
+ * The window can be any shape the reader drags it into, and a shared screen
+ * cropped to fill it loses the edges — which on a spreadsheet or a slide is
+ * where the thing being pointed at usually is.
+ */
+.pip__video { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.pip__blank { display: grid; place-items: center; height: 100%; background: #3c4043; }
+.pip__initial {
+  width: 3.5rem; height: 3.5rem;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: #5f6368;
+  font-size: 1.4rem; font-weight: 500;
+}
+
+.pip__label {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: calc(100% - 1rem);
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 55%);
+  font-size: 0.75rem;
+}
+.pip__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pip__muted { display: inline-flex; color: #f28b82; }
+.pip__muted svg { width: 0.85rem; height: 0.85rem; }
+
+.pip__bar {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: #202124;
+}
+
+.pip__btn {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #3c4043;
+  color: #e8eaed;
+  cursor: pointer;
+}
+.pip__btn:hover { background: #4a4d51; }
+.pip__btn svg { width: 1.05rem; height: 1.05rem; }
+
+/* Red for off, the same way the call's own controls read. */
+.pip__btn--off, .pip__btn--leave { background: #ea4335; color: #fff; }
+.pip__btn--off:hover, .pip__btn--leave:hover { background: #d33426; }
+
+
+/* ── the colours a note can be ────────────────────────────────────────────────
+ *
+ * The same names the highlighter uses, so "yellow" means one thing in this
+ * product rather than two. A note's colour is its background; the ink stays
+ * `--text`, which is why every one of these is pale enough to read on.
+ */
+:root {
+  --note-default: var(--surface);
+  --note-yellow: #fff6d5;
+  --note-green: #e3f6e4;
+  --note-blue: #e4effd;
+  --note-pink: #fdeaf1;
+  --note-purple: #f0e9fd;
+  --note-red: #fdeaea;
+  --note-orange: #fdefe0;
+  --note-grey: #eef0f3;
+}
+
+/* ── the board ────────────────────────────────────────────────────────────── */
+.board { display: grid; gap: 1.1rem; max-width: 72rem; margin: 0 auto; width: 100%; }
+
+.board__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.board__head h1 { font-size: 1.4rem; font-weight: 500; letter-spacing: -0.01em; }
+.board__count { color: var(--text-subtle); font-size: 0.8125rem; }
+
+/*
+ * Columns, not a masonry library.
+ *
+ * CSS does the packing, the browser does the reflow, and a note of any height
+ * finds a place. The one cost is reading order — column by column rather than
+ * row by row — which for a wall of notes nobody reads in sequence is no cost.
+ */
+.board__grid { columns: 4 16rem; column-gap: 1rem; }
+.board__grid > * { break-inside: avoid; margin-bottom: 1rem; }
+
+.board__section { display: grid; gap: 0.6rem; }
+.board__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+/* ── a note, as a card ────────────────────────────────────────────────────── */
+.card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg, var(--surface));
+  padding: 0.9rem 1rem;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  transition: box-shadow 120ms ease, border-color 120ms ease;
+}
+.card:hover { box-shadow: var(--shadow); border-color: var(--border-strong); }
+.card:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
+
+.card__title { font-weight: 550; font-size: 0.9375rem; margin-bottom: 0.3rem; }
+.card__preview {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.7rem;
+  color: var(--text-subtle);
+  font-size: 0.75rem;
+}
+.card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+.card__chip--app { background: var(--brand-050); color: var(--brand-700); }
+.card__dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex: none; }
+
+.card__actions { display: flex; gap: 0.2rem; margin-left: auto; }
+.card__action {
+  border: 0;
+  background: transparent;
+  color: var(--text-subtle);
+  border-radius: 50%;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 1rem;
+}
+.card__action:hover { background: var(--surface-muted); color: var(--text); }
+.card__action--on { color: var(--brand-600); }
+
+/* ── the labels down the side ─────────────────────────────────────────────── */
+.labels { display: grid; gap: 0.15rem; align-content: start; }
+.labels__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.6rem 0.35rem;
+  color: var(--text-subtle);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.labels__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+.labels__item:hover { background: var(--surface-muted); color: var(--text); text-decoration: none; }
+.labels__item--on { background: var(--brand-050); color: var(--brand-700); font-weight: 550; }
+.labels__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.labels__meta { margin-left: auto; font-size: 0.6875rem; color: var(--text-subtle); }
+.labels__new { display: flex; gap: 0.4rem; padding: 0.4rem 0.35rem 0; }
+.labels__new .input { padding: 0.4rem 0.6rem; font-size: 0.875rem; }
+
+/* ── the colour swatches ──────────────────────────────────────────────────── */
+.swatches { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.swatch {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  padding: 0;
+}
+.swatch--on { outline: 2px solid var(--brand-600); outline-offset: 1px; }
+
+/* ── one note, open ───────────────────────────────────────────────────────── */
+.note-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.note-head__spacer { flex: 1; }
+.note-head__state { color: var(--text-subtle); font-size: 0.8125rem; min-width: 7ch; }
+
+.note-shell { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+.note-shell--with-aside { grid-template-columns: minmax(0, 1fr) 17rem; }
+
+.aside { display: grid; gap: 1rem; align-content: start; }
+.aside__panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 0.9rem 1rem;
+}
+.aside__panel h2 { font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-subtle); margin-bottom: 0.6rem; }
+
+/* ── who did what ─────────────────────────────────────────────────────────── */
+.trail { display: grid; gap: 0.7rem; }
+.trail__row { display: grid; grid-template-columns: auto 1fr; gap: 0.6rem; align-items: start; }
+.trail__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--border-strong);
+  margin-top: 0.4rem;
+}
+.trail__what { font-size: 0.8125rem; color: var(--text); }
+.trail__when { font-size: 0.75rem; color: var(--text-subtle); }
+
+/* ── sharing ──────────────────────────────────────────────────────────────── */
+.share { display: grid; gap: 0.9rem; }
+.share__row { display: flex; align-items: center; gap: 0.6rem; }
+.share__who { min-width: 0; }
+.share__who strong { display: block; font-size: 0.875rem; font-weight: 550; }
+.share__who span { display: block; font-size: 0.75rem; color: var(--text-subtle); overflow: hidden; text-overflow: ellipsis; }
+.share__role { margin-left: auto; }
+.share__pending { font-size: 0.6875rem; color: var(--text-subtle); }
+.share__suggest {
+  display: grid;
+  gap: 0.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.25rem;
+  background: var(--surface);
+}
+.share__suggest button {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+.share__suggest button:hover { background: var(--surface-muted); }
+
+/* ── keys ─────────────────────────────────────────────────────────────────── */
+.keys { display: grid; gap: 0.75rem; }
+.key {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 0.85rem 1rem;
+}
+.key__name { font-weight: 550; }
+.key__prefix { font-family: var(--mono); font-size: 0.8125rem; color: var(--text-muted); }
+.key__meta { color: var(--text-subtle); font-size: 0.75rem; }
+.key--revoked { opacity: 0.55; }
+
+.reveal {
+  border: 1px solid var(--brand-400);
+  background: var(--brand-050);
+  border-radius: var(--radius-lg);
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.reveal code {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.6rem;
+  overflow-wrap: anywhere;
+}
+
+/* ── an empty screen that is not an error ─────────────────────────────────── */
+.empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  text-align: center;
+  padding: 4rem 1rem;
+  color: var(--text-muted);
+}
+.empty h2 { font-size: 1.05rem; font-weight: 550; color: var(--text); }
+.empty p { max-width: 28rem; font-size: 0.9375rem; }
+
+/* ── the composer at the top of the board ─────────────────────────────────── */
+.composer {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 0.75rem 0.9rem;
+  display: grid;
+  gap: 0.5rem;
+  max-width: 34rem;
+  margin: 0 auto;
+  width: 100%;
+}
+.composer__input {
+  border: 0;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--text);
+  background: transparent;
+  width: 100%;
+}
+.composer__input:focus { outline: none; }
+
+@media (max-width: 900px) {
+  .note-shell--with-aside { grid-template-columns: 1fr; }
+}
+
+/* ── the search box, and the button beside it ─────────────────────────────── */
+/*
+ * The same furniture Texor Talk uses for its join-by-code bar. Here it searches
+ * notes, which is the one thing a notes app's top bar is for.
+ */
+/*
+ * `flex: 1` on the wrapper, not only on the field inside it.
+ *
+ * The field was told to flex but its parent was sized by content, so on a
+ * phone it stayed at its natural width and the row ran out of room instead.
+ */
+.shell__centre { display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 0; }
+
+.joinbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: min(34rem, 42vw);
+  padding: 0.3rem 0.3rem 0.3rem 0.9rem;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  border: 1px solid transparent;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.joinbar:focus-within { background: var(--surface); border-color: var(--border-strong); }
+.joinbar__icon { color: var(--text-subtle); font-size: 1.15rem; display: grid; place-items: center; }
+.joinbar__input {
+  flex: 1; min-width: 0;
+  border: 0; background: transparent;
+  font: inherit; color: var(--text);
+  padding: 0.4rem 0;
+}
+.joinbar__input:focus { outline: none; }
+.joinbar__go {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 1.1rem;
+  font: inherit;
+  font-weight: 550;
+  background: transparent;
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+.joinbar__go:enabled { color: var(--brand-600); }
+.joinbar__go:enabled:hover { background: var(--brand-050); }
+.joinbar__go:disabled { cursor: default; }
+
+.shell__new {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.1rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--brand-600);
+  color: #fff;
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.shell__new:hover { background: var(--brand-700); }
+.shell__new svg { font-size: 1.2rem; }
+
+
+/*
+ * The narrow-screen rules for the shell live with the sidebar further down.
+ * Only the join bar's own shrinking is here, next to the join bar.
+ */
+@media (max-width: 52rem) {
+  .shell__centre { gap: 0.4rem; }
+  .joinbar { width: auto; flex: 1; padding-left: 0.7rem; }
+  .joinbar__icon { display: none; }
+  .shell__new span { display: none; }
+  .shell__new { padding: 0.6rem; }
+}
+
+/* ── the account control ──────────────────────────────────────────────────── */
+.account { position: relative; }
+.account__trigger {
+  border: 0; background: transparent; padding: 0.15rem;
+  border-radius: 50%; cursor: pointer; display: grid; place-items: center;
+}
+.account__trigger:hover { background: var(--surface-muted); }
+.account__menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 20;
+  min-width: 15rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0.35rem;
+  display: grid;
+  gap: 0.1rem;
+}
+.account__header {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.6rem; border-bottom: 1px solid var(--border); margin-bottom: 0.25rem;
+}
+.account__name { font-size: 0.875rem; font-weight: 550; }
+.account__name--full { white-space: normal; }
+.account__email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account__item {
+  display: block; width: 100%; text-align: left;
+  padding: 0.55rem 0.6rem; border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent; color: var(--text);
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+}
+.account__item:hover { background: var(--surface-muted); text-decoration: none; }
+.account__item--danger { color: var(--danger); }
+.account__item--danger:hover { background: var(--danger-bg); }
+
+
+/* ── a person's own labels, under the fixed four ──────────────────────────── */
+.side__labels {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  overflow-y: auto;
+}
+/* A checkbox with its label beside it. */
+.switch { display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; }
+.switch input { margin-top: 0.2rem; flex: none; width: 1rem; height: 1rem; accent-color: var(--brand-600); }
+.switch span { font-size: 0.875rem; }
+.switch small { display: block; color: var(--text-subtle); font-size: 0.78rem; }
+

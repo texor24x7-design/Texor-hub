@@ -1,0 +1,136 @@
+/*
+ * The public page.
+ *
+ * Namespaced under `.lp` with its own tokens, so the marketing page and the
+ * application cannot break each other. The two share a hue and nothing else:
+ * an edit here can reach nothing behind sign-in, and an edit to the app's
+ * stylesheet cannot reshape this page.
+ */
+.lp {
+  --lp-ink: #17181d;
+  --lp-muted: #5d5f6b;
+  --lp-line: #e6e3dc;
+  --lp-paper: #fbf9f5;
+  --lp-brand: #c9821f;
+  --lp-brand-dark: #8a5411;
+  --lp-sans-stack: var(--font-notes), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  font-family: var(--lp-sans-stack);
+  background: var(--lp-paper);
+  color: var(--lp-ink);
+  min-height: 100dvh;
+}
+
+.lp a { color: inherit; text-decoration: none; }
+.lp h1, .lp h2 { letter-spacing: -0.02em; line-height: 1.15; }
+
+.lp__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem clamp(1rem, 5vw, 4rem);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp__brand { display: flex; align-items: center; }
+.lp__nav { display: flex; align-items: center; gap: 1.25rem; font-size: 0.9375rem; color: var(--lp-muted); }
+
+.lp__cta {
+  background: var(--lp-brand);
+  color: #fff;
+  padding: 0.55rem 1.1rem;
+  border-radius: 999px;
+  font-weight: 550;
+}
+.lp__cta:hover { background: var(--lp-brand-dark); }
+.lp__cta--lg { padding: 0.8rem 1.6rem; font-size: 1.0625rem; }
+
+.lp__ghost {
+  padding: 0.8rem 1.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--lp-line);
+  font-weight: 500;
+}
+.lp__ghost:hover { border-color: var(--lp-brand); color: var(--lp-brand-dark); }
+
+.lp__hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: clamp(2rem, 6vw, 5rem);
+  align-items: center;
+  padding: clamp(2.5rem, 7vw, 5.5rem) clamp(1rem, 5vw, 4rem);
+}
+.lp__copy { display: grid; gap: 1rem; align-content: start; }
+.lp h1 { font-size: clamp(2.1rem, 5vw, 3.4rem); font-weight: 600; }
+.lp__lede { font-size: clamp(1rem, 1.6vw, 1.15rem); color: var(--lp-muted); max-width: 34rem; line-height: 1.6; }
+.lp__actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
+.lp__note { font-size: 0.875rem; color: var(--lp-muted); }
+
+/* Three notes, stacked as they would be on the board. */
+.lp__art { display: grid; gap: 0.9rem; transform: rotate(-1.5deg); }
+.lp__card {
+  border: 1px solid var(--lp-line);
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 10px 30px rgb(23 24 29 / 6%);
+  background: #fff;
+}
+.lp__card strong { display: block; margin-bottom: 0.35rem; font-weight: 550; }
+.lp__card p { color: var(--lp-muted); font-size: 0.9375rem; line-height: 1.55; }
+.lp__card mark { background: #fff6d5; color: inherit; padding: 0 0.15rem; }
+.lp__card--yellow { background: #fffdf5; transform: rotate(1deg); }
+.lp__card--blue { background: #f6faff; margin-left: 2rem; }
+.lp__card--green { background: #f6fdf7; transform: rotate(-0.8deg); }
+
+.lp__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1.25rem;
+  padding: 0 clamp(1rem, 5vw, 4rem) clamp(2rem, 6vw, 4rem);
+}
+.lp__feature {
+  border: 1px solid var(--lp-line);
+  border-radius: 16px;
+  padding: 1.4rem;
+  background: #fff;
+}
+.lp__feature h2 { font-size: 1.0625rem; font-weight: 600; margin-bottom: 0.4rem; }
+.lp__feature p { color: var(--lp-muted); font-size: 0.9375rem; line-height: 1.6; }
+
+.lp__api {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 5vw, 4rem);
+  align-items: center;
+  padding: clamp(2rem, 6vw, 4rem) clamp(1rem, 5vw, 4rem);
+  border-top: 1px solid var(--lp-line);
+}
+.lp__api h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 600; }
+
+.lp__code {
+  background: #17181d;
+  color: #f3efe7;
+  border-radius: 16px;
+  padding: 1.25rem 1.4rem;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  overflow-x: auto;
+  overflow-wrap: anywhere;
+}
+
+.lp__foot {
+  border-top: 1px solid var(--lp-line);
+  padding: 2rem clamp(1rem, 5vw, 4rem) 3rem;
+  display: grid;
+  gap: 0.6rem;
+  color: var(--lp-muted);
+  font-size: 0.875rem;
+}
+.lp__family { display: flex; flex-wrap: wrap; gap: 1.25rem; }
+.lp__family a:hover { color: var(--lp-brand-dark); }
+
+@media (max-width: 52rem) {
+  .lp__hero, .lp__api { grid-template-columns: 1fr; }
+  .lp__art { order: -1; transform: none; }
+  .lp__card--blue { margin-left: 0; }
+}

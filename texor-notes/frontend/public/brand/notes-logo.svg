@@ -1,0 +1,11 @@
+<svg width="372" height="110" viewBox="0 0 372 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- The mark, and the product's name beside it. Placeholder; see notes-icon.svg. -->
+  <path d="M20 14a8 8 0 0 1 8-8h38l24 24v58a8 8 0 0 1-8 8H28a8 8 0 0 1-8-8V14Z" fill="#C9821F"/>
+  <path d="M66 6l24 24H74a8 8 0 0 1-8-8V6Z" fill="#8A5411"/>
+  <rect x="34" y="44" width="42" height="6" rx="3" fill="#FFF3E0"/>
+  <rect x="34" y="60" width="42" height="6" rx="3" fill="#FFF3E0"/>
+  <rect x="34" y="76" width="26" height="6" rx="3" fill="#FFF3E0"/>
+  <text x="112" y="70" font-family="Helvetica, Arial, sans-serif" font-size="46" font-weight="500" fill="#202124">
+    Texor Notes
+  </text>
+</svg>

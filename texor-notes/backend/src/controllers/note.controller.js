@@ -209,13 +209,24 @@ export async function listNotes(req, res) {
     trash: { ownerTexorId: me, deletedAt: { $ne: null } },
   };
 
-  const filter = { ...filters[scope] };
+  let filter = { ...filters[scope] };
 
+  /**
+   * A label is its own scope.
+   *
+   * Asking for "the notes under this label" has to include the ones somebody
+   * else owns and shared through that very label — filtering by owner first
+   * would show an empty page on a label that is full. So the query narrows to
+   * the label, and `roleOf` below decides what the person may actually see,
+   * which is the same division of labour the rest of this function uses.
+   */
   if (label) {
     if (!mongoose.isValidObjectId(label)) throw ApiError.badRequest('That is not a label id.');
-    filter.labels = new mongoose.Types.ObjectId(label);
-    // A label filter and the shared `$or` would fight over the same key.
-    if (scope === 'shared') delete filter.$or;
+    filter = {
+      labels: new mongoose.Types.ObjectId(label),
+      deletedAt: null,
+      ...(scope === 'archive' ? { archivedAt: { $ne: null } } : { archivedAt: null }),
+    };
   }
 
   if (q) filter.$text = { $search: q };
