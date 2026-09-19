@@ -226,6 +226,8 @@ export function DocumentEditor({ module, id }) {
   const [refs, setRefs] = useState({});
   const scanRef = useRef(null);
   const restored = useRef(false);
+  // Set once a new document is created, so a retry after a failed issue updates it instead of creating another.
+  const savedId = useRef(id);
 
   // Losing a half-filled document to a stray navigation is the worst thing this
   // editor can do, so an unsaved one is mirrored to localStorage as it is typed.
@@ -337,7 +339,8 @@ export function DocumentEditor({ module, id }) {
     setError(null);
     setErrors({});
     try {
-      const { document: saved } = id ? await api.patch(`/documents/${kind}/${id}`, body()) : await api.post(`/documents/${kind}`, body());
+      const { document: saved } = savedId.current ? await api.patch(`/documents/${kind}/${savedId.current}`, body()) : await api.post(`/documents/${kind}`, body());
+      savedId.current = saved._id;
       // An invoice needs a number before it can go anywhere, so sending issues it too.
       if (then !== 'draft' && isInvoice) await api.post(`/documents/invoices/${saved._id}/issue`);
       if (then !== 'draft' && isNote) await api.post(`/documents/${kind}/${saved._id}/issue-note`);
