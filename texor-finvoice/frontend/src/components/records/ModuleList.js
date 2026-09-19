@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import { Download, KanbanSquare, Plus, Search, Settings2, Table2, Upload } from 'lucide-react';
 import { Icon } from '@/components/Icon';
-import { Badge, Button, ButtonLink, EmptyState, Menu, PageHeader, Pagination, Segmented, SkeletonRows, StatusBadge, Tabs, useToast } from '@/components/ui';
+import { Badge, Button, ButtonLink, EmptyState, Menu, PageHeader, Pagination, Segmented, SkeletonRows, StatusBadge, Tabs, useToast, CardTable } from '@/components/ui';
 import { FieldValue, readField } from '@/components/fields/FieldValue';
 import { invalidate, useDebounced, useResource, useStored } from '@/lib/data';
 import { money } from '@/lib/format';
@@ -209,7 +209,7 @@ export function ModuleList({ module }) {
         {data && records.length && !isBoard ? (
           <>
             <div className="table-wrap">
-              <table className="table">
+              <CardTable>
                 <thead>
                   <tr>
                     <th>{titleField?.label ?? 'Name'}</th>
@@ -241,7 +241,7 @@ export function ModuleList({ module }) {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </CardTable>
             </div>
             <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
           </>

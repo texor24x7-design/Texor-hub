@@ -5,7 +5,7 @@
  * carries its own styling beyond layout glue, so the whole product restyles from
  * one file.
  */
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Info, X } from 'lucide-react';
 import Link from 'next/link';
 import { initials } from '@/lib/format';
@@ -338,3 +338,38 @@ export function Pagination({ page, limit, total, onPage }) {
 }
 
 export const useFieldId = (name) => `${useId()}-${name}`;
+
+/**
+ * A table that turns into one card per row on a phone. Each cell is labelled
+ * with its column's header here, so the stylesheet can print the label beside
+ * the value without every caller repeating it.
+ */
+export function CardTable({ className = 'table', children }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const heads = [...ref.current.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+    for (const row of ref.current.querySelectorAll('tbody tr')) {
+      let column = 0;
+      for (const cell of row.cells) { cell.dataset.label = cell.colSpan > 1 ? '' : heads[column] ?? ''; column += cell.colSpan; }
+    }
+  });
+  return <table ref={ref} className={`${className} table-cards`}>{children}</table>;
+}
+
+/**
+ * Sizes a frame to the rendered document inside it. A document is laid out at
+ * its paper width (210mm for A4), so on a narrow screen it is zoomed down to
+ * fit — on screen only, so printing from the frame still prints at full size.
+ */
+export function fitFrame(frame, pad = 8) {
+  const doc = frame?.contentDocument;
+  if (!doc?.body) return null;
+  let style = doc.getElementById('fit-frame');
+  if (!style) { style = doc.createElement('style'); style.id = 'fit-frame'; doc.head.append(style); }
+  // Measured unzoomed: browsers disagree on whether a zoomed page reports zoomed sizes.
+  style.textContent = '';
+  const { scrollWidth, scrollHeight } = doc.documentElement;
+  const scale = Math.min(1, frame.clientWidth / Math.max(scrollWidth, 1));
+  if (scale < 1) style.textContent = `@media screen { html { zoom: ${scale}; } }`;
+  return Math.ceil(scrollHeight * scale) + pad;
+}

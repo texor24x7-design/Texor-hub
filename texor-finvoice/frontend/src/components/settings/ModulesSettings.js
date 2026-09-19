@@ -35,8 +35,8 @@ function Row({ module, onToggle }) {
         <div className="tiny subtle">{module.custom ? 'Your module' : 'Built in'} · {module.fields?.filter((f) => f.custom).length ?? 0} custom fields</div>
       </div>
       {module.locked ? <span className="pro-chip">PRO</span> : null}
-      {!fixed && !module.locked ? <Switch checked={module.enabled} onChange={(on) => onToggle(module, on)} label={<span className="tiny muted">{module.enabled ? 'On' : 'Off'}</span>} /> : null}
-      {!module.locked && module.key !== 'dashboard' && (module.fields?.length || module.custom) ? <Link className="btn btn-ghost btn-sm" href={href(`/settings/modules/${module.key}`)}>Customise<ChevronRight /></Link> : <span style={{ width: 96 }} />}
+      {!fixed && !module.locked ? <Switch checked={module.enabled} onChange={(on) => onToggle(module, on)} label={<span className="tiny muted hide-sm">{module.enabled ? 'On' : 'Off'}</span>} /> : null}
+      {!module.locked && module.key !== 'dashboard' && (module.fields?.length || module.custom) ? <Link className="btn btn-ghost btn-sm" href={href(`/settings/modules/${module.key}`)} aria-label="Customise"><span className="hide-sm">Customise</span><ChevronRight /></Link> : <span className="hide-sm" style={{ width: 96 }} />}
     </div>
   );
 }

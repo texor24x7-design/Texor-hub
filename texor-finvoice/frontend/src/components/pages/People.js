@@ -12,7 +12,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { MailPlus, MoreHorizontal, Pencil, Plus, ShieldCheck, Trash2, UserPlus, UserX } from 'lucide-react';
-import { Alert, Avatar, Badge, Button, ButtonLink, Dialog, EmptyState, Field, Menu, MenuItem, PageHeader, SkeletonRows, Tabs, useConfirm, useToast } from '@/components/ui';
+import { Alert, Avatar, Badge, Button, ButtonLink, Dialog, EmptyState, Field, Menu, MenuItem, PageHeader, SkeletonRows, Tabs, useConfirm, useToast, CardTable } from '@/components/ui';
 import { invalidate, useResource } from '@/lib/data';
 import { fileUrl } from '@/lib/api';
 import { date } from '@/lib/format';
@@ -109,7 +109,7 @@ function PeopleList({ module }) {
           <EmptyState icon={<UserPlus />} title="Nobody here yet">Add the people who work here — they do not need a Texor account.</EmptyState>
         ) : (
           <div className="table-wrap">
-            <table className="table">
+            <CardTable>
               <thead>
                 <tr><th>Person</th><th>Does</th><th>Shift</th><th>Can sign in</th><th /></tr>
               </thead>
@@ -156,7 +156,7 @@ function PeopleList({ module }) {
                   );
                 })}
               </tbody>
-            </table>
+            </CardTable>
           </div>
         )}
       </div>

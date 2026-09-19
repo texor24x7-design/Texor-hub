@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Copy, Lock, MailPlus, MoreHorizontal, Plus, ShieldCheck, Trash2, UserX } from 'lucide-react';
 import { Icon } from '@/components/Icon';
-import { Alert, Avatar, Badge, Button, Dialog, Field, Menu, MenuItem, PageHeader, SkeletonRows, StatusBadge, Tabs, useConfirm, useToast } from '@/components/ui';
+import { Alert, Avatar, Badge, Button, Dialog, Field, Menu, MenuItem, PageHeader, SkeletonRows, StatusBadge, Tabs, useConfirm, useToast, CardTable } from '@/components/ui';
 import { invalidate, useResource } from '@/lib/data';
 import { relative } from '@/lib/format';
 import { useWorkspace } from '@/lib/workspace';
@@ -49,7 +49,7 @@ export function Members({ data, reload }) {
         {editable ? <Button icon={<MailPlus />} onClick={() => setInviting(true)}>Invite</Button> : null}
       </div>
       <div className="table-wrap">
-        <table className="table">
+        <CardTable>
           <thead><tr><th>Person</th><th>Role</th><th>Status</th><th>Joined</th><th className="tight" /></tr></thead>
           <tbody>
             {data.members.map((m) => (
@@ -76,7 +76,7 @@ export function Members({ data, reload }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </CardTable>
       </div>
 
       <Dialog open={inviting} onClose={() => setInviting(false)} title="Invite someone" description="They get access the first time they sign in to Finvoice with a Texor account using this email."
@@ -162,8 +162,8 @@ export function Roles({ data, reload }) {
   }
 
   return (
-    <div className="grid-4" style={{ gridTemplateColumns: '240px minmax(0, 1fr)', alignItems: 'start' }}>
-      <div className="card" style={{ padding: '0.4rem' }}>
+    <div className="side-layout" style={{ '--side-w': '240px' }}>
+      <div className="card side-nav">
         {data.roles.map((r) => (
           <button key={r.key} type="button" className={`menu-item${r.key === selected ? ' active' : ''}`} onClick={() => setSelected(r.key)}>
             {r.key === 'owner' ? <Lock /> : <ShieldCheck />}<span className="grow">{r.name}</span><span className="tiny subtle">{data.members.filter((m) => m.role === r.key).length}</span>

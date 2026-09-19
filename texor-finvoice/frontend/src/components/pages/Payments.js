@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Search, Wallet } from 'lucide-react';
-import { Badge, EmptyState, PageHeader, Pagination, SkeletonRows } from '@/components/ui';
+import { Badge, EmptyState, PageHeader, Pagination, SkeletonRows, CardTable } from '@/components/ui';
 import { useDebounced, useResource } from '@/lib/data';
 import { date, money } from '@/lib/format';
 import { useWorkspace } from '@/lib/workspace';
@@ -47,7 +47,7 @@ export function Payments({ module }) {
         {data?.payments.length ? (
           <>
             <div className="table-wrap">
-              <table className="table">
+              <CardTable>
                 <thead><tr><th>Date</th><th>Customer</th><th>Invoice</th><th>Mode</th><th>Reference</th><th className="num">Amount</th></tr></thead>
                 <tbody>
                   {data.payments.map((p) => (
@@ -61,7 +61,7 @@ export function Payments({ module }) {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </CardTable>
             </div>
             <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
           </>

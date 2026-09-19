@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Pause, Play, Repeat, Trash2 } from 'lucide-react';
-import { Badge, Button, EmptyState, PageHeader, SkeletonRows, useConfirm, useToast } from '@/components/ui';
+import { Badge, Button, EmptyState, PageHeader, SkeletonRows, useConfirm, useToast, CardTable } from '@/components/ui';
 import { invalidate, useResource } from '@/lib/data';
 import { date, money } from '@/lib/format';
 import { useWorkspace } from '@/lib/workspace';
@@ -58,7 +58,7 @@ export function Schedules({ module }) {
       {schedules.length ? (
         <div className="card">
           <div className="table-wrap">
-            <table className="table">
+            <CardTable>
               <thead>
                 <tr>
                   <th>What</th><th>Customer</th><th>Repeats</th><th>Next</th>
@@ -99,7 +99,7 @@ export function Schedules({ module }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </CardTable>
           </div>
         </div>
       ) : null}

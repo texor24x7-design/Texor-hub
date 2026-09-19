@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Search } from 'lucide-react';
 import { Icon } from '@/components/Icon';
-import { ButtonLink, EmptyState, PageHeader, Pagination, SkeletonRows, StatusBadge, Tabs } from '@/components/ui';
+import { ButtonLink, EmptyState, PageHeader, Pagination, SkeletonRows, StatusBadge, Tabs, CardTable } from '@/components/ui';
 import { useDebounced, useResource } from '@/lib/data';
 import { date, money } from '@/lib/format';
 import { useWorkspace } from '@/lib/workspace';
@@ -63,7 +63,7 @@ export function DocumentList({ module }) {
       />
 
       {data ? (
-        <div className="grid-3" style={{ marginBottom: '1rem' }}>
+        <div className="grid-3 stat-strip" style={{ marginBottom: '1rem' }}>
           <div className="card stat"><div className="stat-label">{state ? TABS[kind].find((t) => t.value === state)?.label : 'All'} · total</div><div className="stat-value">{money(data.sums.totalMinor, currency)}</div><div className="stat-foot">{data.total} {data.total === 1 ? module.labelSingular.toLowerCase() : module.label.toLowerCase()}</div></div>
           {isInvoice ? <div className="card stat"><div className="stat-label">Received</div><div className="stat-value">{money(data.sums.paidMinor, currency)}</div></div> : null}
           {isInvoice ? <div className="card stat"><div className="stat-label">Still owed</div><div className="stat-value">{money(data.sums.totalMinor - data.sums.paidMinor, currency)}</div></div> : null}
@@ -92,7 +92,7 @@ export function DocumentList({ module }) {
         {data?.documents.length ? (
           <>
             <div className="table-wrap">
-              <table className="table">
+              <CardTable className="table doc-table">
                 <thead>
                   <tr>
                     <th>Number</th><th>Customer</th>{printable.map((f) => <th key={f.key}>{f.label}</th>)}<th>Date</th><th>{isInvoice ? 'Due' : isNote ? 'Against' : 'Valid until'}</th><th>Status</th>
@@ -102,18 +102,18 @@ export function DocumentList({ module }) {
                 <tbody>
                   {data.documents.map((d) => (
                     <tr key={d._id} className="clickable" onClick={() => router.push(href(`/${kind}/${d._id}`))}>
-                      <td><Link href={href(`/${kind}/${d._id}`)} className="cell-title mono" onClick={(e) => e.stopPropagation()}>{d.number ?? 'Draft'}</Link></td>
-                      <td><div className="cell-title">{d.billTo?.name}</div>{d.billTo?.phone ? <div className="cell-sub">{d.billTo.phone}</div> : null}</td>
-                      {printable.map((f) => <td key={f.key}>{f.options?.find((o) => o.value === d.custom?.[f.key])?.label ?? d.custom?.[f.key] ?? '—'}</td>)}
-                      <td className="nowrap">{date(d.date)}</td>
-                      <td className="nowrap">{isNote ? (d.invoiceNumber || <span className="subtle">—</span>) : date(isInvoice ? d.dueDate : d.validUntil)}</td>
-                      <td><StatusBadge status={d.state} /></td>
-                      <td className="num strong">{money(d.totals.totalMinor, currency)}</td>
-                      {isInvoice ? <td className="num">{d.status === 'void' || d.status === 'draft' ? <span className="subtle">—</span> : money(d.amountDueMinor, currency)}</td> : null}
+                      <td className="c-num"><Link href={href(`/${kind}/${d._id}`)} className="cell-title mono" onClick={(e) => e.stopPropagation()}>{d.number ?? 'Draft'}</Link></td>
+                      <td className="c-cust"><div className="cell-title">{d.billTo?.name}</div>{d.billTo?.phone ? <div className="cell-sub">{d.billTo.phone}</div> : null}</td>
+                      {printable.map((f) => <td key={f.key} className="c-extra">{f.options?.find((o) => o.value === d.custom?.[f.key])?.label ?? d.custom?.[f.key] ?? '—'}</td>)}
+                      <td className="nowrap c-date">{date(d.date)}</td>
+                      <td className="nowrap c-due">{isNote ? (d.invoiceNumber || <span className="subtle">—</span>) : date(isInvoice ? d.dueDate : d.validUntil)}</td>
+                      <td className="c-status"><StatusBadge status={d.state} /></td>
+                      <td className="num strong c-amt">{money(d.totals.totalMinor, currency)}</td>
+                      {isInvoice ? <td className="num c-bal">{d.status === 'void' || d.status === 'draft' ? <span className="subtle">—</span> : money(d.amountDueMinor, currency)}</td> : null}
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </CardTable>
             </div>
             <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
           </>

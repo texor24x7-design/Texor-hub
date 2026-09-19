@@ -26,7 +26,7 @@ function Steps({ current }) {
     <div className="steps">
       {STEPS.map((label, i) => (
         <div key={label} className={`step${i === current ? ' current' : ''}${i < current ? ' done' : ''}`}>
-          <span className="dot">{i < current ? <Check size={14} /> : i + 1}</span>{label}
+          <span className="dot">{i < current ? <Check size={14} /> : i + 1}</span><span className="step-label">{label}</span>
         </div>
       ))}
     </div>
@@ -247,7 +247,7 @@ export default function Onboarding() {
           </div>
           <Steps current={step} />
           <div className="grow" />
-          <p style={{ fontSize: '0.75rem', color: '#6f857f' }}>Signed in with Texor as {user.email}</p>
+          <p className="hide-sm" style={{ fontSize: '0.75rem', color: '#6f857f' }}>Signed in with Texor as {user.email}</p>
         </aside>
         <main className="onboard-main">
           {step === 0 ? <IndustryStep value={industry} onChange={setIndustry} onNext={() => setStep(1)} /> : null}

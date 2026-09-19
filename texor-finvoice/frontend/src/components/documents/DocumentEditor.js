@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Barcode, Plus, Send, Trash2 } from 'lucide-react';
-import { Alert, Button, Dialog, Field, PageHeader, SkeletonRows, Switch, useToast } from '@/components/ui';
+import { Alert, Button, Dialog, Field, PageHeader, SkeletonRows, Switch, useToast, CardTable } from '@/components/ui';
 import { FieldInput, GstinInput, WIDE_TYPES } from '@/components/fields/FieldInput';
 import { MoneyInput } from '@/components/fields/MoneyInput';
 import { ReferencePicker } from '@/components/fields/ReferencePicker';
@@ -462,14 +462,14 @@ export function DocumentEditor({ module, id }) {
           <div className="card-header">
             <h2>Items</h2>
             <form className="row" onSubmit={scan}>
-              <div className="input-icon" style={{ width: 240 }}>
+              <div className="input-icon" style={{ width: 'min(240px, 55vw)' }}>
                 <Barcode aria-hidden="true" />
                 <input ref={scanRef} className="input input-sm" style={{ height: 32 }} placeholder="Scan barcode or SKU" value={barcode} onChange={(e) => setBarcode(e.target.value)} aria-label="Barcode" />
               </div>
             </form>
           </div>
           <div className="table-wrap" style={{ padding: '0.25rem 0.75rem' }}>
-            <table className="lines-table">
+            <CardTable className="lines-table">
               <thead>
                 <tr>
                   <th style={{ minWidth: 260 }}>{label('description', 'Item')}</th>
@@ -541,8 +541,8 @@ export function DocumentEditor({ module, id }) {
                           </select>
                         </td>
                       ) : null}
-                      <td className="num strong" style={{ paddingTop: '0.9rem' }}>{money(computed.lines[index]?.totalMinor ?? 0, currency)}</td>
-                      <td><Button variant="ghost" size="sm" icon={<Trash2 />} aria-label="Remove line" onClick={() => removeLine(index)} /></td>
+                      <td className="num strong line-amount">{money(computed.lines[index]?.totalMinor ?? 0, currency)}</td>
+                      <td className="line-remove"><Button variant="ghost" size="sm" icon={<Trash2 />} aria-label="Remove line" onClick={() => removeLine(index)} /></td>
                     </tr>,
                     (line.meta?.trackSerials || line.serials?.length) ? (
                       <tr key={`s-${index}`}>
@@ -556,7 +556,7 @@ export function DocumentEditor({ module, id }) {
                   ];
                 })}
               </tbody>
-            </table>
+            </CardTable>
           </div>
           <div className="card-body row row-between row-top wrap" style={{ gap: '2rem' }}>
             <Button variant="secondary" size="sm" icon={<Plus />} onClick={() => setDoc((d) => ({ ...d, lines: [...d.lines, blankLine(prefs)] }))}>Add line</Button>

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Download, Plus, Users } from 'lucide-react';
-import { Avatar, Badge, Button, ButtonLink, EmptyState, Menu, MenuItem, SkeletonRows, StatusBadge, useConfirm, useToast } from '@/components/ui';
+import { Avatar, Badge, Button, ButtonLink, EmptyState, Menu, MenuItem, SkeletonRows, StatusBadge, useConfirm, useToast, CardTable } from '@/components/ui';
 import { fileUrl } from '@/lib/api';
 import { invalidate, useResource } from '@/lib/data';
 import { dateTime, money } from '@/lib/format';
@@ -88,7 +88,7 @@ export function Attendance() {
       </div>
       {!data.rows.length ? <EmptyState icon={<Users />} title="Nobody here yet" action={<ButtonLink href={href('/staff/new')} icon={<Plus />}>Add a person</ButtonLink>}>Add the people who work here — they do not need a Texor account.</EmptyState> : (
         <div className="table-wrap">
-          <table className="table">
+          <CardTable>
             <thead><tr><th>Name</th><th>Shift</th><th>Check-in / out</th><th>Status</th>{canMark ? <th>Mark</th> : null}</tr></thead>
             <tbody>
               {data.rows.map(({ staff, entry }) => (
@@ -110,7 +110,7 @@ export function Attendance() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </CardTable>
         </div>
       )}
     </>

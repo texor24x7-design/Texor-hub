@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Ban, CheckCircle2, Copy, CreditCard, Download, FileCheck2, FileMinus2, FilePlus2, MoreHorizontal, Pencil, Printer, Receipt, Repeat, Send, ShieldCheck, Trash2, Wallet, XCircle } from 'lucide-react';
-import { Alert, Badge, Button, ButtonLink, Dialog, Field, Menu, MenuItem, PageHeader, SkeletonRows, StatusBadge, useConfirm, useToast } from '@/components/ui';
+import { Alert, Badge, Button, ButtonLink, Dialog, Field, Menu, MenuItem, PageHeader, SkeletonRows, StatusBadge, fitFrame, useConfirm, useToast } from '@/components/ui';
 import { Activity } from '@/components/records/Activity';
 import { invalidate, useResource } from '@/lib/data';
 import { date, dateTime, money, toDateInput } from '@/lib/format';
@@ -27,9 +27,10 @@ function Preview({ kind, id, design, version }) {
   }, [api, kind, id, design, version]);
 
   const fit = useCallback(() => {
-    const doc = frame.current?.contentDocument;
-    if (doc?.body) setHeight(doc.documentElement.scrollHeight + 8);
+    const next = fitFrame(frame.current);
+    if (next) setHeight(next);
   }, []);
+  useEffect(() => { window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, [fit]);
 
   if (!html) return <div className="card"><SkeletonRows rows={14} /></div>;
   return <iframe ref={frame} title="Document preview" className="doc-frame" sandbox="allow-same-origin" srcDoc={html} style={{ height }} onLoad={() => { fit(); setTimeout(fit, 400); }} />;

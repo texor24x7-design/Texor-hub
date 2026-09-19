@@ -7,7 +7,7 @@
  */
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 import { CreditCard, Download, IndianRupee, Printer, Share2 } from 'lucide-react';
-import { Alert, Badge, Loading } from '@/components/ui';
+import { Alert, Badge, Loading, fitFrame } from '@/components/ui';
 import { API_ORIGIN, api, fileUrl } from '@/lib/api';
 import { money } from '@/lib/format';
 import { upiLink } from '@/lib/shared/render.mjs';
@@ -26,9 +26,10 @@ export default function PublicDocument({ params }) {
   }, [token]);
 
   const fit = useCallback(() => {
-    const doc = frame.current?.contentDocument;
-    if (doc?.body) setHeight(doc.documentElement.scrollHeight + 16);
+    const next = fitFrame(frame.current, 16);
+    if (next) setHeight(next);
   }, []);
+  useEffect(() => { window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, [fit]);
 
   if (error) return <div className="auth-shell"><div style={{ maxWidth: 420 }}><Alert title="This link is not available">{error}</Alert></div></div>;
   if (!data) return <Loading label="Opening document" />;

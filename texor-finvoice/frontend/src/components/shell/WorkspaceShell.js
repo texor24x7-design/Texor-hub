@@ -124,7 +124,7 @@ export function WorkspaceShell({ slug, children }) {
                 </Menu>
 
                 {creatable.length ? (
-                  <Menu align="right" trigger={({ toggle }) => <Button icon={<Plus />} onClick={toggle}>New</Button>}>
+                  <Menu align="right" trigger={({ toggle }) => <Button icon={<Plus />} onClick={toggle} aria-label="New" className="topbar-new"><span className="hide-sm">New</span></Button>}>
                     {creatable.slice(0, 12).map((m) => (
                       <MenuItem key={m.key} href={value.href(`/${m.key}/new`)} icon={<Icon name={m.icon} />}>{m.labelSingular}</MenuItem>
                     ))}
