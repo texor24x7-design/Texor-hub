@@ -500,5 +500,57 @@ console.log('\n── the start-a-meeting dialog ──');
   }
 }
 
+console.log('\n── the door settings, wherever they are asked ──');
+{
+  const { MeetingAccessFields } = await import('@/components/MeetingAccessFields');
+  const org = { lobby: 'external', forceLobbyForExternal: true, allowExternalGuests: true, orgDomainsConfigured: true };
+
+  const { html } = render('the fields render', h(MeetingAccessFields, {
+    access: 'texor', lobby: 'everyone', org, onChange: () => {},
+  }));
+  if (html) {
+    check('the fields render', true);
+    check('"everyone knocks" says who it exempts', html.includes('except you and your co-hosts'));
+    check('and that it means invited people too', html.includes('invited or not'));
+  }
+
+  // The organisation's default is named on the option, because a value that is
+  // merely pre-selected reads as a choice the host made — which is how a
+  // meeting came to be created with the waiting room off by somebody who
+  // believed they had asked everyone to knock.
+  const { html: marked } = render('the org default is named', h(MeetingAccessFields, {
+    access: 'texor', lobby: 'external', org, onChange: () => {},
+  }));
+  // React escapes the apostrophe, so match either spelling.
+  if (marked) check('the organisation default is named on the option',
+    /your organisation(&#x27;|')s default/.test(marked));
+
+  const { html: waiting } = render('before the rules arrive', h(MeetingAccessFields, {
+    access: 'texor', lobby: '', org: null, onChange: () => {},
+  }));
+  if (waiting) {
+    check('the waiting room waits for the rules rather than showing a guess',
+      waiting.includes('Checking your organisation') && /id="meeting-lobby"[^>]*disabled/.test(waiting));
+  }
+
+  const { html: noDomains } = render('with no org domains set', h(MeetingAccessFields, {
+    access: 'texor', lobby: 'external', org: { ...org, orgDomainsConfigured: false }, onChange: () => {},
+  }));
+  if (noDomains) {
+    check('"outside" says so when nobody counts as outside yet',
+      noDomains.includes('No organisation email domains are set yet'));
+  }
+
+  const { html: forced } = render('with the organisation forcing a lobby', h(MeetingAccessFields, {
+    access: 'texor', lobby: 'off', org, onChange: () => {},
+  }));
+  if (forced) check('turning it off says what the organisation still holds', forced.includes('outside it in the waiting room'));
+
+  const { html: guestsOff } = render('with guests forbidden', h(MeetingAccessFields, {
+    access: 'anyone', lobby: 'off', org: { ...org, allowExternalGuests: false }, onChange: () => {},
+  }));
+  if (guestsOff) check('and "anyone with the code" says when guests are forbidden', guestsOff.includes('turned away at the door'));
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

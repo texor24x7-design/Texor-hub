@@ -22,6 +22,7 @@ import { joinDefaults, joinPatch, loadPreferences, savePreferences } from '@/lib
 const REACTIONS = ['👍', '👎', '❤️', '🎉', '👏', '😂', '😮', '😢', '🤔', '✋'];
 import { auth, meetings as meetingApi, signInWithTexor } from '@/lib/api';
 import { MeetingNotes } from '@/components/MeetingNotes';
+import { LOBBY_OPTIONS, labelFor, lobbyHint } from '@/lib/meeting-rules';
 import { MeetingTimer } from '@/components/MeetingTimer';
 import { PipStage } from '@/components/PipStage';
 import {
@@ -178,8 +179,9 @@ function MeetingEntry({ code }) {
  *
  * Deliberately offers signing in as the first option rather than the
  * afterthought: somebody with a Texor Account gets a real identity in the
- * attendance record and skips the lobby, and both are better for them and for
- * whoever is hosting.
+ * attendance record, and is not held at the door for being an outsider — which
+ * is better for them and for whoever is hosting. It is not a way past the
+ * waiting room: "everyone knocks" means them too.
  */
 function GuestEntry({ code, preview, onJoined }) {
   const [name, setName] = useState('');
@@ -527,6 +529,8 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   const [qualityOptions, setQualityOptions] = useState(meeting?.qualityOptions ?? []);
   // Something happened that is worth saying but not worth interrupting for.
   const [notice, setNotice] = useState(null);
+  // The waiting room, changeable from the People panel without leaving the call.
+  const [lobby, setLobby] = useState(meeting.lobby);
   // Shared by the code chip and the empty-room panel, so the two agree.
   const [copied, setCopied] = useState(false);
   const [role, setRole] = useState(grant.role);
@@ -912,6 +916,27 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
     } catch (decideError) {
       // Already handled by another host is not worth interrupting anyone over.
       if (decideError.code !== 'gone') setError(decideError.message);
+    }
+  }
+
+  /**
+   * Changing the waiting room from inside the call.
+   *
+   * Held in local state as well as saved, because nothing pushes a settings
+   * change to the people already in the room — the next person through the door
+   * gets the new rule, and the host who set it needs to see it took.
+   */
+  async function changeLobby(next) {
+    const before = lobby;
+    setLobby(next);
+
+    try {
+      const { meeting: updated } = await meetingApi.update(code, { lobby: next });
+      setLobby(updated.lobby);
+      setNotice(`Waiting room: ${labelFor(LOBBY_OPTIONS, updated.lobby).toLowerCase()}`);
+    } catch (lobbyError) {
+      setLobby(before);
+      setError(lobbyError.message);
     }
   }
 
@@ -1688,6 +1713,8 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           onError={setError}
           onDecide={decideKnock}
           onSetRole={changeRole}
+          lobby={lobby}
+          onSetLobby={changeLobby}
         />
       ) : null}
 
@@ -2005,7 +2032,7 @@ function Clock() {
 
 // ── The side panel ───────────────────────────────────────────────────────────
 
-function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError, onDecide, onSetRole }) {
+function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError, onDecide, onSetRole, lobby, onSetLobby }) {
   const titles = {
     people: 'People', chat: 'In-call messages', info: 'Meeting details', notes: 'Notes',
   };
@@ -2024,6 +2051,7 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
           <PeoplePanel
             user={user} role={role} isHost={isHost} peers={peers} knocks={knocks}
             room={room} onError={onError} onDecide={onDecide} onSetRole={onSetRole}
+            lobby={lobby} policy={meeting.policy} onSetLobby={onSetLobby}
           />
         ) : null}
         {panel === 'chat' ? <ChatPanel chat={chat} room={room} user={user} peers={peers} /> : null}
@@ -2036,7 +2064,7 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
   );
 }
 
-function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecide, onSetRole }) {
+function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecide, onSetRole, lobby, policy, onSetLobby }) {
   const [query, setQuery] = useState('');
 
   /**
@@ -2067,9 +2095,54 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecid
         </label>
       ) : null}
 
+      {isHost ? (
+        <section className="meet__section">
+          {/*
+            * The waiting room, where the host actually is.
+            *
+            * It could only be changed from the meeting's settings page, so a
+            * host who found the wrong people walking in had to leave the call
+            * to stop it — and had no way to see, from inside, which setting
+            * was in force.
+            */}
+          <h3>Waiting room</h3>
+          <select
+            className="input"
+            aria-label="Waiting room"
+            value={lobby}
+            onChange={(event) => onSetLobby(event.target.value)}
+          >
+            {LOBBY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+          <p className="meet__muted" style={{ marginTop: '0.4rem' }}>
+            {lobbyHint(lobby, policy)}
+          </p>
+        </section>
+      ) : null}
+
       {isHost && knocks.length > 0 ? (
         <section className="meet__section">
-          <h3>Waiting to join</h3>
+          <div className="row row--between" style={{ marginBottom: '0.5rem' }}>
+            <h3 style={{ margin: 0 }}>Waiting to join ({knocks.length})</h3>
+            {knocks.length > 1 ? (
+              <div className="row" style={{ gap: '0.35rem' }}>
+                <button
+                  type="button" className="meet__chip meet__chip--primary"
+                  onClick={() => knocks.forEach((knock) => onDecide(knock.id, 'admit'))}
+                >
+                  Admit all
+                </button>
+                <button
+                  type="button" className="meet__chip"
+                  onClick={() => knocks.forEach((knock) => onDecide(knock.id, 'deny'))}
+                >
+                  Deny all
+                </button>
+              </div>
+            ) : null}
+          </div>
           {knocks.map((knock) => (
             <div className="meet__knock" key={knock.id}>
               <span className="meet__knock-avatar">
@@ -2572,11 +2645,15 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
     };
   }, [cameraOn, chosen.camera, chosen.mic]);
 
-  const lobbyApplies =
-    meeting &&
-    !meeting.viewer.isHost &&
-    (meeting.lobby === 'everyone' ||
-      (meeting.lobby === 'external' && (meeting.viewer.isExternal || meeting.viewer.role === 'guest')));
+  /**
+   * The server's own answer for this person, not a second guess at the rule.
+   *
+   * This used to recompute the lobby from `meeting.lobby` here, and got it
+   * wrong in both directions: it promised a wait to somebody who already held a
+   * pass for this sitting, and said nothing to a person the organisation holds
+   * at the door when the host has the waiting room off.
+   */
+  const lobbyApplies = Boolean(meeting?.viewer?.willWait);
 
   const isHost = meeting?.viewer?.isHost;
   const here = meeting?.participantCount ?? 0;
@@ -2707,7 +2784,9 @@ function GreenRoomCard({ meeting, user, error, joining, onJoin, onBack }) {
 
         <Alert kind="error">{error ?? deviceError}</Alert>
         {lobbyApplies ? (
-          <Alert kind="info">You will wait in the lobby until a host lets you in.</Alert>
+          <Alert kind="info">
+            You will wait in the lobby until a host lets you in.
+          </Alert>
         ) : null}
 
         <div className="gr__you">
@@ -2754,13 +2833,19 @@ function WaitingCard({ meeting, onCancel }) {
       <div>
         <h1>Waiting to be let in</h1>
         <p className="meta" style={{ marginTop: '0.35rem' }}>
-          {meeting?.host?.name} has been asked to admit you to {meeting?.title}.
+          {/*
+            * "A host", not the owner by name. Anybody hosting can admit —
+            * a co-host, or whoever is standing in while the owner is away —
+            * and naming an owner who is not even in the call reads as though
+            * the request has gone nowhere.
+            */}
+          Waiting for a host to let you in to {meeting?.title}.
         </p>
       </div>
 
       <div className="row" style={{ color: 'var(--text-muted)' }}>
         <span className="spinner" aria-hidden="true" />
-        <span role="status">Asking the host&hellip;</span>
+        <span role="status">Asking whoever is hosting&hellip;</span>
       </div>
 
       <Button variant="secondary" onClick={onCancel}>Cancel</Button>

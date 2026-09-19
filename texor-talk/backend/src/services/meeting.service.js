@@ -325,7 +325,17 @@ export function earliestJoined(meeting, presentTexorIds) {
   const present = new Set(presentTexorIds);
 
   const candidates = meeting.attendance
-    .filter((entry) => present.has(entry.texorId))
+    /**
+     * Only somebody who is actually in the room, by the room's own rules.
+     *
+     * A socket lingers for a moment after somebody hangs up, and the server's
+     * next read of "who is here" still counts it. That ghost was enough to be
+     * handed the empty room — and an acting host never knocks, so hanging up
+     * and coming back was a way past the waiting room. A pass for this sitting
+     * is what "legitimately here" means; `markJoined` writes one for everybody
+     * it lets in, and it is cleared when the room empties.
+     */
+    .filter((entry) => present.has(entry.texorId) && (meeting.admittedTexorIds ?? []).includes(entry.texorId))
     .sort((left, right) => {
       const guest = Number(left.role === 'guest') - Number(right.role === 'guest');
       if (guest !== 0) return guest;

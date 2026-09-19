@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Field } from '@/components/ui';
+import { MeetingAccessFields } from '@/components/MeetingAccessFields';
 import { CloseIcon } from '@/components/icons';
 import { meetings as meetingApi } from '@/lib/api';
 
@@ -86,18 +87,6 @@ export function StartMeetingDialog({
     return () => { cancelled = true; };
   }, []);
 
-  /**
-   * Two promises this dialog cannot keep on its own.
-   *
-   * A host who picks "everyone walks in" and then watches a guest knock anyway
-   * concludes the setting is broken. It is not — the organisation holds outside
-   * guests in the lobby, and the only honest thing to do is say so here, where
-   * the choice is being made, rather than leave them to find out from the
-   * person who could not get in.
-   */
-  const guestsStillKnock = lobby === 'off' && org?.forceLobbyForExternal;
-  const guestsShutOut = access === 'anyone' && org && !org.allowExternalGuests;
-
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
@@ -154,50 +143,16 @@ export function StartMeetingDialog({
               />
             </Field>
 
-            <Field
-              label="Who can join"
-              hint={guestsShutOut
-                ? 'Your organisation does not allow guests without a Texor Account, so they will be turned away at the door.'
-                : undefined}
-              htmlFor="start-access"
-            >
-              <select
-                id="start-access"
-                className="input"
-                value={access}
-                onChange={(event) => setAccess(event.target.value)}
-              >
-                <option value="texor">Anyone with a Texor Account</option>
-                <option value="invited">Only people I invite</option>
-                <option value="anyone">Anyone with the code, including guests</option>
-              </select>
-            </Field>
-
-            <Field
-              label="Waiting room"
-              hint={
-                guestsStillKnock
-                  ? 'Your organisation still holds guests without a Texor Account in the lobby — an admin can change that under Admin → Meetings. Everyone else walks in.'
-                  : 'You and your co-hosts never wait.'
-              }
-              htmlFor="start-lobby"
-            >
-              <select
-                id="start-lobby"
-                className="input"
-                value={lobby}
-                disabled={!org}
-                onChange={(event) => setLobby(event.target.value)}
-              >
-                {/* Until the organisation's rules land there is no honest value
-                    to show: the field would read "off" while an empty `lobby`
-                    sent nothing and the server applied its own default. */}
-                {org ? null : <option value="">Checking your organisation&rsquo;s rules…</option>}
-                <option value="off">Off — everyone walks in</option>
-                <option value="external">Guests from outside knock</option>
-                <option value="everyone">Everyone knocks</option>
-              </select>
-            </Field>
+            <MeetingAccessFields
+              idPrefix="start"
+              access={access}
+              lobby={lobby}
+              org={org}
+              onChange={(patch) => {
+                if (patch.access !== undefined) setAccess(patch.access);
+                if (patch.lobby !== undefined) setLobby(patch.lobby);
+              }}
+            />
 
             <div className="row" style={{ justifyContent: 'flex-end', gap: '0.5rem' }}>
               <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>

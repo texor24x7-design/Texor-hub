@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { LOBBY_OPTIONS } from '@/lib/meeting-rules';
 import { Alert, Button, Field, Loading, formatTimestamp } from '@/components/ui';
 import { admin as adminApi } from '@/lib/api';
 
@@ -141,14 +142,18 @@ function PolicyPanel() {
             </select>
           </Field>
 
-          <Field label="Waiting room default" hint="Hosts can tighten this, never loosen it below the rule beside it." htmlFor="lobbyDefault">
+          <Field
+            label="Waiting room default"
+            hint="Where a new meeting starts. A host can change it either way, including turning it off — the only rule they cannot undo is the one below."
+            htmlFor="lobbyDefault"
+          >
             <select
               id="lobbyDefault" className="input" value={draft.lobbyDefault}
               onChange={(event) => set('lobbyDefault', event.target.value)}
             >
-              <option value="off">Off</option>
-              <option value="external">Outside guests knock</option>
-              <option value="everyone">Everyone knocks</option>
+              {LOBBY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
           </Field>
 
@@ -212,7 +217,7 @@ function PolicyPanel() {
 
         <div className="stack stack--tight" style={{ marginTop: '1.25rem' }}>
           {toggle('allowExternalGuests', 'Allow guests from outside the organisation', 'Off means only Texor Accounts on your domains can join anything.')}
-          {toggle('forceLobbyForExternal', 'Always hold outside guests in the lobby', 'Overrides a host who turned the waiting room off.')}
+          {toggle('forceLobbyForExternal', 'Always hold people from outside the organisation in the waiting room', 'Overrides a host who turned the waiting room off. It holds outside accounts as well as guests with no account.')}
           {toggle('defaultMuteOnEntry', 'New meetings mute people on entry', null)}
           {toggle('defaultVideoOffOnEntry', 'New meetings start with cameras off', null)}
         </div>

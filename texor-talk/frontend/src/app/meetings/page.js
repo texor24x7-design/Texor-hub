@@ -8,6 +8,7 @@ import { CalendarIcon, ChevronIcon, VideoPlusIcon } from '@/components/icons';
 import { meetings as meetingApi } from '@/lib/api';
 import { usePoll } from '@/lib/use-poll';
 import { LiveCard } from '@/components/LiveCard';
+import { MeetingAccessFields } from '@/components/MeetingAccessFields';
 import { StartMeetingDialog, defaultMeetingTitle } from '@/components/StartMeetingDialog';
 
 /** Start one, join one, or look at what is coming. */
@@ -343,6 +344,25 @@ function ScheduleForm({ onCreated, onCancel }) {
   const [fieldErrors, setFieldErrors] = useState({});
   const [busy, setBusy] = useState(false);
 
+  /**
+   * The organisation's rules, so the waiting room can start on its default and
+   * say what the organisation still enforces — the same as the start dialog.
+   * This form used to offer neither.
+   */
+  const [org, setOrg] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    meetingApi.defaults()
+      .then(({ defaults }) => {
+        if (cancelled) return;
+        setOrg(defaults);
+        setForm((current) => ({ ...current, lobby: current.lobby || defaults.lobby }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
 
   async function submit(event) {
@@ -408,22 +428,13 @@ function ScheduleForm({ onCreated, onCancel }) {
         </Field>
       </div>
 
-      <Field label="Who can join" htmlFor="access">
-        <select id="access" className="input" value={form.access} onChange={set('access')}>
-          <option value="texor">Anyone with a Texor Account</option>
-          <option value="invited">Only people I invite</option>
-          <option value="anyone">Anyone with the code, including guests</option>
-        </select>
-      </Field>
-
-      <Field label="Waiting room" hint="You and your co-hosts never wait." htmlFor="lobby">
-        <select id="lobby" className="input" value={form.lobby} onChange={set('lobby')}>
-          <option value="">My organisation&rsquo;s default</option>
-          <option value="off">Off — everyone walks in</option>
-          <option value="external">Guests from outside knock</option>
-          <option value="everyone">Everyone knocks</option>
-        </select>
-      </Field>
+      <MeetingAccessFields
+        idPrefix="schedule"
+        access={form.access}
+        lobby={form.lobby}
+        org={org}
+        onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+      />
 
       <Field
         label="Invite people"

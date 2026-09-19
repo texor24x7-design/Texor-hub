@@ -3,6 +3,7 @@
 import { use, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
+import { MeetingAccessFields } from '@/components/MeetingAccessFields';
 import { Alert, Button, Field, Loading, formatTimestamp } from '@/components/ui';
 import { meetings as meetingApi, notes as notesApi } from '@/lib/api';
 import { LockIcon, PlusIcon, ShareIcon } from '@/components/icons';
@@ -217,39 +218,20 @@ function HostSettings({ meeting, onSave }) {
     <section className="panel">
       <div className="panel__header">
         <h2>How people get in</h2>
-        <p>Applies from the next time someone joins.</p>
+        <p>
+          Applies from the next time someone joins. Tightening either of these also
+          cancels the passes of anybody let in earlier — people in the call right now stay in it.
+        </p>
       </div>
 
       <div className="policy-grid">
-        <Field label="Who can join" htmlFor="access">
-          <select
-            id="access" className="input" value={draft.access}
-            onChange={(event) => setDraft((current) => ({ ...current, access: event.target.value }))}
-          >
-            <option value="texor">Anyone with a Texor Account</option>
-            <option value="invited">Only people I invite</option>
-            <option value="anyone">Anyone with the code</option>
-          </select>
-        </Field>
-
-        <Field
-          label="Waiting room"
-          hint={
-            draft.lobby === 'off' && meeting.policy?.forceLobbyForExternal
-              ? 'Hosts and co-hosts never wait. Your organisation still holds guests without a Texor Account in the lobby — an admin can change that under Admin → Meetings.'
-              : 'Hosts and co-hosts never wait.'
-          }
-          htmlFor="lobby"
-        >
-          <select
-            id="lobby" className="input" value={draft.lobby}
-            onChange={(event) => setDraft((current) => ({ ...current, lobby: event.target.value }))}
-          >
-            <option value="off">Off — everyone walks in</option>
-            <option value="external">Guests from outside knock</option>
-            <option value="everyone">Everyone knocks</option>
-          </select>
-        </Field>
+        <MeetingAccessFields
+          idPrefix="settings"
+          access={draft.access}
+          lobby={draft.lobby}
+          org={meeting.policy}
+          onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+        />
 
         <Field
           label="Video quality"
@@ -305,11 +287,14 @@ function InviteeList({ meeting, isHost, onInvite, onUninvite }) {
     <section className="panel">
       <div className="panel__header">
         <h2>Invited ({meeting.invitees.length})</h2>
-        <p>Invitees can add the meeting to their calendar and are never held in the lobby.</p>
+        <p>
+          Invitees can add the meeting to their calendar. They still knock when the waiting
+          room asks everyone to.
+        </p>
       </div>
 
       {meeting.invitees.length === 0 ? (
-        <p className="meta">Nobody invited yet — anyone with the code can still join.</p>
+        <p className="meta">Nobody invited yet. Who can get in is decided by “Who can join” above.</p>
       ) : (
         <div className="list">
           {meeting.invitees.map((invitee) => (

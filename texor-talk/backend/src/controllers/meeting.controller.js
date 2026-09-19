@@ -303,7 +303,19 @@ function presentMeeting(meeting, user, { policy } = {}) {
     },
 
     joinUrl: `${env.appOrigin}/meetings/${meeting.code}`,
-    ...(policy ? { policy: { forceLobbyForExternal: policy.forceLobbyForExternal } } : {}),
+    /**
+     * The organisation's rules, for the screens that let a host change the
+     * door. The settings page used to get only the first of these and so could
+     * not warn about the other two.
+     */
+    ...(policy ? {
+      policy: {
+        lobby: policy.lobbyDefault,
+        forceLobbyForExternal: policy.forceLobbyForExternal,
+        allowExternalGuests: policy.allowExternalGuests,
+        orgDomainsConfigured: env.orgEmailDomains.length > 0,
+      },
+    } : {}),
   };
 }
 

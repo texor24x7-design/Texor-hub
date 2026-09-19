@@ -107,6 +107,8 @@ const meeting = (over = {}) => ({
   hostTexorId: 'owner',
   cohostTexorIds: [],
   actingHostTexorId: null,
+  // Everybody in the room was let into it; that is what a pass records.
+  admittedTexorIds: ['owner', 'asha', 'bo', 'guest-1'],
   attendance: [
     { texorId: 'owner', role: 'host', firstJoinedAt: at(0) },
     { texorId: 'asha', role: 'participant', firstJoinedAt: at(1 * MIN) },
@@ -190,6 +192,19 @@ console.log('\n── an empty room ends the sitting ──');
   // The worry that kept the old behaviour: a write on every sweep of every
   // empty room. Only the first sweep has anything to clear.
   check('a second sweep of the same empty room writes nothing', reconcileHost(m, []) === false);
+}
+
+console.log('\n── a socket that has not closed yet is not a host ──');
+{
+  /**
+   * A socket lingers for a moment after somebody hangs up, and the next read of
+   * "who is here" still counts it. That ghost used to be handed the empty room,
+   * and an acting host never knocks — so hanging up and coming straight back
+   * was a way past the waiting room.
+   */
+  const m = meeting({ admittedTexorIds: [] });
+  check('nobody takes custody on a pass that has ended', reconcileHost(m, ['asha']) === false);
+  check('and the room has no stand-in', m.actingHostTexorId === null);
 }
 
 console.log('\n── the stand-in leaves too ──');
