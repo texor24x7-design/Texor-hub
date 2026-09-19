@@ -933,6 +933,53 @@ const afterRemoval = await rest(returner, `/api/meetings/${lobbyCode}/join`, { m
 check('but being removed still overrides it', afterRemoval.status === 403,
   JSON.stringify(afterRemoval.body).slice(0, 120));
 
+console.log('\n── a pass lasts the sitting, and no longer ──');
+{
+  /**
+   * The bug this closes: a pass was written the first time somebody got in and
+   * never taken away, so "everyone knocks" waved through anyone who had ever
+   * been inside — from an earlier sitting, an earlier occurrence, or from when
+   * the waiting room was off.
+   */
+  const sitting = await rest(host, '/api/meetings', {
+    method: 'POST', body: { title: 'One sitting', lobby: 'everyone', access: 'texor' },
+  });
+  const sCode2 = sitting.body.meeting.code;
+  await rest(host, `/api/meetings/${sCode2}/join`, { method: 'POST' });
+
+  const hostPeer = new TestPeer(host, sCode2);
+  await hostPeer.connect();
+
+  const visitor = await seedUser({ texorId: 'tx-sitting', email: 'sit@texor.app', displayName: 'Sid Sitting' });
+
+  const first = await rest(visitor, `/api/meetings/${sCode2}/join`, { method: 'POST' });
+  check('a newcomer knocks', first.body.status === 'waiting', JSON.stringify(first.body).slice(0, 120));
+
+  // Somebody who still has to knock cannot get in by opening a socket instead.
+  const sneak = new TestPeer(visitor, sCode2);
+  const refusal = await sneak.connect().then(() => null, (error) => error);
+  check('and cannot skip the waiting room by opening a socket', refusal?.code === 'lobby_required',
+    refusal ? `${refusal.code}: ${refusal.message}` : 'the socket let them in');
+
+  await rest(host, `/api/meetings/${sCode2}/knocks/${first.body.knockId}`, { method: 'POST', body: { decision: 'admit' } });
+  await rest(visitor, `/api/meetings/${sCode2}/knocks/${first.body.knockId}/status`);
+
+  await rest(visitor, `/api/meetings/${sCode2}/leave`, { method: 'POST' });
+  const wobble = await rest(visitor, `/api/meetings/${sCode2}/join`, { method: 'POST' });
+  check('stepping out and back in while the call runs does not knock again',
+    wobble.body.status === 'admitted', JSON.stringify(wobble.body).slice(0, 120));
+
+  // Everybody leaves: the sitting is over.
+  await rest(visitor, `/api/meetings/${sCode2}/leave`, { method: 'POST' });
+  hostPeer.close();
+  await wait(300);
+  await rest(host, `/api/meetings/${sCode2}/leave`, { method: 'POST' });
+
+  const nextTime = await rest(visitor, `/api/meetings/${sCode2}/join`, { method: 'POST' });
+  check('once the room has emptied, the same person knocks again',
+    nextTime.body.status === 'waiting', JSON.stringify(nextTime.body).slice(0, 120));
+}
+
 console.log('\n── a host can pull the waiting list on demand ──');
 const puller = await seedUser({ texorId: 'tx-pull', email: 'pull@texor.app', displayName: 'Pia Puller' });
 const pullKnock = await rest(puller, `/api/meetings/${lobbyCode}/join`, { method: 'POST' });

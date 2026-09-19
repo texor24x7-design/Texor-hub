@@ -211,11 +211,23 @@ check('they are not a moderator', admitted.body.media?.isModerator === false);
 check('they cannot share their screen unless the meeting allows everyone',
   typeof admitted.body.media?.canShareScreen === 'boolean');
 
-// Having been admitted once, they should not be asked again after a wobble.
+/**
+ * A pass lasts one sitting.
+ *
+ * Coming back after a wobble while the call is still running is covered in
+ * media.test.mjs, where the host is really connected. Here nobody is in the
+ * call — the host joined over REST and never opened a socket — so leaving
+ * empties the room, the sitting is over, and the guest knocks like anybody
+ * else. It used to be a pass for the life of the meeting, which is how a
+ * returning visitor walked past "everyone knocks".
+ */
 await call(guestCookie, `/api/meetings/${open.code}/leave`, { method: 'POST' });
 const back = await call(guestCookie, `/api/meetings/${open.code}/join`, { method: 'POST' });
-check('coming back does not send them to the lobby again',
-  back.body.status === 'admitted', JSON.stringify(back.body).slice(0, 120));
+check('once the room has emptied, a returning guest knocks again',
+  back.body.status === 'waiting', JSON.stringify(back.body).slice(0, 120));
+if (back.body.knockId) {
+  await call(guestCookie, `/api/meetings/${open.code}/knocks/${back.body.knockId}`, { method: 'DELETE' });
+}
 
 check('they can leave', (await call(guestCookie, `/api/meetings/${open.code}/leave`, { method: 'POST' })).status === 200);
 

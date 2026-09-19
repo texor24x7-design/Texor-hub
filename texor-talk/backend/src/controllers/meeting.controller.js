@@ -9,6 +9,7 @@ import { z } from 'zod';
 import Meeting from '../models/Meeting.js';
 import Knock from '../models/Knock.js';
 import Channel from '../models/Channel.js';
+import User from '../models/User.js';
 import Message from '../models/Message.js';
 import env from '../config/env.js';
 import ApiError from '../utils/ApiError.js';
@@ -17,6 +18,7 @@ import {
   ejectPeer, endRoom, refreshKnocks, updatePeerRole, updateRoomQuality,
 } from '../media/signalling.js';
 import { connectedTexorIds } from '../media/room.js';
+import { admissionFor, isNarrowerAccess, isStricterLobby } from '../services/admission.service.js';
 import { availableTiers, effectiveTier, isTier, limitsFor } from '../services/quality.service.js';
 import {
   GUEST_COOKIE,
@@ -288,6 +290,13 @@ function presentMeeting(meeting, user, { policy } = {}) {
       isHost,
       isGuest,
       isExternal: isExternalEmail(user.email),
+      /**
+       * Whether *this person* would be held in the waiting room if they joined
+       * now — the rule's own answer, not a guess. The greenroom used to work it
+       * out from `lobby` alone, so it told people with a pass they would wait
+       * and said nothing to outsiders the organisation holds at the door.
+       */
+      willWait: policy ? admissionFor({ meeting, user, policy }).outcome === 'knock' : undefined,
       canEdit: isHost,
       response:
         meeting.invitees.find((invitee) => invitee.texorId === user.texorId)?.response ?? null,
@@ -407,6 +416,9 @@ export async function getMeetingDefaults(req, res) {
       lobby: defaults.lobby,
       forceLobbyForExternal: policy.forceLobbyForExternal,
       allowExternalGuests: policy.allowExternalGuests,
+      // Without any, nobody with an account counts as outside the organisation,
+      // so "people outside your organisation knock" holds only guests.
+      orgDomainsConfigured: env.orgEmailDomains.length > 0,
     },
   });
 }
@@ -425,6 +437,34 @@ export async function createMeeting(req, res) {
     }
   }
 
+  /**
+   * A meeting started from a private channel is for that channel.
+   *
+   * The start dialog defaults such a meeting to "only people I invite", and
+   * used to invite nobody — so every member of the channel it was started from
+   * was turned away as uninvited, and only the host could get in. The channel's
+   * members are the invite list, alongside anybody named explicitly.
+   */
+  let invitees = body.invitees ?? [];
+  if (channel && channel.visibility === 'private') {
+    const members = await User.find({ texorId: { $in: channel.memberTexorIds, $ne: req.user.texorId } })
+      .select('texorId email displayName')
+      .lean()
+      .exec();
+    const named = new Set(invitees.map((invitee) => invitee.email));
+    invitees = [
+      ...invitees,
+      ...members
+        .filter((member) => member.email && !named.has(member.email.toLowerCase()))
+        .map((member) => ({
+          texorId: member.texorId,
+          email: member.email.toLowerCase(),
+          name: member.displayName ?? '',
+          role: 'participant',
+        })),
+    ];
+  }
+
   const meeting = await Meeting.create({
     code: await allocateCode(),
 
@@ -439,7 +479,7 @@ export async function createMeeting(req, res) {
     access: body.access,
     lobby: body.lobby ?? defaults.lobby,
 
-    invitees: body.invitees,
+    invitees,
 
     scheduledStart: body.scheduledStart,
     scheduledEnd: body.scheduledEnd,
@@ -523,6 +563,7 @@ export async function updateMeeting(req, res) {
   }
 
   const changed = {};
+  const previous = { lobby: meeting.lobby, access: meeting.access };
 
   for (const [key, value] of Object.entries(req.body)) {
     if (value === undefined) continue;
@@ -542,6 +583,19 @@ export async function updateMeeting(req, res) {
     throw ApiError.badRequest('The meeting has to end after it starts.', [
       { field: 'scheduledEnd', message: 'Must be after the start time.' },
     ]);
+  }
+
+  /**
+   * Tightening the door applies to the next person through it.
+   *
+   * Passes earned under the looser rule are cancelled, so somebody let in
+   * under "off" does not stroll past "everyone knocks" after stepping out.
+   * Anybody in the call right now keeps theirs: a host tightening the lobby
+   * mid-meeting means "hold newcomers", not "throw out the room".
+   */
+  if (isStricterLobby(meeting.lobby, previous.lobby) || isNarrowerAccess(meeting.access, previous.access)) {
+    const inTheCall = new Set(connectedTexorIds(meeting.code));
+    meeting.admittedTexorIds = meeting.admittedTexorIds.filter((id) => inTheCall.has(id));
   }
 
   await meeting.save();
@@ -769,14 +823,28 @@ export async function getKnock(req, res) {
     return res.json({ status: knock.status, expiresAt: knock.expiresAt });
   }
 
-  // Admission is the host's decision; the checks still run, because the state
-  // of the meeting can have moved on between the click and this poll.
+  /**
+   * The host decided to let them in; the meeting's rules still get a say.
+   *
+   * The state can have moved on between the click and this poll — the person
+   * removed, the meeting closed to invitees, a guest's meeting closed to Texor
+   * Accounts. This comment used to say the checks still ran when none did, so
+   * anyone admitted once got in whatever happened next. The admission rule is
+   * asked again; only the knock itself is taken as settled.
+   */
   const policy = await getPolicy();
-  const role = meeting.roleOf(req.user.texorId, req.user.email);
 
   if (meeting.status === 'ended' || meeting.status === 'cancelled') {
     return res.json({ status: 'expired' });
   }
+
+  const decision = admissionFor({ meeting, user: req.user, policy });
+  if (decision.outcome === 'refuse') {
+    await Knock.updateOne({ _id: knock._id }, { $set: { status: 'denied' } }).exec();
+    return res.json({ status: 'denied', reason: decision.reason });
+  }
+
+  const { role } = decision;
 
   // The waiting client polls until it sees `admitted`, and can poll once more
   // before it navigates. Only the first of those is a join worth recording.

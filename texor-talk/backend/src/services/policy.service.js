@@ -16,8 +16,10 @@ import ApiError from '../utils/ApiError.js';
 export async function getPolicy() {
   return Policy.findOneAndUpdate(
     { key: 'org' },
-    { $setOnInsert: { key: 'org' } },
-    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+    { $setOnInsert: { key: 'org', createdAt: new Date(), updatedAt: new Date() } },
+    // Without `timestamps: false` every read stamped `updatedAt`, so the
+    // policy's "last changed" was really "last looked at".
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true, timestamps: false },
   );
 }
 

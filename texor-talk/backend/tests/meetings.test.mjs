@@ -90,10 +90,27 @@ check('the grant names no external service and carries no token',
   !JSON.stringify(hostJoin.body.media).match(/token|domain|jitsi|roomName/i), JSON.stringify(hostJoin.body.media));
 check('meeting went live', hostJoin.body.meeting?.status === 'live');
 
-// lobby defaults to 'external'; ORG_EMAIL_DOMAINS is empty so nobody is
-// external — an internal member should walk in, a 'guest' role still knocks.
+/**
+ * "People outside your organisation knock" means outsiders.
+ *
+ * The lobby defaults to 'external' and ORG_EMAIL_DOMAINS is empty here, so
+ * nobody with an account counts as outside — an uninvited colleague walks in.
+ * It used to hold them too, because roleOf calls anybody not on the invite
+ * list a 'guest', and the label said nothing of the kind.
+ */
+const walkIn = await call(member, `/api/meetings/${code}/join`, { method: 'POST' });
+check('an uninvited colleague walks in when nobody counts as outside',
+  walkIn.body.status === 'admitted', JSON.stringify(walkIn.body).slice(0, 200));
+await call(member, `/api/meetings/${code}/leave`, { method: 'POST' });
+
+// The host tightens the door. The pass the colleague earned under the looser
+// rule goes with it, so coming back means knocking.
+const tightened = await call(host, `/api/meetings/${code}`, { method: 'PATCH', body: { lobby: 'everyone' } });
+check('the host can switch to everyone knocks', tightened.body.meeting?.lobby === 'everyone');
+
 const memberJoin = await call(member, `/api/meetings/${code}/join`, { method: 'POST' });
-check('uninvited texor user has to knock', memberJoin.body.status === 'waiting', JSON.stringify(memberJoin.body).slice(0, 200));
+check('and then the same colleague has to knock',
+  memberJoin.body.status === 'waiting', JSON.stringify(memberJoin.body).slice(0, 200));
 const knockId = memberJoin.body.knockId;
 
 const knockList = await call(host, `/api/meetings/${code}/knocks`);

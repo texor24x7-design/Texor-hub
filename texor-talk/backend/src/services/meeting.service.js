@@ -7,7 +7,7 @@ import Knock from '../models/Knock.js';
 import env from '../config/env.js';
 import ApiError from '../utils/ApiError.js';
 import { meetingCode } from '../utils/ids.js';
-import { effectiveLobby, isExternalEmail } from './policy.service.js';
+import { admissionFor } from './admission.service.js';
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -148,43 +148,17 @@ export function joinWindow(meeting, occurrence) {
  * Returns `{ outcome: 'admit' | 'knock', role }`, or throws the refusal.
  */
 export async function evaluateJoin({ meeting, user, policy, now = new Date() }) {
-  if (meeting.status === 'cancelled') {
-    throw new ApiError(410, 'meeting_cancelled', 'This meeting was cancelled.');
-  }
   /**
-   * An ended meeting is *idle*, not finished.
-   *
-   * This used to refuse everybody but the host with a 410, which meant a link
-   * shared with ten people stopped working the moment the room emptied out —
-   * and the only way back in was for the one person who owned it to go first.
-   * A room is a place; walking into an empty one is allowed.
-   *
-   * Nothing that actually protects a meeting lives here. Removal, access,
-   * capacity, the lobby, the join window and the duration cap are all below
-   * and all unchanged, so this widens *when* a link works, never *who* it
-   * works for. `cancelled` keeps its refusal above: that one was deliberate
-   * and is meant to be final.
+   * Who, and whether they knock, is decided in one place — see
+   * `admission.service.js`. What stays here is *when* and *how many*.
    */
+  const decision = admissionFor({ meeting, user, policy });
 
-  if (meeting.isRemoved(user.texorId)) {
-    throw ApiError.forbidden('You were removed from this meeting.');
+  if (decision.outcome === 'refuse') {
+    throw new ApiError(decision.status ?? 403, decision.code, decision.reason);
   }
 
-  const role = meeting.roleOf(user.texorId, user.email);
-  const isHost = role === 'host' || role === 'cohost';
-  // A guest has no email and therefore no domain to match; they are external by
-  // definition, and must not fall through to "nobody is external" when
-  // ORG_EMAIL_DOMAINS is unset.
-  const isExternal = Boolean(user.isGuest) || isExternalEmail(user.email);
-
-  // ── Is this person allowed in at all ──
-  if (isExternal && !(policy.allowExternalGuests && meeting.settings.allowExternalGuests)) {
-    throw ApiError.forbidden('This meeting is not open to guests from outside the organisation.');
-  }
-
-  if (meeting.access === 'invited' && role === 'guest') {
-    throw ApiError.forbidden('This meeting is for invited people only.');
-  }
+  const { role, isHost, isExternal } = decision;
 
   // ── Is it the right time ──
   // Hosts are never held back: someone has to be able to open the room early.
@@ -235,38 +209,7 @@ export async function evaluateJoin({ meeting, user, policy, now = new Date() }) 
   }
 
   // ── Lobby ──
-  /**
-   * Anyone who has already been inside walks straight back in.
-   *
-   * This covers both a reconnect (still on the participant list) and a return
-   * (left and came back). The waiting room exists to vet strangers, and someone
-   * a host has already admitted is not one — making them knock again every time
-   * their wifi drops turns the lobby into a tax on the host.
-   */
-  if (meeting.hasBeenAdmitted(user.texorId)) {
-    return { outcome: 'admit', role, isExternal, lobby: meeting.lobby };
-  }
-
-  const lobby = effectiveLobby(meeting, policy, { isExternal });
-  const mustKnock =
-    !isHost && (lobby === 'everyone' || (lobby === 'external' && (isExternal || role === 'guest')));
-
-  /**
-   * An empty room used to be a refusal, and is now a wait.
-   *
-   * The reasoning behind the refusal was that nobody would ever see the knock —
-   * "the host has not started this meeting yet" was the honest answer when an
-   * ended meeting could only be reopened by its owner and a room with nobody in
-   * it had no way back. Neither is true any more: the link opens the room for
-   * anyone allowed in, so the host arriving later finds the person waiting and
-   * lets them through.
-   *
-   * Admitting them instead would be the other way to make the link "work", and
-   * it is the wrong one — it would hand the first stranger to find the code an
-   * empty room, which is exactly what the lobby exists to prevent. Knocks
-   * expire on their own, so nobody waits forever.
-   */
-  return { outcome: mustKnock ? 'knock' : 'admit', role, isExternal, lobby };
+  return { outcome: decision.outcome, role, isExternal, lobby: decision.lobby, why: decision.why };
 }
 
 /**
@@ -279,8 +222,9 @@ export async function markJoined({ meeting, user, role, now = new Date() }) {
   const existing = meeting.attendance.find((entry) => entry.texorId === user.texorId);
   const wasPresent = Boolean(existing && !existing.leftAt);
 
-  // Getting in at all is what earns a standing pass for this meeting, whether
-  // it came from a host admitting them or from walking in with no lobby.
+  // Getting in earns a pass for the rest of this sitting — a dropped connection
+  // or a coffee break does not mean knocking again. It ends when the room
+  // empties (`reconcileHost`), the meeting ends, or the host tightens the door.
   if (!meeting.admittedTexorIds.includes(user.texorId)) {
     meeting.admittedTexorIds.push(user.texorId);
   }
@@ -408,6 +352,23 @@ export function reconcileHost(meeting, presentTexorIds) {
   const before = meeting.actingHostTexorId;
 
   /**
+   * An empty room is the end of a sitting.
+   *
+   * Everybody who was let in during it loses their pass, and whoever was
+   * standing in for the host stops being the host. Both used to outlive the
+   * sitting indefinitely — a pass from last week's meeting walked past "everyone
+   * knocks" this week, and a stand-in coming back to an empty room was the host
+   * again before anybody had admitted them. A dropped connection with somebody
+   * else still in the call is not the end of anything, so it keeps its pass.
+   */
+  if (present.size === 0) {
+    const changed = Boolean(before) || meeting.admittedTexorIds.length > 0;
+    meeting.actingHostTexorId = null;
+    meeting.admittedTexorIds = [];
+    return changed;
+  }
+
+  /**
    * The owner takes it back by walking in.
    *
    * The stand-in becomes a co-host rather than dropping to nothing: they have
@@ -426,10 +387,8 @@ export function reconcileHost(meeting, presentTexorIds) {
   const covered = meeting.cohostTexorIds.some((id) => present.has(id))
     || Boolean(before && present.has(before));
 
-  // Somebody here can already run it, or there is nobody here to hand it to.
-  // An empty room keeps its last stand-in: they are the likeliest person to
-  // come back, and the next arrival takes it from them anyway.
-  if (covered || present.size === 0) return false;
+  // Somebody here can already run it.
+  if (covered) return false;
 
   meeting.actingHostTexorId = earliestJoined(meeting, present);
   return meeting.actingHostTexorId !== before;
@@ -573,6 +532,10 @@ export async function endMeeting({ meeting, reason, now = new Date() }) {
    */
   meeting.actingHostTexorId = null;
 
+  // And so do the passes. Coming back to a reopened meeting is a new sitting,
+  // and "everyone knocks" means everyone again.
+  meeting.admittedTexorIds = [];
+
   // Everybody in the waiting room is waiting for a door that is now shut.
   await Knock.updateMany(
     { meeting: meeting._id, status: 'waiting' },
@@ -609,6 +572,8 @@ export function rollForward(meeting, now = new Date()) {
   meeting.activeMs = 0;
   meeting.activeSince = null;
   meeting.actingHostTexorId = null;
+  // Last week's pass does not open this week's door.
+  meeting.admittedTexorIds = [];
   return true;
 }
 

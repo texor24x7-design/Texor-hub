@@ -175,16 +175,21 @@ console.log('\n── nobody is appointed when nobody needs to be ──');
   check('nor when the stand-in is still here', reconcileHost(standing, ['asha', 'bo']) === false);
 }
 
-console.log('\n── an empty room ──');
+console.log('\n── an empty room ends the sitting ──');
 {
   /**
-   * Kept rather than cleared: they are the likeliest person to come back, and
-   * the next arrival takes it from them anyway. Clearing it here would mean an
-   * extra write on every sweep of every empty room, for no visible difference.
+   * Cleared, not kept. A stand-in kept across an empty room came back as the
+   * host — walking past "everyone knocks" before anybody had let them in — and
+   * the passes of everybody admitted outlived the sitting they were for.
    */
-  const m = meeting({ actingHostTexorId: 'asha' });
-  check('changes nothing', reconcileHost(m, []) === false);
-  check('and keeps its last stand-in', m.actingHostTexorId === 'asha');
+  const m = meeting({ actingHostTexorId: 'asha', admittedTexorIds: ['asha', 'bo'] });
+  check('reports that something changed', reconcileHost(m, []) === true);
+  check('the stand-in is no longer the host', m.actingHostTexorId === null);
+  check("and this sitting's passes are gone", m.admittedTexorIds.length === 0);
+
+  // The worry that kept the old behaviour: a write on every sweep of every
+  // empty room. Only the first sweep has anything to clear.
+  check('a second sweep of the same empty room writes nothing', reconcileHost(m, []) === false);
 }
 
 console.log('\n── the stand-in leaves too ──');
