@@ -218,58 +218,86 @@ export async function evaluateJoin({ meeting, user, policy, now = new Date() }) 
  * Idempotent per person: a reconnect updates the existing row and counts the
  * rejoin, rather than adding a second line for the same human.
  */
-export async function markJoined({ meeting, user, role, now = new Date() }) {
-  const existing = meeting.attendance.find((entry) => entry.texorId === user.texorId);
-  const wasPresent = Boolean(existing && !existing.leftAt);
+/**
+ * Save, and if somebody else saved first, do it again on top of their version.
+ *
+ * Two people admitted at once collect their admission in the same instant, and
+ * both requests write to the one meeting document; Mongoose refuses the second
+ * with a VersionError, which reached the person as "something went wrong on our
+ * end" for a write that only moved a timestamp. Retrying on a freshly read
+ * document re-applies the intent rather than overwriting whatever the winner
+ * just wrote, so neither attendance row is lost.
+ */
+export async function saveReapplying(meeting, apply, attempts = 3) {
+  let doc = meeting;
 
-  // Getting in earns a pass for the rest of this sitting — a dropped connection
-  // or a coffee break does not mean knocking again. It ends when the room
-  // empties (`reconcileHost`), the meeting ends, or the host tightens the door.
-  if (!meeting.admittedTexorIds.includes(user.texorId)) {
-    meeting.admittedTexorIds.push(user.texorId);
-  }
+  for (let attempt = 1; ; attempt += 1) {
+    const result = apply(doc);
 
-  if (existing) {
-    existing.lastSeenAt = now;
-    existing.role = role;
-    if (existing.leftAt) {
-      existing.leftAt = null;
-      existing.joins += 1;
+    try {
+      await doc.save();
+      return { ...result, meeting: doc };
+    } catch (error) {
+      if (error?.name !== 'VersionError' || attempt >= attempts) throw error;
+      doc = await Meeting.findById(meeting._id).exec();
+      if (!doc) throw error;
     }
-  } else {
-    meeting.attendance.push({
-      texorId: user.texorId,
-      name: user.displayName || user.email,
-      picture: user.picture ?? '',
-      email: user.email,
-      role,
-      firstJoinedAt: now,
-      lastSeenAt: now,
-      joins: 1,
-    });
   }
+}
 
-  const started = meeting.status !== 'live';
-  if (started) {
-    meeting.status = 'live';
-    meeting.startedAt = meeting.startedAt ?? now;
+export async function markJoined({ meeting, user, role, now = new Date() }) {
+  return saveReapplying(meeting, (doc) => {
+    const existing = doc.attendance.find((entry) => entry.texorId === user.texorId);
+    const wasPresent = Boolean(existing && !existing.leftAt);
 
-    // Left behind until now, so a running meeting carried the time it had
-    // supposedly ended at — which read as a contradiction anywhere the two
-    // were shown together, and would have made "is it over" ambiguous for
-    // anything deciding by `endedAt` rather than by status.
-    meeting.endedAt = null;
-    meeting.endedReason = '';
-  }
+    // Getting in earns a pass for the rest of this sitting — a dropped connection
+    // or a coffee break does not mean knocking again. It ends when the room
+    // empties (`reconcileHost`), the meeting ends, or the host tightens the door.
+    if (!doc.admittedTexorIds.includes(user.texorId)) {
+      doc.admittedTexorIds.push(user.texorId);
+    }
 
-  // Somebody is here by definition, so the clock runs; and if nobody present
-  // can run the room, the person who just arrived can.
-  const here = meeting.liveAttendance().map((entry) => entry.texorId);
-  syncActiveTime(meeting, here.length, now);
-  reconcileHost(meeting, here);
+    if (existing) {
+      existing.lastSeenAt = now;
+      existing.role = role;
+      if (existing.leftAt) {
+        existing.leftAt = null;
+        existing.joins += 1;
+      }
+    } else {
+      doc.attendance.push({
+        texorId: user.texorId,
+        name: user.displayName || user.email,
+        picture: user.picture ?? '',
+        email: user.email,
+        role,
+        firstJoinedAt: now,
+        lastSeenAt: now,
+        joins: 1,
+      });
+    }
 
-  await meeting.save();
-  return { started, wasPresent };
+    const started = doc.status !== 'live';
+    if (started) {
+      doc.status = 'live';
+      doc.startedAt = doc.startedAt ?? now;
+
+      // Left behind until now, so a running meeting carried the time it had
+      // supposedly ended at — which read as a contradiction anywhere the two
+      // were shown together, and would have made "is it over" ambiguous for
+      // anything deciding by `endedAt` rather than by status.
+      doc.endedAt = null;
+      doc.endedReason = '';
+    }
+
+    // Somebody is here by definition, so the clock runs; and if nobody present
+    // can run the room, the person who just arrived can.
+    const here = doc.liveAttendance().map((entry) => entry.texorId);
+    syncActiveTime(doc, here.length, now);
+    reconcileHost(doc, here);
+
+    return { started, wasPresent };
+  });
 }
 
 /**
@@ -408,24 +436,32 @@ export async function markLeft({ meeting, texorId, now = new Date() }) {
   const entry = meeting.attendance.find((item) => item.texorId === texorId);
   if (!entry || entry.leftAt) return false;
 
-  entry.leftAt = now;
-  entry.lastSeenAt = now;
+  // Two people leaving at the same moment write the same document, and the
+  // second save is refused; see `saveReapplying`.
+  const { left } = await saveReapplying(meeting, (doc) => {
+    const row = doc.attendance.find((item) => item.texorId === texorId);
+    if (!row || row.leftAt) return { left: false };
 
-  /**
-   * The last person out stops the clock.
-   *
-   * This cannot be left to the ticker: when the final socket closes the room is
-   * deleted from memory, and the ticker only visits meetings that still have a
-   * connected socket — so it would never look at this meeting again and the
-   * running stretch would stay open forever, quietly counting an empty room
-   * for as long as the record lasted.
-   */
-  const here = meeting.liveAttendance().map((item) => item.texorId);
-  syncActiveTime(meeting, here.length, now);
-  reconcileHost(meeting, here);
+    row.leftAt = now;
+    row.lastSeenAt = now;
 
-  await meeting.save();
-  return true;
+    /**
+     * The last person out stops the clock.
+     *
+     * This cannot be left to the ticker: when the final socket closes the room
+     * is deleted from memory, and the ticker only visits meetings that still
+     * have a connected socket — so it would never look at this meeting again
+     * and the running stretch would stay open forever, quietly counting an
+     * empty room for as long as the record lasted.
+     */
+    const here = doc.liveAttendance().map((item) => item.texorId);
+    syncActiveTime(doc, here.length, now);
+    reconcileHost(doc, here);
+
+    return { left: true };
+  });
+
+  return left;
 }
 
 /**

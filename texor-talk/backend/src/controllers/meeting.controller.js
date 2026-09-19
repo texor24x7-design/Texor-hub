@@ -12,6 +12,7 @@ import Channel from '../models/Channel.js';
 import User from '../models/User.js';
 import Message from '../models/Message.js';
 import env from '../config/env.js';
+import logger from '../utils/logger.js';
 import ApiError from '../utils/ApiError.js';
 import { meetingInvite } from '../utils/ics.js';
 import {
@@ -164,7 +165,22 @@ async function loadMeeting(code) {
   if (isAbandoned(meeting)) {
     await endMeeting({ meeting, reason: 'everyone left' });
   } else if (present || stale || rolled) {
-    await meeting.save();
+    /**
+     * Housekeeping, so losing a race over it is not worth a 500.
+     *
+     * Two requests touching one meeting at the same moment both write the
+     * presence timestamps, and Mongoose refuses the second with a VersionError.
+     * Admitting two people at once made that easy to hit: both of them poll for
+     * their knock in the same instant, and one got "something went wrong on our
+     * end" for a write that only moved a `lastSeenAt`. The other request's save
+     * is just as good, so the loser carries on with what it read.
+     */
+    try {
+      await meeting.save();
+    } catch (error) {
+      if (error?.name !== 'VersionError') throw error;
+      logger.debug('meeting presence write lost a race', { code: meeting.code });
+    }
   }
 
   return meeting;

@@ -29,6 +29,7 @@ import {
   markLeft,
   markPresent,
   reconcileHost,
+  saveReapplying,
   syncActiveTime,
 } from '../services/meeting.service.js';
 import { Peer, closeRoom, createWebRtcTransport, getOrCreateRoom, getRoom } from './room.js';
@@ -282,10 +283,21 @@ async function onDisconnect({ room, peer, user, code }) {
      * connected socket. Left to it, the final stretch would never be banked.
      */
     const here = [...room.peers.keys()];
-    const clock = syncActiveTime(meeting, here.length);
-    const custody = reconcileHost(meeting, here);
 
-    if (clock || custody) await meeting.save();
+    /**
+     * Re-applied on a fresh document if somebody else wrote first.
+     *
+     * Two people hanging up together produced two of these at once, and the
+     * loser's write was logged and dropped — which mattered once the end of a
+     * sitting became a real event: the write that would have ended it was
+     * exactly the one being thrown away, so the passes of everybody in the call
+     * outlived the call.
+     */
+    await saveReapplying(meeting, (doc) => {
+      const clock = syncActiveTime(doc, here.length);
+      const custody = reconcileHost(doc, here);
+      return { changed: clock || custody };
+    }).catch((error) => logger.warn('settling the room failed', { message: error.message }));
 
     /**
      * Tell the stand-in they are running the room now.
