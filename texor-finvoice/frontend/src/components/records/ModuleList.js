@@ -22,11 +22,20 @@ const PRESET_TABS = {
   customers: [{ value: '', label: 'All' }, { value: 'receivable', label: 'Owes money' }],
 };
 
+/**
+ * The fields this table may give a column of their own, in the module's order.
+ *
+ * The title field is already the first column, and a module that links to a
+ * customer gets a dedicated Customer column below — `effectiveModules` injects a
+ * `customer` field for those, so including it here rendered Customer twice.
+ */
+const columnFields = (module, roleHidden) => module.fields.filter((f) => (
+  !f.hidden && !roleHidden.includes(f.key) && LISTABLE.has(f.type)
+  && f.key !== module.titleField && !(module.customerLink && f.key === 'customer')
+));
+
 function defaultColumns(module, roleHidden) {
-  return module.fields
-    .filter((f) => !f.hidden && !roleHidden.includes(f.key) && LISTABLE.has(f.type) && f.key !== module.titleField && f.type !== 'image')
-    .slice(0, 5)
-    .map((f) => f.key);
+  return columnFields(module, roleHidden).filter((f) => f.type !== 'image').slice(0, 5).map((f) => f.key);
 }
 
 function BoardCard({ record, module, refs, href }) {
@@ -86,9 +95,14 @@ export function ModuleList({ module }) {
   const key = `records:${slug}:${module.key}:${JSON.stringify(params)}`;
   const { data, loading, error, mutate } = useResource(key, () => api.get(`/records/${module.key}`, params));
 
-  const visibleColumns = (columns ?? defaultColumns(module, roleHidden))
-    .map((k) => module.fields.find((f) => f.key === k))
-    .filter((f) => f && !f.hidden && !roleHidden.includes(f.key));
+  /**
+   * The stored preference says *which* columns are on; the order is always the
+   * module's. Storing the order too meant that once anyone opened the Columns
+   * menu, that browser froze the layout and later field reorders never showed up
+   * in the table — while the menu, which reads the module directly, did reorder.
+   */
+  const enabled = new Set(columns ?? defaultColumns(module, roleHidden));
+  const visibleColumns = columnFields(module, roleHidden).filter((f) => enabled.has(f.key));
   const titleField = module.fields.find((f) => f.key === module.titleField);
   const filterable = module.fields.filter((f) => !f.hidden && f.type === 'select' && (f.options ?? []).length && f.key !== module.boardField);
 
@@ -145,7 +159,7 @@ export function ModuleList({ module }) {
           {!isBoard ? (
             <Menu align="right" trigger={({ toggle }) => <Button variant="ghost" size="sm" icon={<Settings2 />} onClick={toggle}>Columns</Button>}>
               <div className="menu-label">Show columns</div>
-              {module.fields.filter((f) => !f.hidden && !roleHidden.includes(f.key) && LISTABLE.has(f.type) && f.key !== module.titleField).map((f) => {
+              {columnFields(module, roleHidden).map((f) => {
                 const current = columns ?? defaultColumns(module, roleHidden);
                 const on = current.includes(f.key);
                 return (

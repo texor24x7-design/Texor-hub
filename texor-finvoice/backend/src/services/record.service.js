@@ -21,7 +21,7 @@ import ApiError from '../utils/ApiError.js';
 import logger from '../utils/logger.js';
 import { isCustomModuleKey } from '../modules/registry.js';
 import { india } from '../shared.js';
-import { parseBody, requireUsableModule, searchTextOf } from './metadata.service.js';
+import { moduleOf, parseBody, requireUsableModule, searchTextOf } from './metadata.service.js';
 import { hiddenFields } from './rbac.service.js';
 import * as stock from './stock.service.js';
 import { record as audit } from './audit.service.js';
@@ -383,6 +383,39 @@ async function rememberWords(req, moduleKey, data) {
   } catch (error) {
     logger.warn('could not remember a catalogue word', { error: error.message, module: moduleKey });
   }
+}
+
+/**
+ * Recomputes the stored title and search text for one module's records.
+ *
+ * Both are denormalised when a record is saved, so a metadata change — picking a
+ * different title field, relabelling a select's options — updates the column
+ * header immediately while every existing record goes on showing what it showed
+ * before. Only records saved *after* the change look right, which is exactly how
+ * this was reported.
+ *
+ * It runs inline after a module edit: one module's records in one workspace,
+ * rewritten in a single bulkWrite, on an action nobody performs in a loop.
+ */
+export async function retitle(workspace, moduleKey) {
+  const module = moduleOf(workspace, moduleKey);
+  let store;
+  try { store = storeFor(moduleKey); } catch { return 0; } // a module that holds no records
+  const { model, base } = store;
+
+  const docs = await model.find({ workspace: workspace._id, deletedAt: null, ...base }).lean();
+  if (!docs.length) return 0;
+
+  const refs = await resolveRefs(workspace._id, module, docs);
+  const ops = [];
+  for (const doc of docs) {
+    const title = model === Record ? titleOf(module, doc, refs, workspace) : doc.title;
+    const searchText = `${title ?? ''} ${searchTextOf(module, doc)}`.trim();
+    if (searchText === (doc.searchText ?? '') && title === doc.title) continue;
+    ops.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { searchText, ...(model === Record ? { title } : {}) } } } });
+  }
+  if (ops.length) await model.bulkWrite(ops);
+  return ops.length;
 }
 
 export async function create(req, moduleKey, body) {

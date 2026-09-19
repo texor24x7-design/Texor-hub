@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import Workspace from '../models/Workspace.js';
 import AuditEvent from '../models/AuditEvent.js';
 import ApiError from '../utils/ApiError.js';
+import logger from '../utils/logger.js';
 import { india } from '../shared.js';
 import { record as audit } from '../services/audit.service.js';
 import {
@@ -11,6 +12,7 @@ import {
 export { moduleEditSchema } from '../services/metadata.service.js';
 import { bootstrap, createWorkspace, industryGallery, listForUser } from '../services/workspace.service.js';
 import { coreModule } from '../modules/registry.js';
+import { retitle } from '../services/record.service.js';
 import mongoose from 'mongoose';
 
 const address = z.object({
@@ -169,6 +171,12 @@ export async function updateModule(req, res) {
   const edit = req.body;
   const modules = applyModuleEdit(req.workspace, req.params.key, edit);
   const workspace = await saveModules(req, modules);
+  // A record's title and search text are copies made when it was saved. Anything
+  // that changes what they should say leaves every existing record stale, so the
+  // ones saved before the edit keep the old value while new ones look right.
+  if (edit.fields || edit.titleField !== undefined) {
+    try { await retitle(workspace, req.params.key); } catch (error) { logger.warn('retitle after module edit failed', { module: req.params.key, error: error.message }); }
+  }
   await audit(req, { action: 'settings.module', module: req.params.key, summary: `Updated the ${req.params.key} module`, metadata: { props: Object.keys(edit) } });
   res.json(bootstrap(workspace, req.member, req.user));
 }

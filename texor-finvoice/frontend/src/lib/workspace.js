@@ -84,9 +84,18 @@ export function suggestionBucket(fieldKey, moduleKey) {
  * its title, so read that rather than guessing at `name`/`itemName` — a
  * module-backed store like expenses has neither.
  */
-export const recordTitle = (module, record) =>
-  (module?.titleField ? record?.[module.titleField] : null)
-  || record?.title || record?.name || record?.itemName || 'Untitled';
+export const recordTitle = (module, record) => {
+  const field = module?.fields?.find((f) => f.key === module.titleField);
+  /**
+   * A custom field's value lives in `record.custom`, never at the top level, so
+   * probing `record[titleField]` there always missed. And for a reference or a
+   * select the raw value is an id or an option key — not anything to show. The
+   * API resolves all of that into `record.title` when a record is saved and
+   * again whenever the module changes, so that is the one to trust.
+   */
+  const live = field && !field.custom ? record?.[field.key] : null;
+  return live || record?.title || record?.name || record?.itemName || 'Untitled';
+};
 
 /** Which screen a module key opens. */
 export function screenFor(module) {
