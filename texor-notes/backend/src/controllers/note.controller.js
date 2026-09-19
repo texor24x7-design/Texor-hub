@@ -19,6 +19,7 @@ import { z } from 'zod';
 import mongoose from 'mongoose';
 import Note, { NOTE_COLOURS } from '../models/Note.js';
 import Label from '../models/Label.js';
+import NoteEvent from '../models/NoteEvent.js';
 import ApiError from '../utils/ApiError.js';
 import { canWrite, isOwner, labelRolesFor, roleOf } from '../services/access.service.js';
 import {
@@ -255,6 +256,13 @@ export async function createNote(req, res) {
     lastEditedBy: { texorId: actor.texorId, name: req.user.displayName, at: new Date() },
   });
 
+  await NoteEvent.record({
+    note: note._id,
+    actor: { texorId: actor.texorId, name: req.user.displayName },
+    action: 'created',
+    detail: actor.viaApiKey ? req.apiKey?.appName ?? '' : '',
+  });
+
   res.status(201).json({ note: presentNote(note, actor, 'owner') });
 }
 
@@ -299,6 +307,18 @@ export async function updateNote(req, res) {
 
   await note.save();
 
+  /**
+   * One row per burst of typing, not one per save — see `NoteEvent.record`. A
+   * colour change is not an edit of the document and does not claim to be.
+   */
+  if (replacingDocument || body.archived !== undefined) {
+    await NoteEvent.record({
+      note: note._id,
+      actor: { texorId: actor.texorId, name: req.user.displayName },
+      action: body.archived === true ? 'archived' : body.archived === false ? 'restored' : 'edited',
+    });
+  }
+
   res.json({ note: presentNote(note, actor, role) });
 }
 
@@ -314,6 +334,12 @@ export async function deleteNote(req, res) {
 
   note.deletedAt = new Date();
   await note.save();
+
+  await NoteEvent.record({
+    note: note._id,
+    actor: { texorId: actor.texorId, name: req.user.displayName },
+    action: 'trashed',
+  });
 
   res.json({ ok: true, deletedAt: note.deletedAt });
 }
@@ -336,6 +362,7 @@ export async function purgeNote(req, res) {
   if (!note.deletedAt) throw ApiError.badRequest('Move the note to the trash first.');
 
   await Note.deleteOne({ _id: note._id }).exec();
+  await NoteEvent.deleteMany({ note: note._id }).exec();
 
   res.json({ ok: true });
 }
@@ -363,6 +390,12 @@ export async function setNoteLabels(req, res) {
 
   note.labels = await ownedLabelIds(req.body.labels, actor.texorId);
   await note.save();
+
+  await NoteEvent.record({
+    note: note._id,
+    actor: { texorId: actor.texorId, name: req.user.displayName },
+    action: 'labelled',
+  });
 
   res.json({ note: presentNote(note, actor, role) });
 }

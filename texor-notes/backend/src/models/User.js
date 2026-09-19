@@ -86,5 +86,33 @@ userSchema.statics.upsertPlaceholder = async function upsertPlaceholder({ texorI
   );
 };
 
+/**
+ * The shares that were waiting for this person.
+ *
+ * Somebody shared a note with an address before its owner had ever opened
+ * Notes, so the share was stored with no id on it. This is where it finds them,
+ * and it is the whole of the invitation mechanism: no tokens, no mail server,
+ * nothing to expire. Called on every sign-in because the cost is one indexed
+ * update against an address that usually matches nothing.
+ */
+userSchema.statics.claimPendingShares = async function claimPendingShares({ texorId, email, displayName }) {
+  const address = String(email ?? '').toLowerCase();
+  if (!address) return;
+
+  const mongooseInstance = this.db.base;
+  const models = ['Note', 'Label'].filter((name) => mongooseInstance.models[name]);
+
+  for (const name of models) {
+    await mongooseInstance.models[name].updateMany(
+      { shares: { $elemMatch: { email: address, texorId: null } } },
+      {
+        $set: { 'shares.$[waiting].texorId': texorId, 'shares.$[waiting].name': displayName ?? '' },
+        $addToSet: { sharedTexorIds: texorId },
+      },
+      { arrayFilters: [{ 'waiting.email': address, 'waiting.texorId': null }] },
+    ).exec();
+  }
+};
+
 export const User = mongoose.model('User', userSchema);
 export default User;

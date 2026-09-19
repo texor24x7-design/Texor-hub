@@ -77,6 +77,14 @@ export async function handleCallback(req, res) {
 
   const user = await User.upsertFromClaims(claims);
 
+  /**
+   * Anything shared with this address before they had an account is theirs now.
+   *
+   * Here rather than in the model's upsert so it runs exactly once per sign-in,
+   * on the one path that has a verified email in its hand.
+   */
+  await User.claimPendingShares(user);
+
   const token = await createSession({
     user,
     claims,
