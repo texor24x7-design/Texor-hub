@@ -86,7 +86,22 @@ a hard delete makes that impossible.
 | `attendance[]` | One row per person, not per join |
 | `removedTexorIds[]` | Blocks a rejoin for the life of the meeting |
 | `admittedTexorIds[]` | Everyone let in at least once — they skip the lobby on return |
+| `breakouts` | The breakout plan: `{ status, rooms[{ key, name, members[] }], nextRoomKey, selfSelect, openedAt, closesAt, openedByTexorId }` |
 | `channel` → `channels` | Set when the meeting was started from a channel |
+
+### Why breakout membership is not a column on attendance
+
+It would answer the wrong question. Where somebody *is* right now comes from the
+socket map, which is ground truth and costs nothing; what the document has to
+record is where they **belong** when they come back — after a refresh, or after
+a server restart that took every room in memory with it. A discriminator on the
+attendance row would also invite per-room filtering of presence, and presence
+being meeting-wide is what keeps a meeting from declaring itself empty the
+moment everybody steps into a breakout. See
+[breakouts.md](./breakouts.md#presence-the-part-that-was-dangerous).
+
+`nextRoomKey` only ever counts up. A key labels the chat that happened in that
+room, so a retired key must never be handed to a new one.
 
 ### Why there is only one identifier
 
@@ -131,6 +146,25 @@ knock disappear on its own.
 A partial unique index on `{ meeting, texorId }` where `status: 'waiting'` means
 re-knocking updates one row instead of filling a host's list with the same face
 five times.
+
+## `callmessages`
+
+What was said in a call, one row per message, kept per room.
+
+| Field | Notes |
+|---|---|
+| `meeting` → `meetings`, `roomKey`, `roomName` | `roomKey` is `''` for the main room. The name is denormalised so a transcript reads the way it read at the time |
+| `authorTexorId`, `authorName`, `isGuest` | Denormalised for the same reason as `messages` |
+| `kind` | `message`, or `announcement` for a host talking into every room |
+| `body` | |
+| `expiresAt` | Stamped **at write time** from the organisation's retention setting, with a TTL index on it |
+
+Stamping the expiry when the row is written rather than computing it in the
+sweep means an admin shortening the period changes what happens next and never
+rewrites a transcript that already exists.
+
+Indexes: `{ meeting, roomKey, createdAt }` — the only query there is — and
+`{ expiresAt }` with `expireAfterSeconds: 0`.
 
 ## `policies`
 

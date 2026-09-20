@@ -413,6 +413,8 @@ to the browser. The console at `/admin` is a view onto it and nothing more.
 | `maxDurationMinutes` | The room ticker ends the call when it is reached |
 | `maxParticipants` | Joining |
 | `maxQuality` | A host changes the meeting's video quality, on the settings page or during the call |
+| `allowBreakouts`, `maxBreakoutRooms` | A host opens breakout rooms. The cap bounds how many Routers one meeting opens, not bandwidth — splitting a meeting forwards *fewer* streams than leaving it whole |
+| `keepCallChat`, `chatRetentionDays` | A message is sent in a call. The expiry is stamped on each message as it is written |
 
 **Limits are snapshotted at creation.** A meeting keeps the caps it was created
 with, so tightening the policy next month does not retroactively shorten a
@@ -478,6 +480,20 @@ gets it without anyone pasting anything. A private channel starts an
 
 ---
 
+## Breaking a meeting into rooms
+
+A host can split a meeting into breakout rooms, assign people, give the rooms a
+deadline, visit them, talk into all of them at once, and bring everyone back. A
+breakout is a genuinely separate media room rather than a filter over one room,
+and what was said in each is kept so a host can read back a room they were not
+in.
+
+The whole of it, including the presence rule that keeps the rest of this
+document true once a meeting is in more than one piece, is in
+[breakouts.md](breakouts.md).
+
+---
+
 ## What is not here
 
 Deliberately, in this version:
@@ -486,7 +502,7 @@ Deliberately, in this version:
   `PlainTransport` piping RTP into ffmpeg, plus storage with a retention policy
   and consent handling — a real piece of work, but one that needs no third party
   either.
-- **Dial-in and breakout rooms.**
+- **Dial-in.** No PSTN bridge, and no plan for one.
 - **Raised hands as state.** `✋` is in the reaction set, but it floats away like
   the others rather than putting someone in a queue a host can work through.
 - **Per-occurrence exceptions.** Cancelling a recurring meeting cancels the

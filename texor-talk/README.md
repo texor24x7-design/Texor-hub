@@ -47,6 +47,7 @@ account to create, nothing to point at.
 - Scheduling, recurring meetings, and `.ics` calendar invites
 - Org policy an admin sets and the server enforces
 - An append-only audit log whose rows are hashed and numbered without gaps
+- Breakout rooms — a real second room on its own Router, so isolation is structural
 - Simulcast, so one person on bad wifi does not drag the call down for everyone
 
 **Messaging** — unchanged, and now able to start a call.
@@ -94,6 +95,7 @@ and exchanging producers against the SFU without a browser.
 - [Getting started](./documentation/getting-started.md)
 - [Meetings](./documentation/meetings.md) — joining, the lobby, roles, policy, audit
 - [Media](./documentation/media.md) — the SFU, configuration, and the signalling protocol
+- [Breakout rooms](./documentation/breakouts.md) — splitting a meeting, and the presence rule that makes it safe
 - [Texor SSO](./documentation/texor-sso.md)
 - [API reference](./documentation/api-reference.md)
 - [Data model](./documentation/data-model.md)

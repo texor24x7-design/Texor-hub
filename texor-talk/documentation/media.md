@@ -12,7 +12,7 @@ owns it.
   mediasoup-client   ──WebSocket──▶    signalling  (same talk_sid cookie)
     Device                                  │
     send transport   ──WebRTC/SRTP──▶   mediasoup workers (C++, one per core)
-    recv transport   ◀──────────────       Router per meeting
+    recv transport   ◀──────────────       Router per room
                                             Producers / Consumers
 ```
 
@@ -354,9 +354,26 @@ The rule lives in `src/media/speaking.js` with no imports, so
 `tests/speaker.test.mjs` drives the observer's events directly — the one thing a
 headless harness cannot do is generate real audio energy.
 
+## Rooms
+
+A Router is a **room**, and a meeting is one or more of them: the main room, and
+a breakout for as long as one is open. Rooms are keyed by the meeting code for
+the main room and `abc-defg-hij#b2` for a breakout, and since media only
+forwards between transports on the same Router, "who can hear whom" is a
+structural property rather than a rule anything has to enforce. See
+[breakouts.md](breakouts.md).
+
+---
+
 ## Presence
 
-A connected socket is a participant who is present. That is more truthful than a
+A connected socket is a participant who is present, in **any** room of the
+meeting: `connectedTexorIds(code)` is the union across them. Everything that
+asks whether a meeting is live, how many people are in it, whether it has been
+abandoned or who is holding the host's custody means the meeting, never one of
+its rooms — and reading one room at a time would declare a meeting empty the
+moment everybody stepped into a breakout. `breakouts.md` has the full story;
+it is the most dangerous thing in that feature. That is more truthful than a
 timer, and it is why there is no heartbeat endpoint: a browser that crashes
 drops its TCP connection, the server sees the close, and the person leaves the
 participant list immediately rather than lingering as a ghost.
@@ -368,7 +385,9 @@ a close frame ever arriving.
 
 ## The signalling protocol
 
-JSON over one WebSocket at `/ws/meeting?code=<meeting code>`. A message with an
+JSON over one WebSocket at `/ws/meeting?code=<meeting code>`, optionally
+`&room=<breakout id>`. Sending no `room` at all means "put me where I belong",
+which is how a refresh lands somebody back in their breakout. A message with an
 `id` is a request and gets exactly one reply carrying the same `id`; a message
 without one is a notification.
 
@@ -385,15 +404,22 @@ without one is a notification.
 | `admitKnock`, `removePeer`, `endMeeting` | Host actions |
 | `muteParticipant`, `muteEveryone` | Host actions. There is no unmute-others |
 | `raiseHand`, `lowerHand` | A raised hand is state, not a reaction |
-| `chat` | In-call message |
+| `chat` | In-call message. Stored per room — see [breakouts.md](breakouts.md) |
 | `reaction` | One of a fixed set of emoji |
+| `breakoutAnnounce` | Host only: text into every room of the meeting at once |
+| `breakoutHelp` | Ask the host to come to this room |
 
 **Server → client**
 
 `welcome` · `peerJoined` · `peerLeft` · `newProducer` · `producerClosed` ·
 `producerPaused` · `producerResumed` · `consumerClosed` · `knocks` ·
 `knockResolved` · `roleChanged` · `peerRoleChanged` · `chat` · `reaction` ·
-`removed` · `ended` · `refused` · `activeSpeaker` · `handChanged` · `forceMuted`
+`removed` · `ended` · `refused` · `activeSpeaker` · `handChanged` · `forceMuted` ·
+`moveTo` · `breakoutAnnounce` · `helpRequested`
+
+`welcome` also carries `breakout: { room, name, closesAt }` — which room of the
+meeting this socket actually opened, which is not always the room the client
+asked for.
 
 ### Deltas converge, they do not merely fire
 

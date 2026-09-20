@@ -240,7 +240,42 @@ someone already in the call; `appliedLive` says whether it reached a live socket
 
 ### `DELETE /api/meetings/:code/participants/:texorId`
 
-Blocks a rejoin, and closes their media socket and transports at once.
+Blocks a rejoin, and closes their media socket and transports at once. Also
+takes them out of any breakout room they had been put in.
+
+### `POST /api/meetings/:code/breakouts`
+
+```json
+{
+  "rooms": [{ "name": "Blue", "members": ["tx-ana"] }, { "members": [] }],
+  "minutes": 15,
+  "selfSelect": false
+}
+```
+
+**Host and co-hosts.** Opens the rooms and moves the people in them. Room keys
+are allocated by the server and never taken from the request; `minutes` is
+optional and null means "until I close them".
+
+`403` if the organisation has turned breakouts off or the room count is over its
+cap; `400` if somebody appears in two rooms, or was never in the meeting.
+
+### `PATCH /api/meetings/:code/breakouts` · `DELETE /api/meetings/:code/breakouts`
+
+Reassign, rename, extend or turn self-selection on; and close, which brings
+everybody back to the main room. A `PATCH` may send any subset of `rooms`,
+`minutes` and `selfSelect`; sending `rooms` with a room's existing `key` keeps
+that key, which is what keeps its stored chat attached to it.
+
+Closing keeps the rooms themselves, so the same groups can be reopened in one
+click.
+
+### `GET /api/meetings/:code/chat?room=b1`
+
+What was said in a room. The host reads any room of their meeting; everybody
+else reads the main room and the breakout they were put in, and `403` otherwise.
+Empty if the organisation has turned off keeping in-call chat. See
+[breakouts.md](./breakouts.md#chat-is-kept-now).
 
 ---
 
