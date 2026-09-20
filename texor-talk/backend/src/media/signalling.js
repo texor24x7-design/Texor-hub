@@ -32,13 +32,14 @@ import {
   saveReapplying,
   syncActiveTime,
 } from '../services/meeting.service.js';
-import { resolveRoom } from '../services/breakout.service.js';
+import { MAIN_ROOM, assignedRoom, isBreakoutOpen, resolveRoom } from '../services/breakout.service.js';
 import {
   Peer,
   closeRoom,
   connectedTexorIds,
   createWebRtcTransport,
   getOrCreateRoom,
+  breakoutOf,
   removePeerEverywhere,
   roomsOf,
 } from './room.js';
@@ -268,6 +269,18 @@ async function handleConnection(socket, request) {
       rtpCapabilities: room.rtpCapabilities,
       you: { texorId: user.texorId, name: peer.name, role },
       peers: room.others(user.texorId).map((other) => other.summary()),
+      /**
+       * Which room this socket actually opened.
+       *
+       * The meeting document, fetched over REST, says where somebody *belongs*.
+       * Only the socket knows where they ended up — a host visiting Room 2
+       * belongs nowhere and is in it — so the chip on screen reads this.
+       */
+      breakout: {
+        room: breakoutOf(room.key),
+        name: meeting.breakouts?.rooms?.find((each) => each.key === breakoutOf(room.key))?.name ?? '',
+        closesAt: isBreakoutOpen(meeting) ? meeting.breakouts?.closesAt ?? null : null,
+      },
       meeting: {
         code: meeting.code,
         title: meeting.title,
@@ -1071,6 +1084,59 @@ function startRoomTicker(wss) {
  * for up to fifteen seconds while the person waited. Called the moment a knock
  * is created or withdrawn.
  */
+/**
+ * Puts everybody where the plan now says they belong.
+ *
+ * Called after a host opens, edits or closes the breakouts. It sends, and does
+ * not wait: the client answers a `moveTo` by reconnecting to the room it names,
+ * and that reconnect is authorised from the document by `resolveRoom` like any
+ * other arrival — so this message is an instruction to go and ask, never a
+ * grant of entry. A client that ignores it, or never receives it, stays where
+ * it is and is placed correctly the moment it next connects.
+ *
+ * Nobody is moved by the server tearing their socket down, which is the whole
+ * reason a move costs nothing: the old socket is replaced rather than closed,
+ * `onDisconnect` sees it is no longer the peer of record and returns early, and
+ * so a move never calls `markLeft`. The attendance row, the meeting's clock and
+ * host custody are untouched.
+ */
+export function applyBreakouts(meeting, reason = 'assigned') {
+  const open = isBreakoutOpen(meeting);
+  const plan = meeting.breakouts?.rooms ?? [];
+  const nameOf = (id) => plan.find((room) => room.key === id)?.name ?? '';
+  const closesAt = open ? meeting.breakouts?.closesAt ?? null : null;
+  let moved = 0;
+
+  for (const room of roomsOf(meeting.code)) {
+    const here = breakoutOf(room.key);
+
+    for (const peer of room.peers.values()) {
+      const belongs = open ? assignedRoom(meeting, peer.texorId) : MAIN_ROOM;
+      if (belongs === here) continue;
+
+      /**
+       * A visit is transient, and an unrelated edit must not end it.
+       *
+       * A host has no assignment, so without this, reassigning somebody else
+       * while the host is sitting in Room 2 would yank the host back to the
+       * main room mid-sentence. If the room they are in has been dropped from
+       * the plan there is nowhere to stay, and they come back with everyone.
+       */
+      if (open && here !== MAIN_ROOM && belongs === MAIN_ROOM
+        && (peer.role === 'host' || peer.role === 'cohost')
+        && plan.some((room2) => room2.key === here)) continue;
+
+      send(peer.socket, {
+        type: 'moveTo',
+        data: { room: belongs, name: nameOf(belongs), reason, closesAt },
+      });
+      moved += 1;
+    }
+  }
+
+  return moved;
+}
+
 export async function refreshKnocks(code) {
   // Hosts wherever they are: somebody at the door is the host's business even
   // when the host has stepped into a breakout.

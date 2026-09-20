@@ -1078,6 +1078,172 @@ hostPeer.close();
 memberPeer.close();
 anon.close();
 
+console.log('\n── breakout rooms: a meeting in more than one piece ──');
+{
+  const ana = await seedUser({ texorId: 'tx-ana', email: 'ana@texor.app', displayName: 'Ana' });
+  const bo = await seedUser({ texorId: 'tx-bo', email: 'bo@texor.app', displayName: 'Bo' });
+
+  const made = await rest(host, '/api/meetings', {
+    method: 'POST', body: { title: 'Split me', lobby: 'everyone', access: 'texor' },
+  });
+  const bCode = made.body.meeting.code;
+
+  await rest(host, `/api/meetings/${bCode}/join`, { method: 'POST' });
+  const hostIn = new TestPeer(host, bCode);
+  await hostIn.connect();
+
+  // Admitted by the host, the ordinary way, so they hold a pass for this sitting
+  // — which is what the regression further down is about.
+  for (const person of [ana, bo]) {
+    const knocked = await rest(person, `/api/meetings/${bCode}/join`, { method: 'POST' });
+    await rest(host, `/api/meetings/${bCode}/knocks/${knocked.body.knockId}`,
+      { method: 'POST', body: { decision: 'admit' } });
+    // The pass is written when the waiting client picks the decision up, the
+    // same way the browser does it.
+    const settled = await rest(person, `/api/meetings/${bCode}/knocks/${knocked.body.knockId}/status`);
+    check(`${person.displayName} is let in`, settled.body.status === 'admitted',
+      JSON.stringify([knocked.body, settled.body]).slice(0, 200));
+  }
+
+  const anaMain = new TestPeer(ana, bCode);
+  const boMain = new TestPeer(bo, bCode);
+  await anaMain.connect();
+  await boMain.connect();
+  check('everybody starts in the one room',
+    boMain.welcome.breakout.room === ''
+      && boMain.welcome.peers.some((peer) => peer.texorId === 'tx-ana')
+      && boMain.welcome.peers.some((peer) => peer.texorId === 'tx-host'),
+    JSON.stringify(boMain.welcome.peers.map((peer) => peer.texorId)));
+
+  const opened = await rest(host, `/api/meetings/${bCode}/breakouts`, {
+    method: 'POST',
+    body: { rooms: [{ name: 'Blue', members: ['tx-ana'] }, { name: 'Green', members: ['tx-bo'] }] },
+  });
+  check('the host opens two rooms', opened.status === 200, JSON.stringify(opened.body).slice(0, 200));
+
+  await wait(300);
+  const anaMove = anaMain.seen('moveTo').at(-1);
+  const boMove = boMain.seen('moveTo').at(-1);
+  check('each person is told where to go', anaMove?.data.room === 'b1' && boMove?.data.room === 'b2',
+    JSON.stringify([anaMove?.data, boMove?.data]));
+  check('and what the room is called', anaMove?.data.name === 'Blue', anaMove?.data.name);
+  check('the host is not moved anywhere', hostIn.seen('moveTo').length === 0);
+
+  // What the browser does with that: reconnect to the room it names.
+  const anaBlue = new TestPeer(ana, bCode, 'b1');
+  await anaBlue.connect();
+  anaMain.close();
+  const boGreen = new TestPeer(bo, bCode, 'b2');
+  await boGreen.connect();
+  boMain.close();
+  await wait(300);
+
+  check('the room they land in is the one they were sent to',
+    anaBlue.welcome.breakout.room === 'b1' && anaBlue.welcome.breakout.name === 'Blue',
+    JSON.stringify(anaBlue.welcome.breakout));
+  check('and they are alone in it', anaBlue.welcome.peers.length === 0,
+    JSON.stringify(anaBlue.welcome.peers));
+  check('the main room saw them leave',
+    hostIn.seen('peerLeft').some((event) => event.data.texorId === 'tx-ana'));
+
+  /**
+   * The isolation, demonstrated rather than asserted about a filter: Ana's
+   * audio is on a different Router, so there is no path by which Bo could
+   * receive it even if the server wanted to forward it.
+   */
+  await anaBlue.setupMedia();
+  await boGreen.setupMedia();
+  const anaAudio = await anaBlue.produce('audio', 'mic');
+  await wait(200);
+  check('somebody in another room is never told about the producer',
+    boGreen.seen('newProducer').length === 0, JSON.stringify(boGreen.seen('newProducer')));
+  const leak = await boGreen.consume(anaAudio.id).then(() => null).catch((error) => error);
+  // `gone` rather than a special refusal: as far as this Router is concerned
+  // that producer does not exist, which is the whole point.
+  check('and asking for it by id is refused', leak !== null && leak.code === 'gone',
+    `${leak?.code} ${leak?.message}`);
+
+  console.log('\n── the meeting is still one meeting ──');
+  const live = await rest(host, `/api/meetings/${bCode}`);
+  check('everyone in a breakout still counts as present', live.body.meeting.presentCount === 3,
+    String(live.body.meeting.presentCount));
+  check('the meeting is still live', live.body.meeting.status === 'live', live.body.meeting.status);
+
+  /**
+   * The regression this whole design is arranged around.
+   *
+   * With presence read one room at a time, the main room looks empty the
+   * moment everybody is in a breakout — and an empty room ends the sitting,
+   * which silently cancels every pass. Under "everyone knocks" that means the
+   * next person to reconnect is back at the door. Emptying a breakout is the
+   * sharpest version of it.
+   */
+  boGreen.close();
+  await wait(700);
+  const afterEmpty = await rest(host, `/api/meetings/${bCode}`);
+  check('a breakout emptying does not end the meeting', afterEmpty.body.meeting.status === 'live',
+    afterEmpty.body.meeting.status);
+  const stored = await db.collection('meetings').findOne({ code: bCode });
+  check('and does not quietly cancel everybody’s pass',
+    (stored.admittedTexorIds ?? []).includes('tx-ana'), JSON.stringify(stored.admittedTexorIds));
+  // `actingHostTexorId` names a stand-in, so null is the right answer while the
+  // owner is in the call: nobody has been handed a meeting that has its host.
+  check('nor hand the meeting to a stand-in', stored.actingHostTexorId === null,
+    String(stored.actingHostTexorId));
+  check('and Ana does not have to knock again to reconnect',
+    (await rest(ana, `/api/meetings/${bCode}/join`, { method: 'POST' })).body.status === 'admitted');
+
+  console.log('\n── who may open which room ──');
+  const refused = new TestPeer(ana, bCode, 'b2');
+  const refusal = await refused.connect().then(() => null).catch((error) => error);
+  check('a room you were not put in is refused', refusal?.code === 'forbidden', String(refusal?.code));
+  const nonsense = new TestPeer(ana, bCode, 'b99');
+  const unknown = await nonsense.connect().then(() => null).catch((error) => error);
+  check('and a room that does not exist is not invented', unknown?.code === 'not_found', String(unknown?.code));
+
+  const visiting = new TestPeer(host, bCode, 'b1');
+  await visiting.connect();
+  hostIn.close();
+  check('a host walks into any room of their own meeting', visiting.welcome.breakout.room === 'b1');
+  await wait(200);
+  check('and the people in it see them arrive',
+    anaBlue.seen('peerJoined').some((event) => event.data.peer.texorId === 'tx-host'));
+
+  // Visiting is transient: it is not an assignment, and an unrelated edit to
+  // the plan must not end it mid-sentence.
+  await rest(host, `/api/meetings/${bCode}/breakouts`, {
+    method: 'PATCH',
+    body: { rooms: [{ key: 'b1', name: 'Blue', members: ['tx-ana'] }, { key: 'b2', name: 'Green', members: [] }] },
+  });
+  await wait(300);
+  check('a visiting host is not yanked back by somebody else’s reassignment',
+    visiting.seen('moveTo').length === 0, JSON.stringify(visiting.seen('moveTo')));
+
+  console.log('\n── coming back ──');
+  const back = new TestPeer(ana, bCode);
+  await back.connect();
+  anaBlue.close();
+  check('asking for no room at all puts you back where you belong',
+    back.welcome.breakout.room === 'b1', JSON.stringify(back.welcome.breakout));
+
+  const closed = await rest(host, `/api/meetings/${bCode}/breakouts`, { method: 'DELETE' });
+  check('the host closes the rooms', closed.status === 200);
+  await wait(300);
+  check('and everybody is sent back to the meeting',
+    back.seen('moveTo').at(-1)?.data.room === '' && visiting.seen('moveTo').at(-1)?.data.room === '',
+    JSON.stringify([back.seen('moveTo').at(-1)?.data, visiting.seen('moveTo').at(-1)?.data]));
+
+  const afterClose = new TestPeer(ana, bCode, 'b1');
+  const gone = await afterClose.connect();
+  check('a closed breakout cannot be walked back into', gone.breakout.room === '',
+    JSON.stringify(gone.breakout));
+
+  back.close();
+  visiting.close();
+  afterClose.close();
+  await rest(host, `/api/meetings/${bCode}/end`, { method: 'POST' });
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await mongoose.disconnect();
 process.exit(fail === 0 ? 0 : 1);

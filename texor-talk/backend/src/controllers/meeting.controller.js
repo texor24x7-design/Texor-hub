@@ -16,7 +16,7 @@ import logger from '../utils/logger.js';
 import ApiError from '../utils/ApiError.js';
 import { meetingInvite } from '../utils/ics.js';
 import {
-  ejectPeer, endRoom, refreshKnocks, updatePeerRole, updateRoomQuality,
+  applyBreakouts, ejectPeer, endRoom, refreshKnocks, updatePeerRole, updateRoomQuality,
 } from '../media/signalling.js';
 import { connectedTexorIds } from '../media/room.js';
 import { admissionFor, isNarrowerAccess, isStricterLobby } from '../services/admission.service.js';
@@ -1189,10 +1189,13 @@ export async function openBreakouts(req, res) {
     req,
   });
 
+  const moved = applyBreakouts(saved, 'opened');
+
   logger.info('breakouts opened', {
     code: saved.code,
     rooms: rooms.length,
     assigned: rooms.reduce((total, room) => total + room.members.length, 0),
+    moved,
   });
 
   res.json({ meeting: presentMeeting(saved, req.user, { policy }) });
@@ -1225,6 +1228,10 @@ export async function updateBreakouts(req, res) {
     return {};
   });
 
+  // A reassignment moves people; a rename or a new deadline moves nobody, and
+  // this is a no-op for them.
+  applyBreakouts(saved, 'assigned');
+
   res.json({ meeting: presentMeeting(saved, req.user, { policy }) });
 }
 
@@ -1248,6 +1255,8 @@ export async function closeBreakouts(req, res) {
   });
 
   if (wasOpen) {
+    applyBreakouts(saved, 'closed');
+
     await record({
       action: ACTIONS.BREAKOUTS_CLOSED,
       actor: req.user,

@@ -161,6 +161,9 @@ class Room {
 /** The key a room lives under: the meeting itself, or one of its breakouts. */
 export const roomKeyFor = (meetingCode, breakout = '') => (breakout ? `${meetingCode}#${breakout}` : meetingCode);
 
+/** The other direction: which breakout a room key names, `''` for the main room. */
+export const breakoutOf = (key) => (key.includes('#') ? key.slice(key.indexOf('#') + 1) : '');
+
 export async function getOrCreateRoom(meetingCode, breakout = '') {
   const key = roomKeyFor(meetingCode, breakout);
   const existing = rooms.get(key);

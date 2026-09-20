@@ -59,6 +59,19 @@ export class MeetingRoom {
     this.reconnecting = false;
 
     /**
+     * Which room of the meeting this socket opens, `''` for the main one.
+     *
+     * Sent as a request, not as an instruction: the server looks the id up in
+     * the meeting's own plan and decides. Left empty it means "wherever I
+     * belong", which is what puts somebody back in their breakout after a
+     * refresh — and after a server restart, where the rooms in memory are gone
+     * and every client rebuilds them by arriving.
+     */
+    this.roomKey = handlers.roomKey ?? '';
+    /** A move is a reconnect we asked for, so the reconnect path must not also run. */
+    this.moving = false;
+
+    /**
      * What this meeting is allowed to send, as granted by the server.
      *
      * Set before any track is produced. The server caps the transport too, so
@@ -107,7 +120,9 @@ export class MeetingRoom {
 
   connect() {
     return new Promise((resolve, reject) => {
-      const socket = new WebSocket(`${WS_ORIGIN}/ws/meeting?code=${encodeURIComponent(this.code)}`);
+      const url = `${WS_ORIGIN}/ws/meeting?code=${encodeURIComponent(this.code)}`
+        + (this.roomKey ? `&room=${encodeURIComponent(this.roomKey)}` : '');
+      const socket = new WebSocket(url);
       this.socket = socket;
 
       let settled = false;
@@ -167,7 +182,9 @@ export class MeetingRoom {
           return;
         }
 
-        this.reconnect();
+        // A move closes this socket on purpose and is already rebuilding. One
+        // reconnect loop, not two racing to claim the same peer.
+        if (!this.moving) this.reconnect();
       };
 
       socket.onmessage = async (event) => {
@@ -222,7 +239,7 @@ export class MeetingRoom {
    * are still captured, so the browser does not re-prompt and the light on the
    * webcam never blinks.
    */
-  async reconnect() {
+  async reconnect({ firstDelay } = {}) {
     if (this.closed || this.reconnecting) return;
     this.reconnecting = true;
 
@@ -263,8 +280,12 @@ export class MeetingRoom {
     for (let attempt = 0; attempt < 12 && !this.closed; attempt += 1) {
       // Backs off to 8s and stays there, so a long outage does not become a
       // tight retry loop against a server that is already struggling.
-      const delay = Math.min(1000 * 2 ** attempt, 8000);
-      this.on.reconnecting?.({ attempt: attempt + 1, delay });
+      // A move is not a failure, so it does not start by waiting a second: the
+      // first attempt goes out immediately and only a genuine failure backs off.
+      const delay = attempt === 0 && firstDelay !== undefined
+        ? firstDelay
+        : Math.min(1000 * 2 ** attempt, 8000);
+      this.on.reconnecting?.({ attempt: attempt + 1, delay, moving: this.moving });
       await new Promise((resolve) => { setTimeout(resolve, delay); });
       if (this.closed) return;
 
@@ -282,6 +303,39 @@ export class MeetingRoom {
 
     this.reconnecting = false;
     if (!this.closed) this.on.closed?.('Lost the connection to the meeting.');
+  }
+
+  /**
+   * Moves this person to another room of the same meeting.
+   *
+   * A room is a separate mediasoup Router, and media only forwards between
+   * transports on one Router — so moving is reconnecting, and isolation is a
+   * property of where the streams are rather than a filter every future feature
+   * has to remember to apply. The reconnect carries the live camera and
+   * microphone tracks across, so the browser never re-prompts and the capture
+   * light does not blink; what it costs is about a second of silence.
+   *
+   * Asking for a room is not being given it. The server resolves the request
+   * against the meeting's plan when the new socket connects, and a refusal
+   * closes it with a reason like any other.
+   */
+  async switchTo(roomKey, { name = '', reason = 'assigned' } = {}) {
+    if (this.closed || this.reconnecting || this.roomKey === roomKey) return;
+
+    this.roomKey = roomKey;
+    this.moving = true;
+    this.on.moving?.({ room: roomKey, name, reason });
+
+    try {
+      // 1000 is not in DELIBERATE_CLOSE, but `moving` is what stops the close
+      // handler reconnecting — the flag, not the code, because the server may
+      // close this socket first when it replaces the peer.
+      this.socket?.close(1000, 'moving rooms');
+      await this.reconnect({ firstDelay: 0 });
+    } finally {
+      this.moving = false;
+      this.on.moved?.({ room: this.roomKey, name });
+    }
   }
 
   /**
@@ -548,6 +602,19 @@ export class MeetingRoom {
       case 'ended':
         this.closed = true;
         this.on.ended?.(data.reason);
+        break;
+
+      /**
+       * The host has decided which room this person is in.
+       *
+       * Acted on rather than argued with — but the move is still a request:
+       * the new socket is authorised against the meeting's plan when it
+       * connects, so a stale instruction is refused there rather than trusted
+       * here.
+       */
+      case 'moveTo':
+        this.on.breakout?.({ room: data.room, name: data.name, closesAt: data.closesAt });
+        await this.switchTo(data.room, { name: data.name, reason: data.reason });
         break;
 
       default:
