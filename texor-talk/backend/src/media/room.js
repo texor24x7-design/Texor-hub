@@ -1,13 +1,22 @@
 /**
- * A live meeting's media: one mediasoup Router, and the peers on it.
+ * A live room's media: one mediasoup Router, and the peers on it.
  *
- * A Router is the meeting. Media can only be forwarded between transports on
- * the same Router, so "who can hear whom" is a structural property here rather
- * than a rule that has to be enforced — two meetings cannot leak into each
- * other because they are not on the same Router to begin with.
+ * A Router is a room, and a meeting is one or more of them — the main room, and
+ * a breakout for as long as one is open. Media can only be forwarded between
+ * transports on the same Router, so "who can hear whom" is a structural
+ * property here rather than a rule that has to be enforced: two meetings, and
+ * two breakouts of the same meeting, cannot leak into each other because they
+ * are not on the same Router to begin with.
  *
  * Rooms are created when the first person arrives and closed when the last one
  * leaves, because an idle Router still holds a worker's resources.
+ *
+ * ── Keys ──
+ *
+ * The map is keyed by a *room key*: the meeting code for the main room, and
+ * `code#b2` for a breakout. The meeting code is kept beside it on every room,
+ * because almost everything that asks about presence means the meeting rather
+ * than one of its rooms — see `connectedTexorIds`.
  */
 import env from '../config/env.js';
 import { maxSendBitrate } from '../services/quality.service.js';
@@ -80,7 +89,9 @@ class Peer {
 }
 
 class Room {
-  constructor(meetingCode, router, audioLevelObserver) {
+  constructor(key, meetingCode, router, audioLevelObserver) {
+    /** `abc-defg-hij`, or `abc-defg-hij#b2` for a breakout. */
+    this.key = key;
     this.meetingCode = meetingCode;
     this.router = router;
     this.peers = new Map();
@@ -147,8 +158,12 @@ class Room {
   }
 }
 
-export async function getOrCreateRoom(meetingCode) {
-  const existing = rooms.get(meetingCode);
+/** The key a room lives under: the meeting itself, or one of its breakouts. */
+export const roomKeyFor = (meetingCode, breakout = '') => (breakout ? `${meetingCode}#${breakout}` : meetingCode);
+
+export async function getOrCreateRoom(meetingCode, breakout = '') {
+  const key = roomKeyFor(meetingCode, breakout);
+  const existing = rooms.get(key);
   if (existing) return existing;
 
   const worker = nextWorkerInPool();
@@ -169,33 +184,74 @@ export async function getOrCreateRoom(meetingCode) {
     interval: 300,
   });
 
-  const room = new Room(meetingCode, router, audioLevelObserver);
+  const room = new Room(key, meetingCode, router, audioLevelObserver);
 
-  rooms.set(meetingCode, room);
-  logger.info('media room opened', { meetingCode, workerPid: worker.pid });
+  rooms.set(key, room);
+  logger.info('media room opened', { room: key, workerPid: worker.pid });
 
   return room;
 }
 
-export const getRoom = (meetingCode) => rooms.get(meetingCode) ?? null;
+export const getRoom = (key) => rooms.get(key) ?? null;
 
 /**
- * Who has an open socket for this meeting, right now.
+ * Every room this meeting is currently using — the main one, and any breakout
+ * with somebody in it.
+ *
+ * Anything that acts on "the meeting" iterates this rather than reaching for a
+ * single room, or it would act on whichever room happened to be the main one
+ * and silently skip everybody in a breakout.
+ */
+export const roomsOf = (meetingCode) =>
+  [...rooms.values()].filter((room) => room.meetingCode === meetingCode);
+
+/**
+ * Who has an open socket for this meeting, right now — in **any** of its rooms.
  *
  * The live answer, straight from memory, with no database round trip. An open
  * socket *is* being in the meeting, so this is the ground truth that anything
  * reasoning about presence should consult first — including code paths that
  * have nothing to do with media.
+ *
+ * The union matters. Somebody in a breakout is still in the meeting, and every
+ * caller of this means the meeting: presence, the participant count, capacity,
+ * the occupied-time clock, host custody, and whether the meeting has been
+ * abandoned. Answering for one room would empty the main room the moment
+ * breakouts opened — which clears custody and everybody's lobby pass
+ * (`reconcileHost`), stops the clock, and ends the meeting under people who are
+ * very much still in it.
  */
-export const connectedTexorIds = (meetingCode) => [...(rooms.get(meetingCode)?.peers.keys() ?? [])];
+export const connectedTexorIds = (meetingCode) =>
+  [...new Set(roomsOf(meetingCode).flatMap((room) => [...room.peers.keys()]))];
 
-export function closeRoom(meetingCode) {
-  const room = rooms.get(meetingCode);
+/** Who is in one particular room. For the few places that really mean that. */
+export const connectedInRoom = (key) => [...(rooms.get(key)?.peers.keys() ?? [])];
+
+/**
+ * Take somebody out of whichever room of this meeting they are in.
+ *
+ * A move is "leave there, arrive here", and the arrival used to sweep only the
+ * room being arrived at — leaving a ghost peer still producing audio in the
+ * room just left. Returns the room they were found in, so the caller can tell
+ * the people still in it.
+ */
+export function removePeerEverywhere(meetingCode, texorId) {
+  for (const room of roomsOf(meetingCode)) {
+    if (room.peers.has(texorId)) {
+      room.removePeer(texorId);
+      return room;
+    }
+  }
+  return null;
+}
+
+export function closeRoom(key) {
+  const room = rooms.get(key);
   if (!room) return;
 
   room.close();
-  rooms.delete(meetingCode);
-  logger.info('media room closed', { meetingCode });
+  rooms.delete(key);
+  logger.info('media room closed', { room: key });
 }
 
 /**

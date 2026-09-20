@@ -32,7 +32,15 @@ import {
   saveReapplying,
   syncActiveTime,
 } from '../services/meeting.service.js';
-import { Peer, closeRoom, createWebRtcTransport, getOrCreateRoom, getRoom } from './room.js';
+import {
+  Peer,
+  closeRoom,
+  connectedTexorIds,
+  createWebRtcTransport,
+  getOrCreateRoom,
+  removePeerEverywhere,
+  roomsOf,
+} from './room.js';
 import { attachSpeakingDetection } from './speaking.js';
 import { effectiveTier, isTier, limitsFor, maxSendBitrate } from '../services/quality.service.js';
 
@@ -282,7 +290,9 @@ async function onDisconnect({ room, peer, user, code }) {
      * closes the room, and the ticker only visits meetings that still have a
      * connected socket. Left to it, the final stretch would never be banked.
      */
-    const here = [...room.peers.keys()];
+    // The meeting's people, not this room's: somebody in a breakout is still
+    // in the meeting, and counting one room would end it under them.
+    const here = connectedTexorIds(code);
 
     /**
      * Re-applied on a fresh document if somebody else wrote first.
@@ -329,8 +339,9 @@ async function onDisconnect({ room, peer, user, code }) {
     }
   }
 
-  // An empty Router still holds resources on a worker.
-  if (room.peers.size === 0) closeRoom(code);
+  // An empty Router still holds resources on a worker. Only this room closes —
+  // the meeting's other rooms are somebody else's call.
+  if (room.peers.size === 0) closeRoom(room.key);
 }
 
 // ── Messages ─────────────────────────────────────────────────────────────────
@@ -738,7 +749,7 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
         metadata: { reason: 'ended by host' },
       });
 
-      closeEveryone(room, code, 'The host ended the meeting.');
+      for (const other of roomsOf(code)) closeEveryone(other, 'The host ended the meeting.');
       return {};
     }
 
@@ -885,12 +896,12 @@ async function pushKnocks(room, meeting, socket) {
   });
 }
 
-function closeEveryone(room, code, reason) {
+function closeEveryone(room, reason) {
   for (const other of room.peers.values()) {
     send(other.socket, { type: 'ended', data: { reason } });
     other.socket.close(4004, 'ended');
   }
-  closeRoom(code);
+  closeRoom(room.key);
 }
 
 /**
@@ -918,15 +929,24 @@ function startRoomTicker(wss) {
     const codes = [...new Set([...wss.clients].map((socket) => socket.meetingCode))].filter(Boolean);
 
     for (const code of codes) {
-      const room = getRoom(code);
-      if (!room) continue;
+      /**
+       * One meeting, however many rooms it is using.
+       *
+       * The sweep used to be per room, which was the same thing while a meeting
+       * was one room. With breakouts it would load the meeting once per room,
+       * settle presence from whichever room it looked at last, and broadcast a
+       * roster only to the main one.
+       */
+      const rooms = roomsOf(code);
+      if (rooms.length === 0) continue;
 
       try {
         const meeting = await Meeting.findOne({ code }).exec();
         if (!meeting) continue;
 
         if (meeting.status === 'cancelled' || meeting.status === 'ended') {
-          closeEveryone(room, code, meeting.endedReason || 'This meeting has ended.');
+          const reason = meeting.endedReason || 'This meeting has ended.';
+          for (const room of rooms) closeEveryone(room, reason);
           continue;
         }
 
@@ -939,7 +959,7 @@ function startRoomTicker(wss) {
          * declared empty.
          */
         const before = meeting.actingHostTexorId;
-        if (markPresent(meeting, [...room.peers.keys()])) await meeting.save();
+        if (markPresent(meeting, connectedTexorIds(code))) await meeting.save();
 
         // `markPresent` settles custody as well as presence. When that moves
         // the room to somebody new, they have to be told — the ticker is the
@@ -962,7 +982,7 @@ function startRoomTicker(wss) {
               meeting,
               metadata: { reason: 'duration limit' },
             });
-            closeEveryone(room, code, meeting.endedReason);
+            for (const other of rooms) closeEveryone(other, meeting.endedReason);
             continue;
           }
         }
@@ -974,12 +994,17 @@ function startRoomTicker(wss) {
          * roster built from deltas into one that is eventually correct however
          * many of those deltas went missing.
          */
-        broadcastRoster(room);
+        // Each room reconciles its own roster; a breakout's membership is not
+        // the meeting's.
+        for (const room of rooms) broadcastRoster(room);
 
-        // New lobby requests reach hosts without them polling for them.
-        for (const other of room.peers.values()) {
-          if (other.role === 'host' || other.role === 'cohost') {
-            await pushKnocks(room, meeting, other.socket);
+        // New lobby requests reach hosts without them polling for them, and
+        // reach them wherever in the meeting they are.
+        for (const room of rooms) {
+          for (const other of room.peers.values()) {
+            if (other.role === 'host' || other.role === 'cohost') {
+              await pushKnocks(room, meeting, other.socket);
+            }
           }
         }
 
@@ -1013,33 +1038,39 @@ function startRoomTicker(wss) {
  * is created or withdrawn.
  */
 export async function refreshKnocks(code) {
-  const room = getRoom(code);
-  if (!room) return false;
-
-  const hosts = [...room.peers.values()].filter(
-    (peer) => peer.role === 'host' || peer.role === 'cohost',
+  // Hosts wherever they are: somebody at the door is the host's business even
+  // when the host has stepped into a breakout.
+  const found = roomsOf(code).flatMap((room) =>
+    [...room.peers.values()]
+      .filter((peer) => peer.role === 'host' || peer.role === 'cohost')
+      .map((peer) => ({ room, peer })),
   );
-  if (hosts.length === 0) return false;
+  if (found.length === 0) return false;
 
   const meeting = await Meeting.findOne({ code }).select('_id').exec();
   if (!meeting) return false;
 
-  for (const host of hosts) await pushKnocks(room, meeting, host.socket);
+  for (const { room, peer } of found) await pushKnocks(room, meeting, peer.socket);
   return true;
 }
 
 export function updatePeerRole(code, texorId, role) {
-  const peer = getRoom(code)?.peers.get(texorId);
+  const room = roomsOf(code).find((candidate) => candidate.peers.has(texorId));
+  const peer = room?.peers.get(texorId);
   if (!peer) return false;
 
   peer.role = role;
   send(peer.socket, { type: 'roleChanged', data: { role } });
-  broadcastAll(getRoom(code), { type: 'peerRoleChanged', data: { texorId, role } });
+  // Everyone in the meeting learns it, not only the room they happen to be in:
+  // a co-host made in the main room is a co-host in every breakout.
+  for (const other of roomsOf(code)) {
+    broadcastAll(other, { type: 'peerRoleChanged', data: { texorId, role } });
+  }
   return true;
 }
 
 export function ejectPeer(code, texorId, reason) {
-  const room = getRoom(code);
+  const room = roomsOf(code).find((candidate) => candidate.peers.has(texorId));
   const peer = room?.peers.get(texorId);
   if (!peer) return false;
 
@@ -1097,14 +1128,18 @@ async function applyRoomQuality(room, tier, changedBy) {
  * to take effect — the two routes into this have to end up in the same place.
  */
 export function updateRoomQuality(code, tier, changedBy) {
-  return applyRoomQuality(getRoom(code), tier, changedBy);
+  // The tier belongs to the meeting, so every one of its rooms follows.
+  const rooms = roomsOf(code);
+  for (const room of rooms) applyRoomQuality(room, tier, changedBy);
+  return rooms.length > 0;
 }
 
 export function endRoom(code, reason) {
-  const room = getRoom(code);
-  if (!room) return false;
+  const rooms = roomsOf(code);
+  if (rooms.length === 0) return false;
 
-  closeEveryone(room, code, reason);
+  // Breakouts end with the meeting they belong to.
+  for (const room of rooms) closeEveryone(room, reason);
   return true;
 }
 
