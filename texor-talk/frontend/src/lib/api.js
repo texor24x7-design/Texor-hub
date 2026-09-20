@@ -104,6 +104,15 @@ export const meetings = {
   removeParticipant: (code, texorId) =>
     api(`/api/meetings/${code}/participants/${texorId}`, { method: 'DELETE' }),
 
+  /**
+   * Breakout rooms. Opening, changing and closing are host-only on the server;
+   * reading a room back is allowed to the people who were in it.
+   */
+  openBreakouts: (code, body) => api(`/api/meetings/${code}/breakouts`, { method: 'POST', body }),
+  updateBreakouts: (code, body) => api(`/api/meetings/${code}/breakouts`, { method: 'PATCH', body }),
+  closeBreakouts: (code) => api(`/api/meetings/${code}/breakouts`, { method: 'DELETE' }),
+  callChat: (code, room = '') => api(`/api/meetings/${code}/chat?room=${encodeURIComponent(room)}`),
+
   invite: (code, invitees) => api(`/api/meetings/${code}/invitees`, { method: 'POST', body: { invitees } }),
   uninvite: (code, email) =>
     api(`/api/meetings/${code}/invitees/${encodeURIComponent(email)}`, { method: 'DELETE' }),

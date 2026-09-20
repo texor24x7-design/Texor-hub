@@ -139,6 +139,14 @@ export const RecordIcon = (props) => (
   </Icon>
 );
 
+/** Breakout rooms — one group of people split into two. */
+export const RoomsIcon = (props) => (
+  <Icon {...props}>
+    <path d="M3 4h7v7H3V4Zm0 9h7v7H3v-7Zm11-9h7v7h-7V4Zm0 9h7v7h-7v-7Z" opacity=".35" />
+    <path d="M3 4h7v7H3V4Zm11 9h7v7h-7v-7Z" />
+  </Icon>
+);
+
 /** Notes — a page with lines on it. */
 export const NotesIcon = (props) => (
   <Icon {...props}>
@@ -338,5 +346,5 @@ export default {
   GridDotsIcon, HandIcon, MenuIcon, MoreIcon, PinIcon, SettingsIcon, VideoPlusIcon,
   ReactionIcon, RemovePersonIcon, ShieldIcon, TuneIcon, NotesIcon, BoldIcon, ItalicIcon,
   CodeIcon, HighlightIcon, HeadingIcon, BulletIcon, TodoIcon, QuoteIcon, TrashIcon,
-  LockIcon, ShareIcon, SearchIcon, PlusIcon, HomeIcon, RecordIcon,
+  LockIcon, ShareIcon, SearchIcon, PlusIcon, HomeIcon, RecordIcon, RoomsIcon,
 };

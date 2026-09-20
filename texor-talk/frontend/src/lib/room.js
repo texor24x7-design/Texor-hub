@@ -214,6 +214,12 @@ export class MeetingRoom {
              * toggled their camera and produced again.
              */
             this.on.roster?.(message.data.peers);
+            /**
+             * Which room this actually is, from the server, on every
+             * connection — first, reconnect and move alike. The instruction
+             * that caused a move is a hint; this is the answer.
+             */
+            if (message.data.breakout) this.on.breakout?.(message.data.breakout);
             await this.setup(message.data);
             settled = true;
             resolve(message.data);
@@ -613,8 +619,15 @@ export class MeetingRoom {
        * here.
        */
       case 'moveTo':
-        this.on.breakout?.({ room: data.room, name: data.name, closesAt: data.closesAt });
         await this.switchTo(data.room, { name: data.name, reason: data.reason });
+        break;
+
+      case 'breakoutAnnounce':
+        this.on.announcement?.(data);
+        break;
+
+      case 'helpRequested':
+        this.on.helpRequested?.(data);
         break;
 
       default:

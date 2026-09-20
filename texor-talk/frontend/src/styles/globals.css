@@ -2661,6 +2661,48 @@ p { margin: 0; }
 .meet__left--urgent { background: rgb(234 67 53 / 22%); color: #f28b82; }
 .meet__left--over   { background: #ea4335; color: #fff; }
 
+/**
+ * Which room you are in, beside the meeting code.
+ *
+ * Only drawn while you are in a breakout, so its absence is what says "the main
+ * room" — a chip reading "Main room" for the whole of every ordinary meeting
+ * would be noise in the one place on the bar people actually read.
+ */
+.meet__room {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  background: rgb(138 180 248 / 18%);
+  color: #8ab4f8;
+}
+.meet__room:hover { background: rgb(138 180 248 / 28%); }
+.meet__room-name { overflow: hidden; text-overflow: ellipsis; max-width: 10rem; }
+.meet__room-left { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.meet__room--soon   { background: rgb(251 188 5 / 20%); color: #fdd663; }
+.meet__room--soon:hover { background: rgb(251 188 5 / 30%); }
+.meet__room--urgent { background: rgb(234 67 53 / 22%); color: #f28b82; }
+.meet__room--urgent:hover { background: rgb(234 67 53 / 32%); }
+
+/* ── The breakout panel ───────────────────────────────────────────────────── */
+.meet__breakouts { display: grid; gap: 0.9rem; font-size: 0.875rem; }
+.meet__breakout {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border-radius: 10px;
+  background: rgb(232 234 237 / 6%);
+}
+.meet__breakout + .meet__breakout { margin-top: 0.5rem; }
+.meet__breakout-name { font-weight: 500; }
+.meet__breakout-members { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+
 /*
  * On a phone the bar-left is hidden entirely, but the duration is the one thing
  * on it worth keeping — it is why people look down there. The wall clock and
@@ -2678,6 +2720,7 @@ p { margin: 0; }
   .meet__bar-left > .meet__time,
   .meet__bar-left > .meet__divider,
   .meet__bar-left > .meet__code { display: none; }
+  /* The room chip stays: on a phone it is the only way back to the main room. */
 }
 
 
