@@ -639,6 +639,8 @@ p { margin: 0; }
   letter-spacing: 0.02em;
   color: #bdc1c6;
   max-width: 14rem;
+  min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2672,6 +2674,14 @@ p { margin: 0; }
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  /**
+   * Never the thing that gets squeezed out.
+   *
+   * The bar's left group shrinks as the window narrows, and this chip is the
+   * only place a participant is told which room they are in and the only way
+   * back to the main one. The meeting code gives up its width first.
+   */
+  flex: none;
   border: 0;
   border-radius: 999px;
   padding: 0.25rem 0.7rem;
@@ -2690,18 +2700,89 @@ p { margin: 0; }
 .meet__room--urgent { background: rgb(234 67 53 / 22%); color: #f28b82; }
 .meet__room--urgent:hover { background: rgb(234 67 53 / 32%); }
 
+/**
+ * Form controls inside the call.
+ *
+ * `.input` and `.field` belong to the light pages: they are built from
+ * `--surface` and `--text`, so dropping one into this panel paints a white box
+ * on a near-black background with a label that is almost invisible against it.
+ * These are the same controls in the call's own palette.
+ */
+.meet__input {
+  font: inherit;
+  font-size: 0.8125rem;
+  color: #e8eaed;
+  background: var(--meet-surface, #3c4043);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  min-width: 0;
+}
+.meet__input:focus { outline: none; border-color: var(--meet-blue, #8ab4f8); }
+.meet__input::placeholder { color: #9aa0a6; }
+.meet__input:disabled { opacity: 0.5; cursor: not-allowed; }
+.meet__input--num { width: 3.5rem; text-align: center; }
+.meet__input--grow { flex: 1; }
+
+/* A label beside its control rather than above it: this panel is 22rem wide. */
+.meet__field { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.8125rem; color: #9aa0a6; }
+.meet__row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.meet__row--end { justify-content: flex-end; }
+
 /* ── The breakout panel ───────────────────────────────────────────────────── */
-.meet__breakouts { display: grid; gap: 0.9rem; font-size: 0.875rem; }
+.meet__breakouts { display: grid; align-content: start; }
+.meet__breakouts .meet__section + .meet__section { border-top: 1px solid var(--meet-line, #3c4043); }
+.meet__breakouts .switch small { color: #9aa0a6; }
+
 .meet__breakout {
   display: grid;
   gap: 0.5rem;
-  padding: 0.6rem;
+  padding: 0.6rem 0.7rem;
   border-radius: 10px;
   background: rgb(232 234 237 / 6%);
 }
 .meet__breakout + .meet__breakout { margin-top: 0.5rem; }
-.meet__breakout-name { font-weight: 500; }
-.meet__breakout-members { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+
+/* The name reads as a heading until you go to change it. */
+.meet__breakout-name {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #e8eaed;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.25rem 0.35rem;
+  margin-left: -0.35rem;
+}
+.meet__breakout-name:hover { background: rgb(232 234 237 / 8%); }
+.meet__breakout-name:focus { outline: none; background: var(--meet-surface, #3c4043); border-color: var(--meet-blue, #8ab4f8); }
+
+.meet__breakout-members { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.meet__member {
+  display: inline-flex; align-items: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.78rem;
+  color: #e8eaed;
+  background: rgb(232 234 237 / 10%);
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* One person, one row, one place to send them. */
+.meet__assign {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.3rem 0;
+  font-size: 0.875rem;
+  color: #e8eaed;
+}
+.meet__assign select { flex: none; max-width: 9rem; }
+
+.meet__chip--block { width: 100%; justify-content: center; }
+.meet__actions { display: grid; gap: 0.5rem; }
 
 /*
  * On a phone the bar-left is hidden entirely, but the duration is the one thing

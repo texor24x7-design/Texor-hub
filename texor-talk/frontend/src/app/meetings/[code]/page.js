@@ -458,7 +458,10 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
    */
   const refreshPlan = useCallback(() => (
     meetingApi.get(code)
-      .then(({ meeting: fresh }) => setPlan(fresh.breakouts))
+      .then(({ meeting: fresh }) => {
+        setPlan(fresh.breakouts);
+        setEveryoneHere(fresh.participants ?? []);
+      })
       .catch(() => {})
   ), [code]);
 
@@ -565,6 +568,15 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   const [breakout, setBreakout] = useState({ room: '', name: '', closesAt: null });
   /** The plan: which rooms exist and who is in them. Fetched, not pushed. */
   const [plan, setPlan] = useState(() => meeting?.breakouts ?? { status: 'closed', rooms: [], selfSelect: false });
+  /**
+   * Everybody in the meeting, which is not everybody in this room.
+   *
+   * Once somebody is in a breakout they are not a peer of the room you are in,
+   * so the roster cannot name them — and a host looking at the plan would see
+   * their own rooms filled with "Someone", and have nobody left to reassign.
+   * Attendance is meeting-wide, so it is what the panel reads.
+   */
+  const [everyoneHere, setEveryoneHere] = useState(() => meeting?.participants ?? []);
   /** Rooms that have put a hand up. */
   const [help, setHelp] = useState([]);
 
@@ -1415,9 +1427,14 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
   const tileCount = everyone.length + 1;
   const alone = everyone.length === 0;
 
-  // Being alone is not quite enough on its own: there is nobody to invite into
-  // a call that has not connected yet.
-  const offerInvite = promptToInvite({ peerCount: everyone.length, status });
+  /**
+   * Being alone is not quite enough on its own: there is nobody to invite into
+   * a call that has not connected yet — and being alone in a breakout room is
+   * not being alone in the meeting. Offering the joining link there is advice
+   * for the wrong problem: the room is small on purpose, and anybody who used
+   * that link would land in the main room anyway.
+   */
+  const offerInvite = !breakout.room && promptToInvite({ peerCount: everyone.length, status });
 
   /**
    * What the floating window is looking at.
@@ -1780,7 +1797,9 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
           plan={plan}
           breakout={breakout}
           help={help}
+          everyoneHere={everyoneHere}
           onPlanChanged={setPlan}
+          onRefresh={refreshPlan}
         />
       ) : null}
 
@@ -2072,23 +2091,45 @@ function CallView({ code, meeting, grant, prefs, user, onLeave, onClosed }) {
  * over, and a way back to the main room. The rule about who may enter which
  * room is on the socket; this hiding a button is a courtesy, not a control.
  */
-function BreakoutPanel({ code, plan, breakout, peers, user, isHost, help, room, policy, onError, onChanged }) {
+function BreakoutPanel({ code, plan, breakout, everyoneHere, user, isHost, help, room, policy, onError, onChanged, onRefresh }) {
   const open = plan?.status === 'open';
   const rooms = plan?.rooms ?? [];
-  const [count, setCount] = useState(() => Math.max(2, Math.min(rooms.length || 2, 20)));
-  const [minutes, setMinutes] = useState(15);
+  const maxRooms = policy?.maxBreakoutRooms ?? 20;
+
+  const [count, setCount] = useState(() => Math.min(Math.max(rooms.length || 2, 2), maxRooms));
+  const [minutes, setMinutes] = useState('15');
+  /** The split being edited. Null means "what the server has". */
   const [draft, setDraft] = useState(null);
   const [announcement, setAnnouncement] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Everybody who could be put in a room. The host is left out: a host has no
-  // assignment, they visit.
-  const assignable = [{ texorId: user.texorId, name: `${user.displayName} (You)` }, ...peers]
-    .filter((person) => person.texorId !== user.texorId || !isHost);
+  const shown = draft ?? rooms.map((each) => ({ ...each, members: [...each.members] }));
 
-  const nameOf = (texorId) => (texorId === user.texorId
-    ? user.displayName
-    : peers.find((peer) => peer.texorId === texorId)?.name ?? texorId);
+  /**
+   * Everybody who can be put in a room, from the meeting rather than from this
+   * room. Somebody already in a breakout is not a peer of the room the host is
+   * sitting in, and taking this list from the roster meant that the moment the
+   * rooms opened there was nobody left to reassign and every chip read
+   * "Someone".
+   *
+   * Not the host, and not co-hosts: they have no assignment, they visit.
+   */
+  const assignable = everyoneHere.filter((person) => person.role !== 'host' && person.role !== 'cohost');
+  const nameOf = (texorId) => everyoneHere.find((person) => person.texorId === texorId)?.name
+    ?? (texorId === user.texorId ? user.displayName : 'Someone');
+
+  /**
+   * The plan is pulled when the panel opens, because the host is not sent a
+   * `moveTo` and so has nothing else that would tell them somebody's room
+   * changed while they were looking elsewhere.
+   */
+  useEffect(() => { onRefresh?.(); }, [onRefresh]);
+
+  const ask = (action, data = {}) =>
+    room.current?.request(action, data).catch((error) => onError(error.message));
+
+  const visit = (key, name) =>
+    room.current?.switchTo(key, { name }).catch((error) => onError(error.message));
 
   const run = async (work) => {
     setBusy(true);
@@ -2106,40 +2147,49 @@ function BreakoutPanel({ code, plan, breakout, peers, user, isHost, help, room, 
   if (policy?.allowBreakouts === false) {
     return (
       <div className="meet__breakouts">
-        <p className="meet__muted">Your organisation has turned breakout rooms off.</p>
+        <section className="meet__section">
+          <p className="meet__muted">Your organisation has turned breakout rooms off.</p>
+        </section>
       </div>
     );
   }
 
+  /**
+   * What somebody who is not running the meeting needs: where they are, how to
+   * get the host over, and the way back. Nothing about who else is where.
+   */
   if (!isHost) {
     return (
       <div className="meet__breakouts">
         <section className="meet__section">
-          <h3 style={{ marginTop: 0 }}>
-            {breakout.room ? `You are in ${breakout.name || 'a breakout room'}` : 'You are in the main room'}
-          </h3>
-          {open ? (
-            <p className="meet__muted">
-              {breakout.room
-                ? 'Your host can come to you, and will bring everyone back when the time is up.'
-                : 'Breakout rooms are open. Your host has not put you in one.'}
+          <h3>{breakout.room ? 'Your room' : 'Main room'}</h3>
+          <p style={{ fontSize: '0.875rem' }}>
+            {breakout.room
+              ? `You are in ${breakout.name || 'a breakout room'}.`
+              : open
+                ? 'Breakout rooms are open. Your host has not put you in one.'
+                : 'There are no breakout rooms open.'}
+          </p>
+          {breakout.room ? (
+            <p className="meet__muted" style={{ marginTop: '0.35rem' }}>
+              Your host can come to you, and will bring everyone back.
             </p>
-          ) : (
-            <p className="meet__muted">There are no breakout rooms open.</p>
-          )}
+          ) : null}
         </section>
 
-        {open && breakout.room ? (
-          <section className="meet__section">
+        {breakout.room ? (
+          <section className="meet__section meet__actions">
             <button
-              type="button" className="meet__chip meet__chip--primary"
-              onClick={() => room.current?.request('breakoutHelp', {}).catch((error) => onError(error.message))}
+              type="button"
+              className="meet__chip meet__chip--block"
+              onClick={() => ask('breakoutHelp')}
             >
               Ask the host for help
             </button>
             <button
-              type="button" className="meet__chip"
-              onClick={() => room.current?.switchTo('').catch((error) => onError(error.message))}
+              type="button"
+              className="meet__chip meet__chip--block"
+              onClick={() => visit('', '')}
             >
               Back to the main room
             </button>
@@ -2148,22 +2198,14 @@ function BreakoutPanel({ code, plan, breakout, peers, user, isHost, help, room, 
 
         {open && plan.selfSelect ? (
           <section className="meet__section">
-            <h3 style={{ marginTop: 0 }}>Rooms</h3>
-            <p className="meet__muted">Your host has let people choose their own room.</p>
+            <h3>Rooms</h3>
             {rooms.map((each) => (
-              <div className="meet__knock" key={each.key}>
-                <div className="grow">
-                  <strong>{each.name}</strong>
-                  <div className="meet__muted">{each.members.length} assigned</div>
-                </div>
+              <div className="meet__assign" key={each.key}>
+                <span className="grow">{each.name}</span>
                 {each.key === breakout.room ? (
                   <span className="meet__muted">You are here</span>
                 ) : (
-                  <button
-                    type="button" className="meet__chip"
-                    onClick={() => room.current?.switchTo(each.key, { name: each.name })
-                      .catch((error) => onError(error.message))}
-                  >
+                  <button type="button" className="meet__chip" onClick={() => visit(each.key, each.name)}>
                     Join
                   </button>
                 )}
@@ -2175,42 +2217,50 @@ function BreakoutPanel({ code, plan, breakout, peers, user, isHost, help, room, 
     );
   }
 
-  const shown = draft ?? rooms.map((each) => ({ ...each, members: [...each.members] }));
-  const maxRooms = policy?.maxBreakoutRooms ?? 20;
+  const editRoom = (index, patch) =>
+    setDraft(shown.map((each, at) => (at === index ? { ...each, ...patch } : each)));
 
-  const propose = () => {
-    const groups = spread(assignable.map((person) => person.texorId), Math.min(count, maxRooms));
-    setDraft(groups.map((members, index) => ({
-      key: rooms[index]?.key,
-      name: rooms[index]?.name ?? defaultRoomName(index),
-      members,
-    })));
-  };
+  const propose = () => setDraft(
+    spread(assignable.map((person) => person.texorId), Math.min(count, maxRooms))
+      .map((members, index) => ({
+        key: rooms[index]?.key,
+        name: rooms[index]?.name ?? defaultRoomName(index),
+        members,
+      })),
+  );
 
-  const move = (texorId, toIndex) => {
-    setDraft(shown.map((each, index) => ({
-      ...each,
-      members: index === toIndex
-        ? [...each.members.filter((id) => id !== texorId), texorId]
-        : each.members.filter((id) => id !== texorId),
-    })));
-  };
+  const addRoom = () => setDraft([...shown, { name: defaultRoomName(shown.length), members: [] }]);
+
+  const move = (texorId, toIndex) => setDraft(shown.map((each, index) => ({
+    ...each,
+    members: index === toIndex
+      ? [...each.members.filter((id) => id !== texorId), texorId]
+      : each.members.filter((id) => id !== texorId),
+  })));
+
+  const save = () => run(() => {
+    const body = {
+      rooms: shown.map((each) => ({ key: each.key, name: each.name, members: each.members })),
+      minutes: minutes === '' ? null : Number(minutes),
+    };
+    return open ? meetingApi.updateBreakouts(code, body) : meetingApi.openBreakouts(code, body);
+  });
 
   return (
     <div className="meet__breakouts">
       {help.length > 0 ? (
         <section className="meet__section">
-          <h3 style={{ marginTop: 0 }}>Asking for help</h3>
+          <h3>Asking for help</h3>
           {help.map((request) => (
-            <div className="meet__knock" key={`${request.room}-${request.at}`}>
-              <div className="grow">
-                <strong>{request.name || request.room}</strong>
+            <div className="meet__assign" key={`${request.room}-${request.at}`}>
+              <span className="grow">
+                {request.name || request.room}
                 <div className="meet__muted">{request.from}</div>
-              </div>
+              </span>
               <button
-                type="button" className="meet__chip meet__chip--primary"
-                onClick={() => room.current?.switchTo(request.room, { name: request.name })
-                  .catch((error) => onError(error.message))}
+                type="button"
+                className="meet__chip meet__chip--primary"
+                onClick={() => visit(request.room, request.name)}
               >
                 Go there
               </button>
@@ -2220,90 +2270,114 @@ function BreakoutPanel({ code, plan, breakout, peers, user, isHost, help, room, 
       ) : null}
 
       <section className="meet__section">
-        <div className="row" style={{ gap: '0.5rem', alignItems: 'flex-end' }}>
-          <Field label="Rooms" htmlFor="breakout-count">
+        <div className="meet__row">
+          <label className="meet__field">
+            Rooms
             <input
-              id="breakout-count" type="number" min="1" max={maxRooms} className="input"
+              type="number" min="1" max={maxRooms}
+              className="meet__input meet__input--num"
               value={count}
               onChange={(event) => setCount(Number(event.target.value))}
             />
-          </Field>
-          <Field label="Minutes" hint="Blank runs until you close them." htmlFor="breakout-minutes">
+          </label>
+          <label className="meet__field">
+            Minutes
             <input
-              id="breakout-minutes" type="number" min="1" max="600" className="input"
+              type="number" min="1" max="600" placeholder="—"
+              className="meet__input meet__input--num"
               value={minutes}
               onChange={(event) => setMinutes(event.target.value)}
             />
-          </Field>
+          </label>
           <button type="button" className="meet__chip" onClick={propose} disabled={busy}>
             Spread evenly
           </button>
         </div>
-        <p className="meet__muted">
-          Up to {maxRooms} rooms. Splitting a meeting does not cost more bandwidth than leaving it whole.
+        <p className="meet__muted" style={{ marginTop: '0.6rem' }}>
+          Leave the minutes blank to run until you close the rooms yourself. Up to {maxRooms} rooms.
         </p>
       </section>
 
-      {shown.length > 0 ? (
-        <section className="meet__section">
-          {shown.map((each, index) => (
-            <div className="meet__breakout" key={each.key ?? index}>
-              <div className="row row--between">
-                <input
-                  className="input meet__breakout-name"
-                  aria-label={`Name of room ${index + 1}`}
-                  value={each.name}
-                  onChange={(event) => setDraft(shown.map((other, at) => (
-                    at === index ? { ...other, name: event.target.value } : other
-                  )))}
-                />
-                {open && each.key ? (
-                  <button
-                    type="button" className="meet__chip"
-                    onClick={() => room.current?.switchTo(each.key, { name: each.name })
-                      .catch((error) => onError(error.message))}
-                  >
-                    Visit
-                  </button>
-                ) : null}
-              </div>
+      <section className="meet__section">
+        <h3>{open ? 'Rooms · open now' : 'Rooms'}</h3>
 
-              <div className="meet__breakout-members">
-                {each.members.length === 0 ? <span className="meet__muted">Nobody yet</span> : null}
-                {each.members.map((texorId) => (
-                  <span className="meet__chip" key={texorId}>{nameOf(texorId)}</span>
-                ))}
-              </div>
+        {shown.length === 0 ? (
+          <p className="meet__muted" style={{ marginBottom: '0.75rem' }}>
+            No rooms yet. Choose how many and spread everyone evenly, or add one and pick who goes in it.
+          </p>
+        ) : null}
+
+        {shown.map((each, index) => (
+          <div className="meet__breakout" key={each.key ?? `new-${index}`}>
+            <div className="meet__row">
+              <input
+                className="meet__breakout-name"
+                aria-label={`Name of room ${index + 1}`}
+                value={each.name}
+                onChange={(event) => editRoom(index, { name: event.target.value })}
+              />
+              {open && each.key ? (
+                <button type="button" className="meet__chip" onClick={() => visit(each.key, each.name)}>
+                  Visit
+                </button>
+              ) : null}
             </div>
-          ))}
 
-          {/*
-            * Reassigning by picking a person and a room, rather than dragging.
-            * Dragging is nicer with a mouse and impossible with a keyboard, and
-            * this panel is often used one-handed while talking.
-            */}
-          <div className="meet__section">
-            {assignable.map((person) => (
-              <div className="meet__knock" key={person.texorId}>
-                <div className="grow"><strong>{person.name}</strong></div>
-                <select
-                  className="input"
-                  aria-label={`Room for ${person.name}`}
-                  value={shown.findIndex((each) => each.members.includes(person.texorId))}
-                  onChange={(event) => move(person.texorId, Number(event.target.value))}
-                >
-                  <option value={-1}>Main room</option>
-                  {shown.map((each, index) => (
-                    <option key={each.key ?? index} value={index}>{each.name}</option>
-                  ))}
-                </select>
-              </div>
-            ))}
+            <div className="meet__breakout-members">
+              {each.members.length === 0
+                ? <span className="meet__muted">Nobody yet</span>
+                : each.members.map((texorId) => (
+                  <span className="meet__member" key={texorId}>{nameOf(texorId)}</span>
+                ))}
+            </div>
           </div>
+        ))}
+
+        <div className="meet__row" style={{ marginTop: '0.75rem' }}>
+          <button
+            type="button"
+            className="meet__chip"
+            onClick={addRoom}
+            disabled={busy || shown.length >= maxRooms}
+          >
+            Add a room
+          </button>
+          {shown.length > 0 ? (
+            <button type="button" className="meet__chip" onClick={() => setDraft(shown.slice(0, -1))} disabled={busy}>
+              Remove the last
+            </button>
+          ) : null}
+        </div>
+      </section>
+
+      {/*
+        * Assigning by picking a person and a room rather than by dragging.
+        * Dragging is nicer with a mouse and impossible with a keyboard, and this
+        * panel gets used one-handed by somebody who is also talking.
+        */}
+      {shown.length > 0 && assignable.length > 0 ? (
+        <section className="meet__section">
+          <h3>Who goes where</h3>
+          {assignable.map((person) => (
+            <label className="meet__assign" key={person.texorId}>
+              <span className="grow">{person.name}</span>
+              <select
+                className="meet__input"
+                aria-label={`Room for ${person.name}`}
+                value={shown.findIndex((each) => each.members.includes(person.texorId))}
+                onChange={(event) => move(person.texorId, Number(event.target.value))}
+              >
+                <option value={-1}>Main room</option>
+                {shown.map((each, index) => (
+                  <option key={each.key ?? index} value={index}>{each.name}</option>
+                ))}
+              </select>
+            </label>
+          ))}
         </section>
       ) : null}
 
-      <section className="meet__section">
+      <section className="meet__section meet__actions">
         <label className="switch">
           <input
             type="checkbox"
@@ -2311,60 +2385,47 @@ function BreakoutPanel({ code, plan, breakout, peers, user, isHost, help, room, 
             disabled={!open || busy}
             onChange={(event) => run(() => meetingApi.updateBreakouts(code, { selfSelect: event.target.checked }))}
           />
-          <span>Let people choose their own room<small>They can move between the rooms you have opened.</small></span>
+          <span>
+            Let people choose their own room
+            <small>They can move between the rooms you have opened.</small>
+          </span>
         </label>
 
-        <div className="row" style={{ gap: '0.5rem' }}>
-          <button
-            type="button"
-            className="meet__chip meet__chip--primary"
-            disabled={busy || shown.length === 0}
-            onClick={() => run(() => {
-              const body = {
-                rooms: shown.map((each) => ({ key: each.key, name: each.name, members: each.members })),
-                minutes: minutes === '' ? null : Number(minutes),
-              };
-              return open ? meetingApi.updateBreakouts(code, body) : meetingApi.openBreakouts(code, body);
-            })}
-          >
-            {open ? 'Apply changes' : 'Open rooms'}
-          </button>
+        <button
+          type="button"
+          className="meet__chip meet__chip--primary meet__chip--block"
+          disabled={busy || shown.length === 0}
+          onClick={save}
+        >
+          {open ? 'Apply changes' : 'Open rooms'}
+        </button>
 
-          {open ? (
-            <button
-              type="button" className="meet__chip" disabled={busy}
-              onClick={() => run(() => meetingApi.closeBreakouts(code))}
-            >
-              Bring everyone back
-            </button>
-          ) : null}
-        </div>
+        {open ? (
+          <button type="button" className="meet__chip meet__chip--block" disabled={busy} onClick={() => run(() => meetingApi.closeBreakouts(code))}>
+            Bring everyone back
+          </button>
+        ) : null}
       </section>
 
       {open ? (
-        <section className="meet__section">
-          <form
-            className="row"
-            style={{ gap: '0.5rem' }}
-            onSubmit={(event) => {
-              event.preventDefault();
-              const body = announcement.trim();
-              if (!body) return;
-              room.current?.request('breakoutAnnounce', { body })
-                .then(() => setAnnouncement(''))
-                .catch((error) => onError(error.message));
-            }}
-          >
-            <input
-              className="input grow"
-              aria-label="Message to every room"
-              placeholder="Say something to every room…"
-              value={announcement}
-              onChange={(event) => setAnnouncement(event.target.value)}
-            />
-            <button type="submit" className="meet__chip meet__chip--primary">Send</button>
-          </form>
-        </section>
+        <form
+          className="meet__chat-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const body = announcement.trim();
+            if (!body) return;
+            ask('breakoutAnnounce', { body })?.then(() => setAnnouncement(''));
+          }}
+        >
+          <input
+            className="meet__chat-input"
+            aria-label="Message to every room"
+            placeholder="Say something to every room…"
+            value={announcement}
+            onChange={(event) => setAnnouncement(event.target.value)}
+          />
+          <button type="submit" className="meet__chip meet__chip--primary">Send</button>
+        </form>
       ) : null}
     </div>
   );
@@ -2426,7 +2487,7 @@ function Clock() {
 
 function SidePanel({
   panel, onClose, meeting, user, role, isHost, peers, knocks, chat, room, onError, onDecide, onSetRole,
-  lobby, onSetLobby, plan, breakout, help, onPlanChanged,
+  lobby, onSetLobby, plan, breakout, help, everyoneHere, onPlanChanged, onRefresh,
 }) {
   const titles = {
     people: 'People', chat: 'In-call messages', info: 'Meeting details', notes: 'Notes',
@@ -2456,9 +2517,9 @@ function SidePanel({
         ) : null}
         {panel === 'breakouts' ? (
           <BreakoutPanel
-            code={meeting.code} plan={plan} breakout={breakout} peers={peers} user={user}
+            code={meeting.code} plan={plan} breakout={breakout} everyoneHere={everyoneHere} user={user}
             isHost={isHost} help={help} room={room} policy={meeting.policy}
-            onError={onError} onChanged={onPlanChanged}
+            onError={onError} onChanged={onPlanChanged} onRefresh={onRefresh}
           />
         ) : null}
         {panel === 'info' ? <InfoPanel meeting={meeting} room={room} /> : null}
