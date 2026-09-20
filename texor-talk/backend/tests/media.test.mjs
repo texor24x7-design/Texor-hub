@@ -1255,6 +1255,47 @@ console.log('\n── breakout rooms: a meeting in more than one piece ──');
   const refusals = (await Promise.all(flood)).filter((result) => result?.code === 'too_fast');
   check('a flood is refused rather than written', refusals.length > 0, String(refusals.length));
 
+  console.log('\n── talking to every room at once, and asking for help ──');
+  const announced = await visiting.request('breakoutAnnounce', { body: 'five minutes left' })
+    .then(() => null).catch((error) => error);
+  check('a host can announce into every room', announced === null, String(announced?.message));
+  await wait(400);
+  check('it reaches a room the host is not in',
+    anaBlue.seen('breakoutAnnounce').some((event) => event.data.body === 'five minutes left'),
+    JSON.stringify(anaBlue.seen('breakoutAnnounce')));
+  check('and it is kept with the room it was said in',
+    (await rest(host, `/api/meetings/${bCode}/chat?room=b1`)).body.messages
+      ?.some((message) => message.kind === 'announcement'));
+
+  const notMine = await anaBlue.request('breakoutAnnounce', { body: 'nope' })
+    .then(() => null).catch((error) => error);
+  check('a participant cannot announce', notMine?.code === 'forbidden', String(notMine?.code));
+
+  await anaBlue.request('breakoutHelp', {});
+  await wait(300);
+  const asked = visiting.seen('helpRequested').at(-1);
+  check('asking for help reaches the host', asked?.data.room === 'b1' && asked?.data.texorId === 'tx-ana',
+    JSON.stringify(asked?.data));
+
+  console.log('\n── choosing your own room ──');
+  {
+    const blocked = new TestPeer(bo, bCode, 'b1');
+    const no = await blocked.connect().then(() => null).catch((error) => error);
+    check('you cannot wander in while self-selection is off', no?.code === 'forbidden', String(no?.code));
+
+    await rest(host, `/api/meetings/${bCode}/breakouts`, { method: 'PATCH', body: { selfSelect: true } });
+    const chose = new TestPeer(bo, bCode, 'b1');
+    await chose.connect();
+    check('and can when the host turns it on', chose.welcome.breakout.room === 'b1');
+
+    const trail = (await db.collection('auditevents').find({ meetingCode: bCode }).toArray())
+      .map((event) => event.action);
+    check('choosing for yourself is recorded as your own act',
+      trail.includes('breakouts.self_selected'), trail.join(', '));
+    chose.close();
+    await rest(host, `/api/meetings/${bCode}/breakouts`, { method: 'PATCH', body: { selfSelect: false } });
+  }
+
   console.log('\n── coming back ──');
   const back = new TestPeer(ana, bCode);
   await back.connect();
@@ -1274,7 +1315,35 @@ console.log('\n── breakout rooms: a meeting in more than one piece ──');
   check('a closed breakout cannot be walked back into', gone.breakout.room === '',
     JSON.stringify(gone.breakout));
 
-  back.close();
+  console.log('\n── rooms that close themselves ──');
+  {
+    // A minute, then wound back past the deadline: the ticker is what closes
+    // them, so this is the real path rather than a function called directly.
+    await rest(host, `/api/meetings/${bCode}/breakouts`, {
+      method: 'POST', body: { rooms: [{ key: 'b1', name: 'Blue', members: ['tx-ana'] }], minutes: 1 },
+    });
+    await wait(300);
+    const timed = new TestPeer(ana, bCode);
+    await timed.connect();
+    back.close();
+    check('the room is open, with a deadline on it', timed.welcome.breakout.room === 'b1'
+      && timed.welcome.breakout.closesAt !== null, JSON.stringify(timed.welcome.breakout));
+
+    await db.collection('meetings').updateOne(
+      { code: bCode }, { $set: { 'breakouts.closesAt': new Date(Date.now() - 1000) } },
+    );
+    await wait(6000);
+
+    check('the deadline brings everybody back without the host doing anything',
+      timed.seen('moveTo').at(-1)?.data.room === '', JSON.stringify(timed.seen('moveTo').at(-1)?.data));
+    const shut = await db.collection('meetings').findOne({ code: bCode });
+    check('and the plan says so', shut.breakouts.status === 'closed', shut.breakouts.status);
+    const why = (await db.collection('auditevents')
+      .find({ meetingCode: bCode, action: 'breakouts.closed' }).toArray()).map((row) => row.metadata?.reason);
+    check('the record says it was the clock, not a person', why.includes('time'), why.join(', '));
+    timed.close();
+  }
+
   visiting.close();
   afterClose.close();
   await rest(host, `/api/meetings/${bCode}/end`, { method: 'POST' });

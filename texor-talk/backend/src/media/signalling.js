@@ -176,6 +176,22 @@ async function handleConnection(socket, request) {
     return refuse(socket, error.code ?? 'forbidden', error.message);
   }
 
+  /**
+   * Choosing a room for yourself is a per-person act, so it is recorded as one.
+   *
+   * Only a deliberate move: a refresh sends no room at all and is placed by the
+   * assignment, and a host visiting is not audited at all.
+   */
+  if (breakout && breakout !== assignedRoom(meeting, user.texorId)
+    && role !== 'host' && role !== 'cohost') {
+    await record({
+      action: ACTIONS.BREAKOUT_SELF_SELECTED,
+      actor: user,
+      meeting,
+      metadata: { room: breakout },
+    });
+  }
+
   // ── Media ──
   const room = await getOrCreateRoom(meeting.code, breakout);
 
@@ -847,6 +863,63 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
       return {};
     }
 
+    /**
+     * The host, talking into every room at once.
+     *
+     * Text rather than audio. Piping a live track into six Routers is a
+     * capability this codebase does not have yet — `pipeToRouter` is used
+     * nowhere — and "five minutes left" does not need one.
+     */
+    case 'breakoutAnnounce': {
+      requireHost(peer);
+
+      const body = String(data.body ?? '').trim().slice(0, 500);
+      if (!body) return {};
+      if (!peer.allow('announce', 1, 3000)) throw fail('too_fast', 'Slow down a moment.');
+
+      const meeting = await Meeting.findOne({ code }).select('settings breakouts').exec();
+      if (!meeting) throw fail('not_found', 'No meeting with that code.');
+
+      const at = new Date();
+      for (const other of roomsOf(code)) {
+        broadcastAll(other, {
+          type: 'breakoutAnnounce',
+          data: { from: peer.name, texorId: user.texorId, body, at },
+        });
+        storeCallMessage({ meeting, room: other, peer, user, body, kind: 'announcement' })
+          .catch((error) => logger.warn('announcement not stored', { code, message: error.message }));
+      }
+
+      return {};
+    }
+
+    /**
+     * Somebody in a breakout asking the host to come over.
+     *
+     * It reaches every host of the meeting wherever they are — which works
+     * because presence is the union across its rooms, so a host sitting in
+     * another breakout is still reachable.
+     */
+    case 'breakoutHelp': {
+      if (!peer.allow('help', 1, 10_000)) throw fail('too_fast', 'Already asked.');
+
+      const from = breakoutOf(room.key);
+      const meeting = await Meeting.findOne({ code }).select('breakouts').exec();
+      const name = meeting?.breakouts?.rooms?.find((each) => each.key === from)?.name ?? '';
+
+      for (const other of roomsOf(code)) {
+        for (const candidate of other.peers.values()) {
+          if (candidate.role !== 'host' && candidate.role !== 'cohost') continue;
+          send(candidate.socket, {
+            type: 'helpRequested',
+            data: { room: from, name, from: peer.name, texorId: user.texorId, at: new Date() },
+          });
+        }
+      }
+
+      return {};
+    }
+
     case 'chat': {
       const meeting = await Meeting.findOne({ code }).select('settings breakouts').exec();
       if (!meeting?.settings?.allowChat) throw fail('forbidden', 'Chat is off in this meeting.');
@@ -1045,6 +1118,32 @@ function startRoomTicker(wss) {
             for (const other of rooms) closeEveryone(other, meeting.endedReason);
             continue;
           }
+        }
+
+        /**
+         * Breakouts that have run out of time.
+         *
+         * One `if` in a sweep that already runs, rather than a timer per
+         * meeting: a timer would have to be recreated after a restart, survive
+         * a host editing the deadline, and be cancelled when the meeting ends —
+         * and every one of those is a way to leave people in a room nobody is
+         * coming back for. The countdown people watch is drawn by their own
+         * browser from `closesAt`; all the server has to do is close.
+         */
+        if (isBreakoutOpen(meeting) && meeting.breakouts.closesAt
+          && meeting.breakouts.closesAt <= new Date()) {
+          const openedAt = meeting.breakouts.openedAt;
+          meeting.breakouts.status = 'closed';
+          meeting.breakouts.closesAt = null;
+          await meeting.save();
+
+          applyBreakouts(meeting, 'time');
+          await record({
+            action: ACTIONS.BREAKOUTS_CLOSED,
+            meeting,
+            metadata: { reason: 'time', durationMs: openedAt ? Date.now() - openedAt.getTime() : null },
+          });
+          logger.info('breakouts closed', { code, reason: 'time' });
         }
 
         /**

@@ -202,7 +202,15 @@ for (const file of ['meetings.test.mjs', 'media.test.mjs', 'guests.test.mjs', 'n
 await teardown();
 
 if (failures > 0) {
+  /**
+   * The server's own log, but only when something went wrong.
+   *
+   * A suite sees a refusal; the reason it was refused is in this process, and
+   * was being thrown away. Printing it always would bury the results.
+   */
   console.error(`  ${failures} suite${failures === 1 ? '' : 's'} failed\n`);
+  const noise = serverOutput.split('\n').filter((line) => /"level":"(warn|error)"|Error/.test(line));
+  if (noise.length) console.error(`  what the server said:\n${noise.slice(-40).join('\n')}\n`);
   process.exit(1);
 }
 
