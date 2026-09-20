@@ -30,7 +30,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 await connectForTests(process.env.MONGODB_URI);
 const db = mongoose.connection.db;
-for (const c of ['meetings', 'knocks', 'auditevents', 'auditcounters', 'policies', 'users', 'sessions']) {
+for (const c of ['meetings', 'knocks', 'callmessages', 'auditevents', 'auditcounters', 'policies', 'users', 'sessions']) {
   await db.collection(c).deleteMany({}).catch(() => {});
 }
 
@@ -1218,6 +1218,42 @@ console.log('\n── breakout rooms: a meeting in more than one piece ──');
   await wait(300);
   check('a visiting host is not yanked back by somebody else’s reassignment',
     visiting.seen('moveTo').length === 0, JSON.stringify(visiting.seen('moveTo')));
+
+  console.log('\n── what was said in a room you were not in ──');
+  await anaBlue.request('chat', { body: 'we think the answer is yes' });
+  await visiting.request('chat', { body: 'good, say that to everyone' });
+  await wait(400);
+
+  const blueLog = await rest(host, `/api/meetings/${bCode}/chat?room=b1`);
+  check('the host reads a breakout back afterwards',
+    blueLog.body.messages?.map((message) => message.body).join(' | ')
+      === 'we think the answer is yes | good, say that to everyone',
+    JSON.stringify(blueLog.body).slice(0, 220));
+  check('and it is labelled with the room it happened in', blueLog.body.name === 'Blue', blueLog.body.name);
+  check('the main room is a separate transcript',
+    (await rest(host, `/api/meetings/${bCode}/chat`)).body.messages?.length === 0);
+
+  check('somebody reads the room they were in',
+    (await rest(ana, `/api/meetings/${bCode}/chat?room=b1`)).body.messages?.length === 2);
+  check('but not one they were never in',
+    (await rest(ana, `/api/meetings/${bCode}/chat?room=b2`)).status === 403);
+  check('and somebody outside the meeting reads nothing',
+    (await rest(bob, `/api/meetings/${bCode}/chat?room=b1`)).status === 403,
+    String((await rest(bob, `/api/meetings/${bCode}/chat?room=b1`)).status));
+
+  const stamped = await db.collection('callmessages').findOne({ roomKey: 'b1' });
+  check('every message is stamped with when it is deleted',
+    stamped?.expiresAt instanceof Date && stamped.expiresAt > new Date(),
+    String(stamped?.expiresAt));
+  const ttl = await db.collection('callmessages').indexes();
+  check('and the index that does the deleting exists',
+    ttl.some((index) => index.expireAfterSeconds === 0), JSON.stringify(ttl.map((i) => i.name)));
+
+  // A message costs a write now, so there is a limit on how fast they arrive.
+  const flood = [];
+  for (let n = 0; n < 14; n += 1) flood.push(anaBlue.request('chat', { body: `flood ${n}` }).catch((error) => error));
+  const refusals = (await Promise.all(flood)).filter((result) => result?.code === 'too_fast');
+  check('a flood is refused rather than written', refusals.length > 0, String(refusals.length));
 
   console.log('\n── coming back ──');
   const back = new TestPeer(ana, bCode);

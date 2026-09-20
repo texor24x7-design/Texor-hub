@@ -44,6 +44,18 @@ const policySchema = new Schema(
     screenShareDefault: { type: String, enum: ['everyone', 'hosts'], default: 'everyone' },
 
     /**
+     * Whether what is said in a call is kept afterwards, and for how long.
+     *
+     * Off means the old behaviour: broadcast and forgotten. On, a host can read
+     * back what was said in a breakout they were not in — which is most of the
+     * reason to send people into one. The period is stamped on each message as
+     * it is written, so shortening it affects what is said next rather than
+     * rewriting what is already stored.
+     */
+    keepCallChat: { type: Boolean, default: true },
+    chatRetentionDays: { type: Number, default: 30, min: 1, max: 365 },
+
+    /**
      * Breakout rooms.
      *
      * The cap is a bound on how many rooms one meeting may open at once. It is

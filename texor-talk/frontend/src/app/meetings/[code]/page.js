@@ -2054,7 +2054,7 @@ function SidePanel({ panel, onClose, meeting, user, role, isHost, peers, knocks,
             lobby={lobby} policy={meeting.policy} onSetLobby={onSetLobby}
           />
         ) : null}
-        {panel === 'chat' ? <ChatPanel chat={chat} room={room} user={user} peers={peers} /> : null}
+        {panel === 'chat' ? <ChatPanel chat={chat} room={room} user={user} peers={peers} policy={meeting.policy} /> : null}
         {panel === 'notes' ? (
           <MeetingNotes code={meeting.code} livePeople={peers} onError={onError} />
         ) : null}
@@ -2281,7 +2281,7 @@ function PeoplePanel({ user, role, isHost, peers, knocks, room, onError, onDecid
  * Consecutive messages from one person keep the column and drop the heading,
  * the way every chat client people already use does it.
  */
-function ChatPanel({ chat, room, user, peers = [] }) {
+function ChatPanel({ chat, room, user, peers = [], policy }) {
   const [draft, setDraft] = useState('');
   const end = useRef(null);
 
@@ -2296,8 +2296,16 @@ function ChatPanel({ chat, room, user, peers = [] }) {
   return (
     <div className="meet__chat">
       <div className="meet__chat-log">
+        {/*
+          * What this said before was "lost when it ends", which stopped being
+          * true the moment breakout chat was kept. People decide what to type
+          * based on this line, so it has to describe what actually happens —
+          * and what happens depends on the organisation.
+          */}
         <p className="meet__chat-note">
-          Messages can be seen only by people in the call, and are lost when it ends.
+          {policy?.keepCallChat === false
+            ? 'Messages can be seen only by people in the call, and are lost when it ends.'
+            : `Messages can be seen only by people in this room, and are saved for ${policy?.chatRetentionDays ?? 30} days — your host can read them afterwards.`}
         </p>
 
         {chat.map((entry, index) => {

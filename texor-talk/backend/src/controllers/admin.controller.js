@@ -28,6 +28,8 @@ export const policySchema = z.object({
   screenShareDefault: z.enum(['everyone', 'hosts']).optional(),
   maxQuality: z.enum(['saver', 'standard', 'high']).optional(),
   allowBreakouts: z.boolean().optional(),
+  keepCallChat: z.boolean().optional(),
+  chatRetentionDays: z.coerce.number().int().min(1).max(365).optional(),
   maxBreakoutRooms: z.coerce.number().int().min(1).max(100).optional(),
   adminTexorIds: z.array(z.string().min(1)).max(200).optional(),
 });
@@ -73,6 +75,8 @@ const presentPolicy = (policy) => ({
   screenShareDefault: policy.screenShareDefault,
   maxQuality: policy.maxQuality,
   allowBreakouts: policy.allowBreakouts,
+  keepCallChat: policy.keepCallChat,
+  chatRetentionDays: policy.chatRetentionDays,
   maxBreakoutRooms: policy.maxBreakoutRooms,
   adminTexorIds: policy.adminTexorIds,
   updatedAt: policy.updatedAt,

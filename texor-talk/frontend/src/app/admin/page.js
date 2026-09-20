@@ -107,6 +107,8 @@ function PolicyPanel() {
         screenShareDefault: draft.screenShareDefault,
         maxQuality: draft.maxQuality,
         allowBreakouts: draft.allowBreakouts,
+        keepCallChat: draft.keepCallChat,
+        chatRetentionDays: draft.chatRetentionDays,
         maxBreakoutRooms: draft.maxBreakoutRooms,
       });
       setPolicy(saved);
@@ -205,6 +207,19 @@ function PolicyPanel() {
             />
           </Field>
 
+          <Field
+            label="Keep in-call chat for"
+            hint="Days. What is said in a call is kept this long so a host can read back a breakout room they were not in, then deleted. People are told in the chat panel that messages are saved."
+            htmlFor="chatRetentionDays"
+          >
+            <input
+              id="chatRetentionDays" type="number" min="1" max="365" className="input"
+              value={draft.chatRetentionDays ?? 30}
+              disabled={draft.keepCallChat === false}
+              onChange={(event) => set('chatRetentionDays', event.target.value)}
+            />
+          </Field>
+
           <Field label="Maximum participants" hint="0 means no limit." htmlFor="maxParticipants">
             <input
               id="maxParticipants" type="number" min="0" max="1000" className="input"
@@ -233,6 +248,7 @@ function PolicyPanel() {
         <div className="stack stack--tight" style={{ marginTop: '1.25rem' }}>
           {toggle('allowExternalGuests', 'Allow guests from outside the organisation', 'Off means only Texor Accounts on your domains can join anything.')}
           {toggle('forceLobbyForExternal', 'Always hold people from outside the organisation in the waiting room', 'Overrides a host who turned the waiting room off. It holds outside accounts as well as guests with no account.')}
+          {toggle('keepCallChat', 'Keep what is said in a call', 'Off means in-call chat is shown and then forgotten, and a host cannot read a breakout room back afterwards.')}
           {toggle('allowBreakouts', 'Hosts can split a meeting into breakout rooms', 'Off hides the control and refuses the request. Rooms already open are closed when the meeting ends either way.')}
           {toggle('defaultMuteOnEntry', 'New meetings mute people on entry', null)}
           {toggle('defaultVideoOffOnEntry', 'New meetings start with cameras off', null)}

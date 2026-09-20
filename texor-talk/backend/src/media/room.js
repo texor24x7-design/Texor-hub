@@ -52,9 +52,30 @@ class Peer {
     this.rtpCapabilities = null;
     this.joinedAt = new Date();
 
+    /**
+     * When this peer last did the things there is a limit on.
+     *
+     * Per socket and in memory, because that is where the flood would come
+     * from: a loop in somebody's console, or a client with a retry bug. It is
+     * not a quota — a reconnect resets it, and that is fine, since reconnecting
+     * is slow enough not to be a way round anything.
+     */
+    this.recent = new Map();
+
     // Raising a hand is state, not a passing reaction: it stays up until it is
     // lowered, and everyone arriving later needs to see it is still up.
     this.handRaised = false;
+  }
+
+  /** Whether this peer may do `action` again yet. Records the attempt when it may. */
+  allow(action, limit, windowMs) {
+    const now = Date.now();
+    const hits = (this.recent.get(action) ?? []).filter((at) => at > now - windowMs);
+    if (hits.length >= limit) return false;
+
+    hits.push(now);
+    this.recent.set(action, hits);
+    return true;
   }
 
   close() {

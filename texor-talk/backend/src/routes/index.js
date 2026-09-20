@@ -19,6 +19,7 @@ import {
   addInvitees,
   breakoutsPatchSchema,
   breakoutsSchema,
+  callChatSchema,
   cancelKnock,
   closeBreakouts,
   cancelMeeting,
@@ -28,6 +29,7 @@ import {
   downloadInvite,
   endMeetingNow,
   getKnock,
+  getCallChat,
   getMeeting,
   getMeetingDefaults,
   guestPreview,
@@ -178,6 +180,9 @@ export function createApiRouter() {
   router.post('/meetings/:code/breakouts', validate(breakoutsSchema), openBreakouts);
   router.patch('/meetings/:code/breakouts', validate(breakoutsPatchSchema), updateBreakouts);
   router.delete('/meetings/:code/breakouts', closeBreakouts);
+
+  // Not host-only: everybody may read back the rooms they were actually in.
+  router.get('/meetings/:code/chat', validate(callChatSchema, 'query'), getCallChat);
 
   // Invitations.
   router.post('/meetings/:code/invitees', validate(inviteeSchema), addInvitees);

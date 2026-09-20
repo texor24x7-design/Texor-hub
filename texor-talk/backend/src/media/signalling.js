@@ -15,6 +15,7 @@
 import { WebSocketServer } from 'ws';
 import Meeting from '../models/Meeting.js';
 import Knock from '../models/Knock.js';
+import CallMessage from '../models/CallMessage.js';
 import logger from '../utils/logger.js';
 import { resolveSession, SESSION_COOKIE } from '../services/session.service.js';
 import { GUEST_COOKIE, resolveGuest } from '../services/guest.service.js';
@@ -847,16 +848,28 @@ async function dispatch({ action, data, room, peer, user, code, socket }) {
     }
 
     case 'chat': {
-      const meeting = await Meeting.findOne({ code }).select('settings').exec();
+      const meeting = await Meeting.findOne({ code }).select('settings breakouts').exec();
       if (!meeting?.settings?.allowChat) throw fail('forbidden', 'Chat is off in this meeting.');
 
       const body = String(data.body ?? '').trim().slice(0, 2000);
       if (!body) return {};
 
+      // Newly worth having, because a message now costs a write. Ten in ten
+      // seconds is far above how fast anybody types and far below a loop.
+      if (!peer.allow('chat', 10, 10_000)) throw fail('too_fast', 'Slow down a moment.');
+
+      const at = new Date();
       broadcastAll(room, {
         type: 'chat',
-        data: { from: peer.name, texorId: user.texorId, body, at: new Date() },
+        data: { from: peer.name, texorId: user.texorId, body, at },
       });
+
+      // After the broadcast, and never in front of it: a storage failure must
+      // not cost somebody their message.
+      storeCallMessage({ meeting, room, peer, user, body }).catch((error) =>
+        logger.warn('call message not stored', { code, message: error.message }),
+      );
+
       return {};
     }
 
@@ -1100,6 +1113,32 @@ function startRoomTicker(wss) {
  * so a move never calls `markLeft`. The attendance row, the meeting's clock and
  * host custody are untouched.
  */
+/**
+ * Keeps what was said, if the organisation keeps it.
+ *
+ * The retention period is stamped here rather than applied by the sweep, so an
+ * admin shortening it changes what happens next and never rewrites a
+ * transcript that already exists.
+ */
+async function storeCallMessage({ meeting, room, peer, user, body, kind = 'message' }) {
+  const policy = await getPolicy();
+  if (!policy.keepCallChat) return;
+
+  const roomKey = breakoutOf(room.key);
+
+  await CallMessage.create({
+    meeting: meeting._id,
+    roomKey,
+    roomName: meeting.breakouts?.rooms?.find((each) => each.key === roomKey)?.name ?? '',
+    authorTexorId: user.texorId,
+    authorName: peer.name,
+    isGuest: Boolean(user.isGuest),
+    kind,
+    body,
+    expiresAt: new Date(Date.now() + policy.chatRetentionDays * 864e5),
+  });
+}
+
 export function applyBreakouts(meeting, reason = 'assigned') {
   const open = isBreakoutOpen(meeting);
   const plan = meeting.breakouts?.rooms ?? [];

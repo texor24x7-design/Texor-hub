@@ -11,6 +11,7 @@ import Knock from '../models/Knock.js';
 import Channel from '../models/Channel.js';
 import User from '../models/User.js';
 import Message from '../models/Message.js';
+import CallMessage from '../models/CallMessage.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
 import ApiError from '../utils/ApiError.js';
@@ -20,7 +21,7 @@ import {
 } from '../media/signalling.js';
 import { connectedTexorIds } from '../media/room.js';
 import { admissionFor, isNarrowerAccess, isStricterLobby } from '../services/admission.service.js';
-import { assignedRoom } from '../services/breakout.service.js';
+import { MAIN_ROOM, assignedRoom } from '../services/breakout.service.js';
 import { availableTiers, effectiveTier, isTier, limitsFor } from '../services/quality.service.js';
 import {
   GUEST_COOKIE,
@@ -375,6 +376,12 @@ function presentMeeting(meeting, user, { policy } = {}) {
         forceLobbyForExternal: policy.forceLobbyForExternal,
         allowExternalGuests: policy.allowExternalGuests,
         orgDomainsConfigured: env.orgEmailDomains.length > 0,
+        // So the chat panel can tell people the truth about their messages
+        // rather than the sentence that used to be true of all of them.
+        keepCallChat: policy.keepCallChat,
+        chatRetentionDays: policy.chatRetentionDays,
+        allowBreakouts: policy.allowBreakouts,
+        maxBreakoutRooms: policy.maxBreakoutRooms,
       },
     } : {}),
   };
@@ -1278,6 +1285,53 @@ export async function closeBreakouts(req, res) {
   res.json({ meeting: presentMeeting(saved, req.user) });
 }
 
+export const callChatSchema = z.object({
+  room: z.string().max(12).default(''),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+});
+
+/**
+ * Reading back what was said in a room.
+ *
+ * A host reads any room of their meeting — being able to is most of the reason
+ * to send people into one. Everybody else reads the main room, which they were
+ * in, and the breakout they were put in. Nobody reads a room they were never a
+ * member of, and nobody outside the meeting reads anything: `loadMeeting` plus
+ * the membership check below, not a guessable room key.
+ */
+export async function getCallChat(req, res) {
+  const meeting = await loadMeeting(req.params.code);
+
+  const role = meeting.roleOf(req.user.texorId, req.user.email);
+  const isHost = role === 'host' || role === 'cohost';
+  const room = req.query.room ?? '';
+
+  if (!isHost && room !== MAIN_ROOM && room !== assignedRoom(meeting, req.user.texorId)) {
+    throw ApiError.forbidden('You were not in that room.');
+  }
+
+  if (!isHost && !meeting.attendance.some((entry) => entry.texorId === req.user.texorId)) {
+    throw ApiError.forbidden('You were not in this meeting.');
+  }
+
+  const messages = await CallMessage.find({ meeting: meeting._id, roomKey: room })
+    .sort({ createdAt: 1 })
+    .limit(req.query.limit)
+    .lean();
+
+  res.json({
+    room,
+    name: meeting.breakouts?.rooms?.find((each) => each.key === room)?.name ?? '',
+    messages: messages.map((message) => ({
+      from: message.authorName,
+      texorId: message.authorTexorId,
+      kind: message.kind,
+      body: message.body,
+      at: message.createdAt,
+    })),
+  });
+}
+
 /** Promotes someone to co-host, or puts them back. Host only — not co-hosts. */
 export async function setParticipantRole(req, res) {
   const meeting = await loadMeeting(req.params.code);
@@ -1513,6 +1567,7 @@ export default {
   openBreakouts,
   updateBreakouts,
   closeBreakouts,
+  getCallChat,
   setParticipantRole,
   transferHost,
   addInvitees,
