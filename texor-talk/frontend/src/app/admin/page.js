@@ -106,6 +106,8 @@ function PolicyPanel() {
         defaultVideoOffOnEntry: draft.defaultVideoOffOnEntry,
         screenShareDefault: draft.screenShareDefault,
         maxQuality: draft.maxQuality,
+        allowBreakouts: draft.allowBreakouts,
+        maxBreakoutRooms: draft.maxBreakoutRooms,
       });
       setPolicy(saved);
       setDraft(saved);
@@ -190,6 +192,19 @@ function PolicyPanel() {
             />
           </Field>
 
+          <Field
+            label="Breakout rooms per meeting"
+            hint="A bound on how many rooms one meeting can open at once. Splitting a meeting does not cost more bandwidth than leaving it whole — an SFU forwards streams, and four rooms of five forward far fewer than one room of twenty."
+            htmlFor="maxBreakoutRooms"
+          >
+            <input
+              id="maxBreakoutRooms" type="number" min="1" max="100" className="input"
+              value={draft.maxBreakoutRooms ?? 20}
+              disabled={draft.allowBreakouts === false}
+              onChange={(event) => set('maxBreakoutRooms', event.target.value)}
+            />
+          </Field>
+
           <Field label="Maximum participants" hint="0 means no limit." htmlFor="maxParticipants">
             <input
               id="maxParticipants" type="number" min="0" max="1000" className="input"
@@ -218,6 +233,7 @@ function PolicyPanel() {
         <div className="stack stack--tight" style={{ marginTop: '1.25rem' }}>
           {toggle('allowExternalGuests', 'Allow guests from outside the organisation', 'Off means only Texor Accounts on your domains can join anything.')}
           {toggle('forceLobbyForExternal', 'Always hold people from outside the organisation in the waiting room', 'Overrides a host who turned the waiting room off. It holds outside accounts as well as guests with no account.')}
+          {toggle('allowBreakouts', 'Hosts can split a meeting into breakout rooms', 'Off hides the control and refuses the request. Rooms already open are closed when the meeting ends either way.')}
           {toggle('defaultMuteOnEntry', 'New meetings mute people on entry', null)}
           {toggle('defaultVideoOffOnEntry', 'New meetings start with cameras off', null)}
         </div>

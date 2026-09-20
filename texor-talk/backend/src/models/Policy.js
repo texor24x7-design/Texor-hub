@@ -44,6 +44,18 @@ const policySchema = new Schema(
     screenShareDefault: { type: String, enum: ['everyone', 'hosts'], default: 'everyone' },
 
     /**
+     * Breakout rooms.
+     *
+     * The cap is a bound on how many rooms one meeting may open at once. It is
+     * not a bandwidth control: an SFU forwards streams, not rooms, and four
+     * rooms of five forward far fewer streams than one room of twenty — so
+     * splitting a meeting is cheaper than leaving it whole. The number is here
+     * so a meeting cannot open two hundred Routers by accident.
+     */
+    allowBreakouts: { type: Boolean, default: true },
+    maxBreakoutRooms: { type: Number, default: 20, min: 1, max: 100 },
+
+    /**
      * Admins beyond the ones seeded by ADMIN_EMAILS. The env list cannot be
      * edited away from in here, which is the lockout escape hatch.
      */

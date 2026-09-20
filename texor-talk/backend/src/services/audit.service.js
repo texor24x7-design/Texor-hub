@@ -30,6 +30,9 @@ export const ACTIONS = {
   POLICY_UPDATED: 'policy.updated',
   GUEST_ADMITTED_PASS: 'guest.pass_issued',
   HOST_TRANSFERRED: 'meeting.host_transferred',
+  BREAKOUTS_OPENED: 'breakouts.opened',
+  BREAKOUTS_CLOSED: 'breakouts.closed',
+  BREAKOUT_SELF_SELECTED: 'breakouts.self_selected',
 };
 
 // Field separator for the hashed form. A control character, so it cannot occur

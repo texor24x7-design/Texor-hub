@@ -20,6 +20,7 @@ import {
 } from '../media/signalling.js';
 import { connectedTexorIds } from '../media/room.js';
 import { admissionFor, isNarrowerAccess, isStricterLobby } from '../services/admission.service.js';
+import { assignedRoom } from '../services/breakout.service.js';
 import { availableTiers, effectiveTier, isTier, limitsFor } from '../services/quality.service.js';
 import {
   GUEST_COOKIE,
@@ -51,6 +52,7 @@ import {
   markPresent,
   reapStaleAttendance,
   rollForward,
+  saveReapplying,
 } from '../services/meeting.service.js';
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
@@ -109,6 +111,28 @@ export const createMeetingSchema = z
     message: 'Pick a start time before making the meeting repeat.',
     path: ['scheduledStart'],
   });
+
+/**
+ * A breakout plan as a host sends it.
+ *
+ * `key` is optional and only ever *matched*: a room the host is editing keeps
+ * its key, and anything unrecognised is given a fresh one rather than trusted.
+ * Keys label stored chat, so a rename must not silently orphan a transcript.
+ */
+const breakoutRoomInput = z.object({
+  key: z.string().max(12).optional(),
+  name: z.string().trim().max(60).default(''),
+  members: z.array(z.string().max(64)).default([]),
+});
+
+export const breakoutsSchema = z.object({
+  rooms: z.array(breakoutRoomInput).min(1).max(100),
+  // Null is meaningful: "run until I close them".
+  minutes: z.coerce.number().int().min(1).max(600).nullish(),
+  selfSelect: z.boolean().optional(),
+});
+
+export const breakoutsPatchSchema = breakoutsSchema.partial();
 
 export const updateMeetingSchema = z.object({
   title: z.string().min(1).max(140).optional(),
@@ -289,6 +313,25 @@ function presentMeeting(meeting, user, { policy } = {}) {
      */
     presentCount: connectedTexorIds(meeting.code).length,
 
+    /**
+     * The breakout plan, as everybody sees it.
+     *
+     * Not host-only: a participant has to be told which room they are in and,
+     * when self-selection is on, what the others are called. Membership is
+     * Texor ids, which the roster already carries, so this discloses nothing
+     * new about who is in the meeting.
+     */
+    breakouts: {
+      status: meeting.breakouts?.status ?? 'closed',
+      selfSelect: Boolean(meeting.breakouts?.selfSelect),
+      closesAt: meeting.breakouts?.closesAt ?? null,
+      rooms: (meeting.breakouts?.rooms ?? []).map((room) => ({
+        key: room.key,
+        name: room.name,
+        members: room.members,
+      })),
+    },
+
     attendance: isHost
       ? meeting.attendance.map((entry) => ({
           texorId: entry.texorId,
@@ -314,6 +357,8 @@ function presentMeeting(meeting, user, { policy } = {}) {
        */
       willWait: policy ? admissionFor({ meeting, user, policy }).outcome === 'knock' : undefined,
       canEdit: isHost,
+      /** Which breakout this person belongs to, or `''` for the main room. */
+      breakoutId: assignedRoom(meeting, user.texorId),
       response:
         meeting.invitees.find((invitee) => invitee.texorId === user.texorId)?.response ?? null,
     },
@@ -1028,6 +1073,11 @@ export async function removeParticipant(req, res) {
   meeting.cohostTexorIds = meeting.cohostTexorIds.filter((id) => id !== texorId);
   if (entry && !entry.leftAt) entry.leftAt = new Date();
 
+  // Somebody barred from the meeting is not a member of one of its rooms.
+  for (const room of meeting.breakouts?.rooms ?? []) {
+    room.members = room.members.filter((id) => id !== texorId);
+  }
+
   await meeting.save();
 
   ejectPeer(meeting.code, texorId, `${req.user.displayName} removed you from the meeting.`);
@@ -1041,6 +1091,182 @@ export async function removeParticipant(req, res) {
   });
 
   res.json({ meeting: presentMeeting(meeting, req.user) });
+}
+
+/**
+ * Breakout rooms: opening them, changing them, closing them.
+ *
+ * One document write per call. The plan is the record of who is in which room;
+ * where somebody *is* this second comes from the socket map, which is ground
+ * truth and needs no column. Keys are allocated here and never taken from the
+ * client — `resolveRoom` looks the id up in this meeting's own plan, so a made
+ * up key is refused rather than concatenated into somebody else's room.
+ */
+function planRooms(meeting, wanted, policy) {
+  if (!policy.allowBreakouts) {
+    throw ApiError.forbidden('Your organisation has turned breakout rooms off.');
+  }
+
+  if (wanted.length > policy.maxBreakoutRooms) {
+    throw ApiError.forbidden(
+      `Your organisation allows up to ${policy.maxBreakoutRooms} breakout rooms in one meeting.`,
+    );
+  }
+
+  const known = new Set((meeting.breakouts?.rooms ?? []).map((room) => room.key));
+  const inAttendance = new Set(meeting.attendance.map((entry) => entry.texorId));
+  const seen = new Set();
+  const taken = new Set();
+  let counter = meeting.breakouts?.nextRoomKey ?? 1;
+
+  for (const room of wanted) {
+    if (known.has(room.key) && !taken.has(room.key)) taken.add(room.key);
+
+    for (const texorId of room.members) {
+      if (seen.has(texorId)) {
+        throw ApiError.badRequest('Somebody was put in two rooms at once.');
+      }
+      if (!inAttendance.has(texorId)) {
+        throw ApiError.badRequest('You can only assign people who have been in the meeting.');
+      }
+      seen.add(texorId);
+    }
+  }
+
+  const rooms = wanted.map((room, index) => {
+    let key = known.has(room.key) ? room.key : null;
+
+    while (!key) {
+      const candidate = `b${counter}`;
+      counter += 1;
+      if (!known.has(candidate) && !taken.has(candidate)) key = candidate;
+    }
+    taken.add(key);
+
+    return { key, name: room.name || `Room ${index + 1}`, members: room.members };
+  });
+
+  return { rooms, nextRoomKey: counter };
+}
+
+/** Opens breakout rooms, replacing any previous plan. */
+export async function openBreakouts(req, res) {
+  const meeting = await loadMeeting(req.params.code);
+  requireHost(meeting, req.user);
+
+  const policy = await getPolicy();
+  const { rooms, nextRoomKey } = planRooms(meeting, req.body.rooms, policy);
+  const minutes = req.body.minutes ?? null;
+
+  const { meeting: saved } = await saveReapplying(meeting, (doc) => {
+    doc.breakouts = {
+      status: 'open',
+      rooms,
+      nextRoomKey,
+      selfSelect: req.body.selfSelect ?? false,
+      openedAt: new Date(),
+      closesAt: minutes ? new Date(Date.now() + minutes * 60_000) : null,
+      openedByTexorId: req.user.texorId,
+    };
+    return {};
+  });
+
+  /**
+   * One audit row carrying the whole assignment, rather than one per person.
+   * The chain is hashed in order, so fifty rows for one click would be fifty
+   * chances for a write to fail halfway through a record that is meant to be
+   * atomic — and the thing worth keeping is the split, not the individuals.
+   */
+  await record({
+    action: ACTIONS.BREAKOUTS_OPENED,
+    actor: req.user,
+    meeting: saved,
+    metadata: {
+      rooms: rooms.map((room) => ({ key: room.key, name: room.name, members: room.members })),
+      selfSelect: saved.breakouts.selfSelect,
+      closesAt: saved.breakouts.closesAt,
+    },
+    req,
+  });
+
+  logger.info('breakouts opened', {
+    code: saved.code,
+    rooms: rooms.length,
+    assigned: rooms.reduce((total, room) => total + room.members.length, 0),
+  });
+
+  res.json({ meeting: presentMeeting(saved, req.user, { policy }) });
+}
+
+/** Reassigns, renames, extends, or turns self-selection on and off. */
+export async function updateBreakouts(req, res) {
+  const meeting = await loadMeeting(req.params.code);
+  requireHost(meeting, req.user);
+
+  if (meeting.breakouts?.status !== 'open') {
+    throw ApiError.badRequest('The breakout rooms are not open.');
+  }
+
+  const policy = await getPolicy();
+  const planned = req.body.rooms ? planRooms(meeting, req.body.rooms, policy) : null;
+  const { minutes, selfSelect } = req.body;
+
+  const { meeting: saved } = await saveReapplying(meeting, (doc) => {
+    if (planned) {
+      doc.breakouts.rooms = planned.rooms;
+      doc.breakouts.nextRoomKey = planned.nextRoomKey;
+    }
+    if (selfSelect !== undefined) doc.breakouts.selfSelect = selfSelect;
+    // Measured from now, not from when the rooms opened: "give them five more
+    // minutes" is what a host means by this.
+    if (minutes !== undefined) {
+      doc.breakouts.closesAt = minutes ? new Date(Date.now() + minutes * 60_000) : null;
+    }
+    return {};
+  });
+
+  res.json({ meeting: presentMeeting(saved, req.user, { policy }) });
+}
+
+/**
+ * Closes the rooms and brings everyone back.
+ *
+ * The rooms themselves are kept: their names label the chat that happened in
+ * them, and reopening the same groups is then one click.
+ */
+export async function closeBreakouts(req, res) {
+  const meeting = await loadMeeting(req.params.code);
+  requireHost(meeting, req.user);
+
+  const openedAt = meeting.breakouts?.openedAt ?? null;
+  const wasOpen = meeting.breakouts?.status === 'open';
+
+  const { meeting: saved } = await saveReapplying(meeting, (doc) => {
+    doc.breakouts.status = 'closed';
+    doc.breakouts.closesAt = null;
+    return {};
+  });
+
+  if (wasOpen) {
+    await record({
+      action: ACTIONS.BREAKOUTS_CLOSED,
+      actor: req.user,
+      meeting: saved,
+      metadata: {
+        reason: 'host',
+        durationMs: openedAt ? Date.now() - openedAt.getTime() : null,
+      },
+      req,
+    });
+
+    logger.info('breakouts closed', {
+      code: saved.code,
+      reason: 'host',
+      durationMs: openedAt ? Date.now() - openedAt.getTime() : null,
+    });
+  }
+
+  res.json({ meeting: presentMeeting(saved, req.user) });
 }
 
 /** Promotes someone to co-host, or puts them back. Host only — not co-hosts. */
@@ -1275,6 +1501,9 @@ export default {
   leaveMeeting,
   endMeetingNow,
   removeParticipant,
+  openBreakouts,
+  updateBreakouts,
+  closeBreakouts,
   setParticipantRole,
   transferHost,
   addInvitees,

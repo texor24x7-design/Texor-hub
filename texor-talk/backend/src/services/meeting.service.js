@@ -582,6 +582,11 @@ export async function endMeeting({ meeting, reason, now = new Date() }) {
   // and "everyone knocks" means everyone again.
   meeting.admittedTexorIds = [];
 
+  // Breakouts end with the meeting they belong to. The rooms themselves are
+  // closed by the signalling layer, which has the sockets.
+  meeting.breakouts.status = 'closed';
+  meeting.breakouts.closesAt = null;
+
   // Everybody in the waiting room is waiting for a door that is now shut.
   await Knock.updateMany(
     { meeting: meeting._id, status: 'waiting' },
@@ -618,8 +623,10 @@ export function rollForward(meeting, now = new Date()) {
   meeting.activeMs = 0;
   meeting.activeSince = null;
   meeting.actingHostTexorId = null;
-  // Last week's pass does not open this week's door.
+  // Last week's pass does not open this week's door, and last week's groups are
+  // not this week's either.
   meeting.admittedTexorIds = [];
+  meeting.breakouts = { status: 'closed', rooms: [], nextRoomKey: 1, selfSelect: false, openedAt: null, closesAt: null, openedByTexorId: null };
   return true;
 }
 

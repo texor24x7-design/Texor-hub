@@ -80,6 +80,54 @@ const settingsSchema = new Schema(
   { _id: false },
 );
 
+/**
+ * One breakout room: a name, and who belongs in it.
+ *
+ * `key` is the suffix of the media room key — `b1` becomes `abc-defg-hij#b1`,
+ * a Router of its own, which is what makes the isolation structural rather than
+ * something every future feature has to remember to filter.
+ *
+ * Membership lives here and nowhere else. It is deliberately *not* a column on
+ * the attendance row: attendance is one row per person per meeting, and where
+ * somebody is right now is a question the socket map answers for free. Putting
+ * a room on the attendance row would invite exactly the per-room filtering that
+ * the union in `media/room.js` exists to avoid.
+ */
+const breakoutRoomSchema = new Schema(
+  {
+    key: { type: String, required: true },
+    name: { type: String, default: '', maxlength: 60 },
+    members: { type: [String], default: [] },
+  },
+  { _id: false },
+);
+
+const breakoutsSchema = new Schema(
+  {
+    status: { type: String, enum: ['closed', 'open'], default: 'closed' },
+    rooms: { type: [breakoutRoomSchema], default: [] },
+
+    /** Whether people may move themselves between rooms. */
+    selfSelect: { type: Boolean, default: false },
+
+    /**
+     * The next room number to hand out, and never a number handed out before.
+     *
+     * A key labels the chat that happened in the room, so giving a retired key
+     * to a new room would file two different conversations under one heading.
+     * Counting the current rooms is not enough — the retired ones are gone from
+     * that list and their transcripts are not.
+     */
+    nextRoomKey: { type: Number, default: 1, min: 1 },
+
+    openedAt: { type: Date, default: null },
+    /** When the rooms close by themselves. Null means they run until the host says. */
+    closesAt: { type: Date, default: null },
+    openedByTexorId: { type: String, default: null },
+  },
+  { _id: false },
+);
+
 const meetingSchema = new Schema(
   {
     code: { type: String, required: true, unique: true, index: true },
@@ -183,6 +231,16 @@ const meetingSchema = new Schema(
      * checked first, so ejecting someone still overrides this.
      */
     admittedTexorIds: { type: [String], default: [] },
+
+    /**
+     * The breakout plan.
+     *
+     * Kept even while closed, so reopening the same groups is one click and so
+     * a room's name still labels its chat afterwards. Cleared when the meeting
+     * ends and when a recurring meeting rolls to its next occurrence — last
+     * week's groups are not this week's.
+     */
+    breakouts: { type: breakoutsSchema, default: () => ({}) },
 
     createdBy: { type: String, required: true },
   },

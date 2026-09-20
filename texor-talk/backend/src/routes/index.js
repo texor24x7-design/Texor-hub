@@ -17,7 +17,10 @@ import {
 } from '../controllers/channel.controller.js';
 import {
   addInvitees,
+  breakoutsPatchSchema,
+  breakoutsSchema,
   cancelKnock,
+  closeBreakouts,
   cancelMeeting,
   createMeeting,
   createMeetingSchema,
@@ -36,6 +39,7 @@ import {
   knockDecisionSchema,
   leaveMeeting,
   listKnocks,
+  openBreakouts,
   listMeetings,
   listMeetingsSchema,
   removeInvitee,
@@ -46,6 +50,7 @@ import {
   setParticipantRole,
   transferHost,
   transferSchema,
+  updateBreakouts,
   updateMeeting,
   updateMeetingSchema,
 } from '../controllers/meeting.controller.js';
@@ -167,6 +172,12 @@ export function createApiRouter() {
   router.post('/meetings/:code/participants/:texorId/role', validate(roleSchema), setParticipantRole);
   router.post('/meetings/:code/host', validate(transferSchema), transferHost);
   router.delete('/meetings/:code/participants/:texorId', removeParticipant);
+
+  // Host only, via the same `requireHost` every other meeting edit uses — which
+  // covers co-hosts and whoever is standing in while the host is away.
+  router.post('/meetings/:code/breakouts', validate(breakoutsSchema), openBreakouts);
+  router.patch('/meetings/:code/breakouts', validate(breakoutsPatchSchema), updateBreakouts);
+  router.delete('/meetings/:code/breakouts', closeBreakouts);
 
   // Invitations.
   router.post('/meetings/:code/invitees', validate(inviteeSchema), addInvitees);

@@ -338,6 +338,106 @@ check('a saver ceiling offers the host nothing to raise to',
   (await call(host, `/api/meetings/${saverEra.body.meeting.code}`)).body.meeting.qualityOptions?.length === 1);
 await call(admin, '/api/admin/policy', { method: 'PUT', body: { maxQuality: 'high' } });
 
+console.log('\n── breakout rooms: the host splits the meeting, the server keeps the plan ──');
+const bo = await call(host, '/api/meetings', { method: 'POST', body: { title: 'breakouts' } });
+const boCode = bo.body.meeting.code;
+check('a new meeting has no breakouts', bo.body.meeting.breakouts.status === 'closed', JSON.stringify(bo.body.meeting.breakouts));
+check('and nobody is in one', bo.body.meeting.viewer.breakoutId === '', bo.body.meeting.viewer.breakoutId);
+
+await call(host, `/api/meetings/${boCode}/join`, { method: 'POST' });
+await call(member, `/api/meetings/${boCode}/join`, { method: 'POST' });
+
+const opened = await call(host, `/api/meetings/${boCode}/breakouts`, {
+  method: 'POST',
+  body: { rooms: [{ name: 'Blue', members: [member.texorId] }, { members: [] }], minutes: 10 },
+});
+check('the host opens rooms', opened.status === 200 && opened.body.meeting.breakouts.status === 'open',
+  `${opened.status} ${JSON.stringify(opened.body).slice(0, 200)}`);
+check('the server names the keys, not the client',
+  opened.body.meeting.breakouts.rooms.map((r) => r.key).join(',') === 'b1,b2',
+  JSON.stringify(opened.body.meeting.breakouts.rooms));
+check('an unnamed room is called something',
+  opened.body.meeting.breakouts.rooms[1].name === 'Room 2', opened.body.meeting.breakouts.rooms[1].name);
+check('a timer becomes a moment to close at',
+  new Date(opened.body.meeting.breakouts.closesAt) - Date.now() > 9 * 60_000,
+  String(opened.body.meeting.breakouts.closesAt));
+check('the host is not in a room of their own', opened.body.meeting.viewer.breakoutId === '');
+
+const memberSees = await call(member, `/api/meetings/${boCode}`);
+check('somebody assigned is told which room they are in',
+  memberSees.body.meeting.viewer.breakoutId === 'b1', memberSees.body.meeting.viewer.breakoutId);
+check('and can see what the rooms are called',
+  memberSees.body.meeting.breakouts.rooms[0].name === 'Blue');
+
+check('a non-host cannot open rooms',
+  (await call(member, `/api/meetings/${boCode}/breakouts`, { method: 'POST', body: { rooms: [{ members: [] }] } })).status === 403);
+check('a non-host cannot change them',
+  (await call(member, `/api/meetings/${boCode}/breakouts`, { method: 'PATCH', body: { selfSelect: true } })).status === 403);
+check('a non-host cannot close them',
+  (await call(member, `/api/meetings/${boCode}/breakouts`, { method: 'DELETE' })).status === 403);
+
+const twice = await call(host, `/api/meetings/${boCode}/breakouts`, {
+  method: 'POST',
+  body: { rooms: [{ key: 'b1', members: [member.texorId] }, { key: 'b2', members: [member.texorId] }] },
+});
+check('nobody can be in two rooms at once', twice.status === 400, `${twice.status} ${JSON.stringify(twice.body)}`);
+
+const stranger = await call(host, `/api/meetings/${boCode}/breakouts`, {
+  method: 'POST', body: { rooms: [{ members: ['tx-nobody'] }] },
+});
+check('and only people who have been in the meeting can be assigned',
+  stranger.status === 400, `${stranger.status} ${JSON.stringify(stranger.body)}`);
+
+await call(admin, '/api/admin/policy', { method: 'PUT', body: { maxBreakoutRooms: 2 } });
+const overCap = await call(host, `/api/meetings/${boCode}/breakouts`, {
+  method: 'POST', body: { rooms: [{ members: [] }, { members: [] }, { members: [] }] },
+});
+check('the organisation caps how many rooms one meeting opens', overCap.status === 403, `${overCap.status} ${JSON.stringify(overCap.body)}`);
+check('and the refusal says what the cap is', /2/.test(overCap.body.error?.message ?? ''), JSON.stringify(overCap.body));
+await call(admin, '/api/admin/policy', { method: 'PUT', body: { maxBreakoutRooms: 20 } });
+
+// Keys outlive an edit, because they label the chat that happened in them.
+const renamed = await call(host, `/api/meetings/${boCode}/breakouts`, {
+  method: 'PATCH',
+  body: { rooms: [{ key: 'b1', name: 'Green', members: [] }], selfSelect: true },
+});
+check('renaming a room keeps its key', renamed.body.meeting.breakouts.rooms[0].key === 'b1',
+  JSON.stringify(renamed.body.meeting.breakouts.rooms));
+check('and the rename lands', renamed.body.meeting.breakouts.rooms[0].name === 'Green');
+check('self-selection can be turned on', renamed.body.meeting.breakouts.selfSelect === true);
+check('dropping a room takes its members out of it',
+  (await call(member, `/api/meetings/${boCode}`)).body.meeting.viewer.breakoutId === '');
+
+const added = await call(host, `/api/meetings/${boCode}/breakouts`, {
+  method: 'PATCH', body: { rooms: [{ key: 'b1', members: [] }, { name: 'New', members: [] }] },
+});
+check('a room added later does not inherit a retired key',
+  added.body.meeting.breakouts.rooms.map((r) => r.key).join(',') === 'b1,b3',
+  JSON.stringify(added.body.meeting.breakouts.rooms));
+
+const closed = await call(host, `/api/meetings/${boCode}/breakouts`, { method: 'DELETE' });
+check('closing ends the breakout', closed.body.meeting.breakouts.status === 'closed');
+check('but keeps the rooms, so the same groups reopen in one click',
+  closed.body.meeting.breakouts.rooms.length === 2, JSON.stringify(closed.body.meeting.breakouts.rooms));
+check('and stops the clock', closed.body.meeting.breakouts.closesAt === null);
+check('changing a closed breakout is refused',
+  (await call(host, `/api/meetings/${boCode}/breakouts`, { method: 'PATCH', body: { selfSelect: false } })).status === 400);
+
+// The plan does not outlive the meeting it belongs to.
+await call(host, `/api/meetings/${boCode}/breakouts`, { method: 'POST', body: { rooms: [{ members: [member.texorId] }] } });
+await call(host, `/api/meetings/${boCode}/end`, { method: 'POST' });
+const afterEnd = await call(host, `/api/meetings/${boCode}`);
+check('ending the meeting closes the rooms', afterEnd.body.meeting.breakouts.status === 'closed',
+  JSON.stringify(afterEnd.body.meeting.breakouts));
+
+const trail = await db.collection('auditevents').find({ meetingCode: boCode }).toArray();
+const openRow = trail.find((row) => row.action === 'breakouts.opened');
+check('opening is audited', Boolean(openRow));
+check('and the row carries the whole assignment, not just that it happened',
+  Array.isArray(openRow?.metadata?.rooms) && openRow.metadata.rooms[0].members.length === 1,
+  JSON.stringify(openRow?.metadata));
+check('closing is audited too', trail.some((row) => row.action === 'breakouts.closed'));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await mongoose.disconnect();
 process.exit(fail === 0 ? 0 : 1);

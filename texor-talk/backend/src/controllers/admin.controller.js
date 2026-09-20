@@ -27,6 +27,8 @@ export const policySchema = z.object({
   defaultVideoOffOnEntry: z.boolean().optional(),
   screenShareDefault: z.enum(['everyone', 'hosts']).optional(),
   maxQuality: z.enum(['saver', 'standard', 'high']).optional(),
+  allowBreakouts: z.boolean().optional(),
+  maxBreakoutRooms: z.coerce.number().int().min(1).max(100).optional(),
   adminTexorIds: z.array(z.string().min(1)).max(200).optional(),
 });
 
@@ -70,6 +72,8 @@ const presentPolicy = (policy) => ({
   defaultVideoOffOnEntry: policy.defaultVideoOffOnEntry,
   screenShareDefault: policy.screenShareDefault,
   maxQuality: policy.maxQuality,
+  allowBreakouts: policy.allowBreakouts,
+  maxBreakoutRooms: policy.maxBreakoutRooms,
   adminTexorIds: policy.adminTexorIds,
   updatedAt: policy.updatedAt,
   updatedBy: policy.updatedByName,
