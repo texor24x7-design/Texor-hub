@@ -60,9 +60,12 @@ async function rest(user, path, { method = 'GET', body } = {}) {
 
 /** A headless participant: socket, device, transports, producers, consumers. */
 class TestPeer {
-  constructor(user, code) {
+  constructor(user, code, room = null) {
     this.user = user;
     this.code = code;
+    // Which room of the meeting to ask for. null sends no `room` parameter at
+    // all, which is how a client says "wherever I belong".
+    this.room = room;
     this.pending = new Map();
     this.nextId = 1;
     this.events = [];
@@ -81,7 +84,8 @@ class TestPeer {
 
   connect() {
     return new Promise((resolve, reject) => {
-      this.socket = new WebSocket(`${API.replace(/^http/, 'ws')}/ws/meeting?code=${this.code}`, {
+      const query = `code=${this.code}${this.room === null ? '' : `&room=${encodeURIComponent(this.room)}`}`;
+      this.socket = new WebSocket(`${API.replace(/^http/, 'ws')}/ws/meeting?${query}`, {
         headers: { cookie: this.user.cookie },
       });
 
@@ -932,6 +936,39 @@ await rest(host, `/api/meetings/${lobbyCode}/participants/tx-return`, { method: 
 const afterRemoval = await rest(returner, `/api/meetings/${lobbyCode}/join`, { method: 'POST' });
 check('but being removed still overrides it', afterRemoval.status === 403,
   JSON.stringify(afterRemoval.body).slice(0, 120));
+
+console.log('\n── asking for a room of a meeting that has none ──');
+{
+  /**
+   * Breakout rooms are not wired up yet. Until they are, a client asking for
+   * one has to land in the meeting rather than being refused or, worse, opening
+   * a room nobody can see it in.
+   */
+  const plain = await rest(host, '/api/meetings', {
+    method: 'POST', body: { title: 'No breakouts here', lobby: 'off', access: 'texor' },
+  });
+  const pCode = plain.body.meeting.code;
+  await rest(host, `/api/meetings/${pCode}/join`, { method: 'POST' });
+
+  const asker = new TestPeer(host, pCode, 'b1');
+  await asker.connect();
+  check('they land in the meeting itself', Boolean(asker.welcome));
+
+  const second = await seedUser({ texorId: 'tx-plain', email: 'plain@texor.app', displayName: 'Pat Plain' });
+  await rest(second, `/api/meetings/${pCode}/join`, { method: 'POST' });
+  const other = new TestPeer(second, pCode, '');
+  await other.connect();
+
+  // The proof they are in the same room: each can see the other.
+  await wait(300);
+  const rosters = other.seen('roster').map((event) => event.data.peers ?? []);
+  const sawHost = other.welcome.peers.some((peer) => peer.texorId === 'tx-host')
+    || rosters.some((peers) => peers.some((peer) => peer.texorId === 'tx-host'));
+  check('and are in it together, not in rooms of their own', sawHost);
+
+  asker.close();
+  other.close();
+}
 
 console.log('\n── a pass lasts the sitting, and no longer ──');
 {

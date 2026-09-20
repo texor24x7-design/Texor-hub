@@ -173,7 +173,7 @@ let failures = 0;
  * rule fails in a second rather than after a full media negotiation.
  */
 for (const file of ['speaker.test.mjs', 'fullscreen.test.mjs', 'media-errors.test.mjs', 'tile-layout.test.mjs', 'quality.test.mjs',
-  'notes-doc.test.mjs', 'meeting-lifecycle.test.mjs', 'notes-sync.test.mjs', 'admission.test.mjs', 'rooms.test.mjs']) {
+  'notes-doc.test.mjs', 'meeting-lifecycle.test.mjs', 'notes-sync.test.mjs', 'admission.test.mjs', 'rooms.test.mjs', 'breakouts.test.mjs']) {
   failures += (await runSuite(file)) === 0 ? 0 : 1;
 }
 

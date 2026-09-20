@@ -32,6 +32,7 @@ import {
   saveReapplying,
   syncActiveTime,
 } from '../services/meeting.service.js';
+import { resolveRoom } from '../services/breakout.service.js';
 import {
   Peer,
   closeRoom,
@@ -154,12 +155,42 @@ async function handleConnection(socket, request) {
 
   const { role } = decision;
 
-  // ── Media ──
-  const room = await getOrCreateRoom(meeting.code);
+  // ── Which room of this meeting ──
+  /**
+   * Admission is settled above, and is about the *meeting*. This is a narrower
+   * question — which of its rooms — and the answer is the server's, not the
+   * client's. No `room` parameter at all means "wherever I belong", which is
+   * what puts somebody back in their breakout after a refresh.
+   */
+  let breakout;
+  try {
+    breakout = resolveRoom({
+      meeting,
+      texorId: user.texorId,
+      role,
+      requested: url.searchParams.has('room') ? url.searchParams.get('room') : null,
+    });
+  } catch (error) {
+    return refuse(socket, error.code ?? 'forbidden', error.message);
+  }
 
-  // One socket per person. A second tab is a reconnect, not a second seat, and
-  // leaving the old peer open would strand its transports on the worker.
-  room.removePeer(user.texorId);
+  // ── Media ──
+  const room = await getOrCreateRoom(meeting.code, breakout);
+
+  /**
+   * One socket per person, per meeting — not per room.
+   *
+   * A second tab is a reconnect, not a second seat, and leaving the old peer
+   * open would strand its transports on the worker. Sweeping only the room
+   * being arrived at would do that too, once a move between rooms is what this
+   * path is: the peer left behind would go on producing audio into the room
+   * they had just left.
+   */
+  const previous = removePeerEverywhere(meeting.code, user.texorId);
+  if (previous && previous !== room) {
+    broadcastAll(previous, { type: 'peerLeft', data: { texorId: user.texorId } });
+    broadcastRoster(previous);
+  }
 
   const peer = room.addPeer(
     new Peer({
@@ -203,7 +234,10 @@ async function handleConnection(socket, request) {
   }
 
   // Read by the room ticker, which sweeps by meeting rather than by socket.
+  // The meeting for every database, policy and ticker lookup; the room key for
+  // the media handle. They are the same string until a breakout is open.
   socket.meetingCode = meeting.code;
+  socket.roomKey = room.key;
   socket.isAlive = true;
   socket.on('pong', () => { socket.isAlive = true; });
 
