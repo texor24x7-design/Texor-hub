@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import * as records from '../services/record.service.js';
+import { contentTypeOf, extensionOf, parse as parseSheetFile, toCsv, toXlsx } from '../services/sheet.service.js';
 import Item from '../models/Item.js';
 import Invoice from '../models/Invoice.js';
 import { history as stockHistory, move as moveStock } from '../services/stock.service.js';
@@ -10,6 +11,7 @@ import mongoose from 'mongoose';
 import { record as audit } from '../services/audit.service.js';
 
 const moduleKey = (req) => req.params.module;
+const MAX_IMPORT_ROWS = 2000;
 
 export const list = async (req, res) => res.json(await records.list(req, moduleKey(req), req.query));
 export const get = async (req, res) => res.json(await records.get(req, moduleKey(req), req.params.id));
@@ -21,16 +23,39 @@ export async function remove(req, res) {
   res.json({ ok: true });
 }
 
-export async function exportCsv(req, res) {
-  const csv = await records.exportCsv(req, moduleKey(req), req.query);
-  res.set('content-type', 'text/csv; charset=utf-8');
-  res.set('content-disposition', `attachment; filename="${moduleKey(req)}-${new Date().toISOString().slice(0, 10)}.csv"`);
-  res.send(csv);
+/** The same rows as a `.xlsx` or a `.csv` — `?format=` picks, and everything else about them is identical. */
+export async function exportSheet(req, res) {
+  const format = req.query.format === 'xlsx' ? 'xlsx' : 'csv';
+  const { format: _f, ...query } = req.query;
+  const rows = await records.exportRows(req, moduleKey(req), query);
+
+  res.set('content-type', contentTypeOf(format));
+  res.set('content-disposition', `attachment; filename="${moduleKey(req)}-${new Date().toISOString().slice(0, 10)}.${extensionOf(format)}"`);
+  res.send(format === 'xlsx' ? await toXlsx(rows) : toCsv(rows));
 }
 
-export const importSchema = z.object({ rows: z.array(z.record(z.string(), z.any())).min(1).max(2000) });
+/**
+ * A spreadsheet read back as rows, so the browser can show what it found and ask
+ * which column is which. Nothing is stored: the file is read and dropped.
+ */
+export async function parseSheet(req, res) {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) throw ApiError.badRequest('Choose a file to import.');
+  let rows;
+  try {
+    rows = await parseSheetFile(req.body);
+  } catch (error) {
+    throw ApiError.badRequest(error.message?.startsWith('That is an old') ? error.message : 'That file could not be read as a spreadsheet. Save it as .xlsx or CSV and try again.');
+  }
+  if (rows.length < 2) throw ApiError.badRequest('That file has a heading row but nothing under it.');
+  res.json({ rows: rows.slice(0, MAX_IMPORT_ROWS + 1).map((row) => row.slice(0, 60)), truncated: rows.length > MAX_IMPORT_ROWS + 1 });
+}
 
-export const importRows = async (req, res) => res.json(await records.importRows(req, moduleKey(req), req.body.rows));
+export const importSchema = z.object({
+  rows: z.array(z.record(z.string(), z.any())).min(1).max(MAX_IMPORT_ROWS),
+  updateExisting: z.boolean().default(true),
+});
+
+export const importRows = async (req, res) => res.json(await records.importRows(req, moduleKey(req), req.body.rows, { updateExisting: req.body.updateExisting }));
 
 /**
  * The catalogue picker used by line items everywhere: products and services

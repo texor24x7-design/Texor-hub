@@ -37,7 +37,7 @@ function Preview({ kind, id, design, version }) {
 }
 
 export function DocumentView({ module, id }) {
-  const { api, slug, href, can, currency, module: moduleOf, prefs } = useWorkspace();
+  const { api, slug, href, can, currency, member, module: moduleOf, prefs } = useWorkspace();
   const router = useRouter();
   const params = useSearchParams();
   const toast = useToast();
@@ -136,7 +136,10 @@ export function DocumentView({ module, id }) {
   const setDesign = (design) => act('design', () => api.patch(`/documents/${kind}/${id}`, { design }), 'Design changed');
   const setDue = (dueDate) => act('due', () => api.patch(`/documents/${kind}/${id}`, { dueDate: dueDate || null }), 'Due date updated');
 
-  const editable = isInvoice ? doc.status === 'draft' : ['draft', 'sent'].includes(doc.status);
+  // An issued invoice is final for everyone but the owner, who may correct a
+  // wrong figure rather than leave the business with no way to fix it.
+  const amendable = isInvoice && member?.role === 'owner' && ['issued', 'partial', 'paid'].includes(doc.status);
+  const editable = amendable || (isInvoice ? doc.status === 'draft' : ['draft', 'sent'].includes(doc.status));
   const needsIssuer = isInvoice && doc.status === 'draft' && !can('invoices', 'approve');
   const pdfUrl = api.url(`/documents/${kind}/${id}/pdf?download=1`);
   const publicLink = doc.publicToken && !(isInvoice && doc.status === 'draft') ? `${window.location.origin}/d/${doc.publicToken}` : null;

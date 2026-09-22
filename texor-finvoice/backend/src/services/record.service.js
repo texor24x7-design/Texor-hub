@@ -481,20 +481,15 @@ export async function remove(req, moduleKey, id) {
   await audit(req, { action: 'record.deleted', module: moduleKey, recordId: doc._id, summary: `Deleted ${module.labelSingular.toLowerCase()}` });
 }
 
-// ── CSV ───────────────────────────────────────────────────────────────────────
-
-const csvCell = (value) => {
-  const text = value == null ? '' : String(value);
-  // Leading =, +, - or @ is a formula to a spreadsheet; prefix it so a customer
-  // named "=HYPERLINK(...)" is exported as text.
-  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
-  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
-};
+// ── spreadsheets ──────────────────────────────────────────────────────────────
 
 function exportValue(field, value, refs, workspace) {
   if (value == null) return '';
   switch (field.type) {
-    case 'currency': return (value / 100).toFixed(2);
+    // Numbers stay numbers: a column of prices that a spreadsheet cannot sum is
+    // not much of an export.
+    case 'currency': return Number((value / 100).toFixed(2));
+    case 'number': case 'percent': return Number(value);
     case 'reference': return refs[String(value)]?.title ?? '';
     case 'multiselect': return value.join('; ');
     case 'checkbox': return value ? 'Yes' : 'No';
@@ -508,26 +503,106 @@ function exportValue(field, value, refs, workspace) {
   }
 }
 
-export async function exportCsv(req, moduleKey, query) {
+const PAGE = 500;
+/** A whole catalogue, not one page of it — but not so much that one click can exhaust the server. */
+const EXPORT_MAX = 20000;
+
+/** The module's records as rows of cell values, headings first, ready for any file format. */
+export async function exportRows(req, moduleKey, query) {
   const module = requireUsableModule(req.workspace, moduleKey);
   const hidden = new Set(hiddenFields(req.workspace, req.member, moduleKey));
-  const { records, refs } = await list(req, moduleKey, { ...query, limit: 500, page: 1 });
-  // Exports are capped at 500 per page; the client asks for further pages.
   const fields = module.fields.filter((f) => !hidden.has(f.key) && !['image', 'file'].includes(f.type));
-  const lines = [fields.map((f) => csvCell(f.label)).join(',')];
-  for (const record of records) {
-    lines.push(fields.map((f) => csvCell(exportValue(f, f.custom ? record.custom?.[f.key] : record[f.key], refs, req.workspace))).join(','));
+
+  const rows = [fields.map((f) => f.label)];
+  for (let page = 1; rows.length <= EXPORT_MAX; page += 1) {
+    const { records, refs } = await list(req, moduleKey, { ...query, limit: PAGE, page });
+    for (const record of records) {
+      rows.push(fields.map((f) => exportValue(f, f.custom ? record.custom?.[f.key] : record[f.key], refs, req.workspace)));
+    }
+    if (records.length < PAGE) break;
   }
-  return `﻿${lines.join('\r\n')}\r\n`;
+  return rows;
 }
 
-/** Rows arrive already mapped to field keys by the browser. Valid rows are inserted; the rest are reported. */
-export async function importRows(req, moduleKey, rows) {
-  const results = { created: 0, errors: [] };
+// ── importing ─────────────────────────────────────────────────────────────────
+
+/**
+ * How an imported row is recognised as one that already exists, in the order
+ * tried. A module missing from here can only ever create.
+ *
+ * ponytail: matched one row at a time, case-insensitively, so a 2000-row file is
+ * 2000 indexed lookups per key. Batch them per column if imports get slow.
+ */
+const MATCH_ON = {
+  products: ['sku', 'barcode', 'name'],
+  services: ['sku', 'name'],
+  packages: ['sku', 'name'],
+  customers: ['phone', 'email', 'gstin', 'name'],
+  staff: ['phone', 'email', 'name'],
+};
+
+async function findExisting(req, moduleKey, row) {
+  const keys = MATCH_ON[moduleKey];
+  if (!keys) return null;
+  const { model, base } = storeFor(moduleKey);
+  for (const key of keys) {
+    const value = typeof row[key] === 'string' ? row[key].trim() : row[key];
+    if (!value) continue;
+    const filter = { workspace: req.workspace._id, deletedAt: null, ...base, [key]: new RegExp(`^${escapeRegex(String(value))}$`, 'i') };
+    if (req.scope === 'own') filter.createdBy = req.user._id;
+    const doc = await model.findOne(filter).select('_id stock trackStock name').lean();
+    if (doc) return doc;
+  }
+  return null;
+}
+
+/**
+ * Stock from a spreadsheet. `stock` is what is on the shelf now — a stocktake —
+ * and `addStock` is a delivery being received. Both become ledger rows rather
+ * than a written-over number, so the count still adds up afterwards.
+ */
+async function applyStock(req, moduleKey, existing, counted, received) {
+  if (moduleKey !== 'products') return;
+  const quantity = Number.isFinite(received) && received !== 0
+    ? received
+    : (Number.isFinite(counted) ? counted - (existing.stock ?? 0) : NaN);
+  if (!Number.isFinite(quantity) || quantity === 0) return;
+
+  // `move` only touches an item that is tracking stock, so its refusal — rather
+  // than a flag read before the row was applied — is what says the count cannot
+  // land. The row may have switched tracking on a moment ago.
+  const movement = await stock.move({
+    workspace: req.workspace._id,
+    item: existing._id,
+    quantity,
+    reason: Number.isFinite(received) && received !== 0 ? 'purchase' : 'adjustment',
+    note: 'Imported',
+    user: req.user._id,
+  });
+  if (!movement) throw ApiError.badRequest('Turn on stock tracking for this product before importing a count for it.');
+}
+
+/**
+ * Rows arrive already mapped to field keys by the browser. A row that matches a
+ * record already here updates it — importing the same price list twice is meant
+ * to correct prices, not to double the catalogue — unless the person said not
+ * to. Whatever a row cannot do is reported against its line number.
+ */
+export async function importRows(req, moduleKey, rows, { updateExisting = true } = {}) {
+  const results = { created: 0, updated: 0, errors: [] };
   for (const [index, row] of rows.entries()) {
+    const { stock: counted, addStock, ...values } = row;
     try {
-      await create(req, moduleKey, row);
-      results.created += 1;
+      const existing = updateExisting ? await findExisting(req, moduleKey, values) : null;
+      if (existing) {
+        await update(req, moduleKey, existing._id, values);
+        results.updated += 1;
+        await applyStock(req, moduleKey, existing, Number(counted), Number(addStock));
+      } else {
+        // Nothing to count against yet, so either column is simply the opening count.
+        await create(req, moduleKey, { ...values, openingStock: counted ?? addStock });
+        results.created += 1;
+      }
     } catch (error) {
       results.errors.push({ row: index + 1, message: error.message, details: error.details ?? [] });
     }

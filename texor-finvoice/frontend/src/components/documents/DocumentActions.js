@@ -5,10 +5,10 @@ import Link from 'next/link';
 import { Copy, Mail, MessageCircle, Send } from 'lucide-react';
 import { Alert, Button, Dialog, Field, Segmented, useToast } from '@/components/ui';
 import { FieldInput } from '@/components/fields/FieldInput';
-import { MoneyInput } from '@/components/fields/MoneyInput';
 import { invalidate, useResource } from '@/lib/data';
 import { money, toDateInput } from '@/lib/format';
 import { useWorkspace } from '@/lib/workspace';
+import { SplitPayment, receivedOf } from './SplitPayment';
 
 export function PaymentDialog({ open, onClose, document, onRecorded }) {
   const { api, slug, prefs, currency, module } = useWorkspace();
@@ -19,19 +19,33 @@ export function PaymentDialog({ open, onClose, document, onRecorded }) {
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
 
+  const modes = prefs.paymentModes?.length ? prefs.paymentModes : ['Cash'];
+  const rows = form.rows ?? [];
+  const received = receivedOf(rows);
+
   useEffect(() => {
-    if (open) setForm({ amountMinor: document.amountDueMinor, date: toDateInput(new Date()), mode: prefs.paymentModes?.[0] ?? 'Cash', reference: '', note: '', custom: {} });
+    if (open) {
+      setForm({
+        rows: [{ mode: modes[0], amountMinor: document.amountDueMinor }],
+        date: toDateInput(new Date()), reference: '', note: '', custom: {},
+      });
+    }
     setErrors({});
-  }, [open, document.amountDueMinor, prefs.paymentModes]);
+  }, [open, document.amountDueMinor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function save() {
     setBusy(true);
     try {
-      await api.post(`/documents/invoices/${document._id}/payments`, { ...form, date: new Date(`${form.date}T12:00:00`).toISOString() });
+      const { rows: tenders, date, ...rest } = form;
+      // One request, one transaction: a split is never half-recorded.
+      await api.post(`/documents/invoices/${document._id}/payments`, {
+        payments: tenders.filter((row) => Number(row.amountMinor) > 0)
+          .map((row) => ({ ...rest, mode: row.mode, amountMinor: row.amountMinor, date: new Date(`${date}T12:00:00`).toISOString() })),
+      });
       invalidate(`documents:${slug}:invoices`);
       invalidate(`dashboard:${slug}`);
       invalidate(`payments:${slug}`);
-      toast(`Payment of ${money(form.amountMinor, currency)} recorded`);
+      toast(`Payment of ${money(received, currency)} recorded`);
       onRecorded();
       onClose();
     } catch (error) {
@@ -41,22 +55,13 @@ export function PaymentDialog({ open, onClose, document, onRecorded }) {
 
   return (
     <Dialog open={open} onClose={onClose} title="Record a payment" description={`${document.number} · ${money(document.amountDueMinor, currency)} still owed`}
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={save} loading={busy}>Record payment</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={save} loading={busy} disabled={received <= 0 || received > document.amountDueMinor}>Record payment</Button></>}>
       <div className="stack">
         {errors._ && !errors.amountMinor ? <Alert>{errors._}</Alert> : null}
-        <div className="grid-2">
-          <Field label="Amount" required error={errors.amountMinor}>
-            <MoneyInput value={form.amountMinor} currency={currency} onChange={(amountMinor) => setForm({ ...form, amountMinor })} autoFocus invalid={Boolean(errors.amountMinor)} />
-          </Field>
-          <Field label="Date" required><input type="date" className="input" value={form.date ?? ''} onChange={(e) => setForm({ ...form, date: e.target.value })} max={toDateInput(new Date())} /></Field>
-        </div>
-        <Field label="Mode" required error={errors.mode}>
-          <div className="row wrap" style={{ gap: 6 }}>
-            {(prefs.paymentModes ?? []).map((mode) => (
-              <button key={mode} type="button" className={`btn btn-sm ${form.mode === mode ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setForm({ ...form, mode })}>{mode}</button>
-            ))}
-          </div>
+        <Field label="Received" required error={errors.amountMinor ?? errors.mode} hint="Add a second mode if it came in more than one way.">
+          <SplitPayment rows={rows} onChange={(next) => setForm({ ...form, rows: next })} modes={modes} currency={currency} dueMinor={document.amountDueMinor} />
         </Field>
+        <Field label="Date" required><input type="date" className="input" value={form.date ?? ''} onChange={(e) => setForm({ ...form, date: e.target.value })} max={toDateInput(new Date())} /></Field>
         <Field label="Reference" hint="UTR, cheque number or card slip — whatever will help you match it later."><input className="input" value={form.reference ?? ''} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></Field>
         {customFields.map((f) => (
           <Field key={f.key} label={f.label} required={f.required} error={errors[`custom.${f.key}`]}>

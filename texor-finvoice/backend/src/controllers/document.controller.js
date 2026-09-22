@@ -17,7 +17,18 @@ export async function remove(req, res) {
   res.json({ ok: true });
 }
 
-export const issue = async (req, res) => res.json({ document: await documents.issueInvoice(req, req.params.id) });
+/**
+ * Issuing, optionally with the money already in hand. Each tender is validated
+ * against the payments module the same way a payment recorded later is, so this
+ * shortcut cannot accept anything the slow path would refuse.
+ */
+// `prefault`, not `default`: Express 5 leaves `req.body` undefined when a POST
+// carries no body at all — which is every issue that takes no money — and zod 4's
+// `default` would hand that straight back unvalidated.
+export const issueSchema = z.object({ payments: z.array(z.record(z.string(), z.any())).max(8).default([]) }).prefault({});
+export const issue = async (req, res) => res.json({ document: await documents.issueInvoice(req, req.params.id, req.body?.payments ?? []) });
+export const amend = async (req, res) => res.json({ document: await documents.amendInvoice(req, req.params.id, req.body) });
+
 export const issueNote = async (req, res) => res.json({ document: await documents.issueNote(req, req.params.kind, req.params.id) });
 export const noteFromInvoice = async (req, res) => res.status(201).json({ document: await documents.noteFromInvoice(req, req.params.kind, req.params.id) });
 

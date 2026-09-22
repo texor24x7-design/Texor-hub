@@ -35,8 +35,8 @@ a migration, and nobody can edit away a field's type.
 From the merged fields it compiles a zod validator per module (cached by
 `workspace.metadataVersion`). System fields are real columns; custom values
 live in `record.custom`. Custom modules (`c_*`) store everything in the generic
-`Record` collection and get list, board, form, detail, CSV and — with a
-`toInvoice` mapping — "Create invoice".
+`Record` collection and get list, board, form, detail, spreadsheet import and
+export and — with a `toInvoice` mapping — "Create invoice".
 
 Settings writes are guarded by `metadataVersion`, so two admins saving at once
 get a conflict rather than silently losing one person's changes.
@@ -53,9 +53,18 @@ Invoice lifecycle: `draft → issued → partial → paid`, or `void`. **Overdue
 derived** from the due date, never stored. Issuing runs in one transaction:
 number from an atomic per-financial-year counter (`INV/26-27/0001`, ≤16
 characters), customer and seller snapshots, stock out, a warranty per serial or
-unit, receivable updated. Voiding reverses stock and warranties and never
-frees the number. Payments use a capped atomic update, so two cashiers cannot
-overpay one invoice.
+unit, receivable updated. Issuing can carry the money with it — a counter sale
+is one act — and each mode of a split tender becomes its own payment row.
+Voiding reverses stock and warranties and never frees the number. Payments use
+a capped atomic update, so two cashiers cannot overpay one invoice.
+
+An issued invoice is final for everyone except the **owner**, who may amend one
+(`PATCH …/amend`). The number, date and customer are its identity and stay put;
+the contents are re-worked in one transaction — stock moves by the difference,
+warranties for changed lines are reissued, the receivable moves by the change
+in total, and the status is derived again from what has been paid. It refuses
+to cut the total below money already received, or to disturb a line that has a
+warranty claim against it; both cases want a credit note or a void instead.
 
 ## Designs and PDFs
 

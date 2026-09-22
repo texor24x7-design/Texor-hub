@@ -102,6 +102,17 @@ export function workspaceApi(slug) {
     text: async (path) => (await call(path, { raw: true })).text(),
 
     /**
+     * A file posted as the raw body to an endpoint that reads it rather than
+     * stores it — a spreadsheet being imported, say. The server decides what it
+     * is from the bytes, so a browser's guess at the content type is only a hint.
+     */
+    sendFile: (path, file) => call(path, {
+      method: 'POST',
+      body: file,
+      headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': encodeURIComponent(file.name ?? 'upload') },
+    }),
+
+    /**
      * Images are downscaled in the browser before they are sent, so a 12 MB
      * phone photo arrives as a few hundred KB and the upload limit is about
      * documents, not cameras.

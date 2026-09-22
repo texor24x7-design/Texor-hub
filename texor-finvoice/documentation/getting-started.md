@@ -45,7 +45,10 @@ that does not end that way, starts its own API process with
 | Suite | Covers |
 |---|---|
 | `money`, `india`, `tax`, `render` | Pure logic: paise, GSTIN checksum, GST against hand-worked invoices, HTML escaping |
-| `foundation` | Onboarding, tenancy, verified-only invites, roles, hidden fields, custom modules, files, CSV |
+| `foundation` | Onboarding, tenancy, verified-only invites, roles, hidden fields, custom modules, files |
 | `documents` | Quote → invoice → issue → pay → void; serial numbers, stock, warranties, racing payments |
+| `inventory` | Reading `.xlsx` and CSV, importing as an update, stock counts landing in the ledger, both export formats |
+| `counter` | Issuing and settling in one transaction, split tenders, the rollback when one does not fit |
+| `amend` | The owner correcting an issued invoice: stock, warranties, balance and status all following the change |
 | `operations` | Designs and real PDFs, SMTP/WhatsApp payloads, attendance, claims, dashboard, search |
 | `industries` | Every industry pack onboarded and billed end to end |

@@ -4,14 +4,15 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
-import { Download, KanbanSquare, Plus, Search, Settings2, Table2, Upload } from 'lucide-react';
+import { Download, KanbanSquare, PackagePlus, Plus, Search, Settings2, Table2, Upload } from 'lucide-react';
 import { Icon } from '@/components/Icon';
-import { Badge, Button, ButtonLink, EmptyState, Menu, PageHeader, Pagination, Segmented, SkeletonRows, StatusBadge, Tabs, useToast, CardTable } from '@/components/ui';
+import { Badge, Button, ButtonLink, EmptyState, IconButton, Menu, PageHeader, Pagination, Segmented, SkeletonRows, StatusBadge, Tabs, useToast, CardTable } from '@/components/ui';
 import { FieldValue, readField } from '@/components/fields/FieldValue';
 import { invalidate, useDebounced, useResource, useStored } from '@/lib/data';
 import { money } from '@/lib/format';
 import { recordTitle, useWorkspace } from '@/lib/workspace';
 import { ImportDialog } from './ImportDialog';
+import { StockDialog } from './StockDialog';
 
 const LISTABLE = new Set(['text', 'email', 'phone', 'select', 'currency', 'number', 'date', 'datetime', 'reference', 'checkbox', 'gstin', 'state', 'percent', 'multiselect', 'image']);
 
@@ -78,6 +79,7 @@ export function ModuleList({ module }) {
   const [filters, setFilters] = useState({});
   const [page, setPage] = useState(1);
   const [importing, setImporting] = useState(false);
+  const [adjusting, setAdjusting] = useState(null);
   const search = useDebounced(q);
   const isBoard = view === 'board' && boardField;
 
@@ -91,6 +93,9 @@ export function ModuleList({ module }) {
     for (const [key, value] of Object.entries(filters)) if (value) p[`f.${key}`] = value;
     return p;
   }, [search, page, tab, filters, isBoard]);
+
+  /** Whatever the table is showing — search, tab and filters — is what gets exported. */
+  const exportHref = (format) => api.url(`/records/${module.key}/export?${new URLSearchParams([...Object.entries(params).filter(([k, v]) => v && k !== 'page' && k !== 'limit'), ['format', format]])}`);
 
   const key = `records:${slug}:${module.key}:${JSON.stringify(params)}`;
   const { data, loading, error, mutate } = useResource(key, () => api.get(`/records/${module.key}`, params));
@@ -136,7 +141,12 @@ export function ModuleList({ module }) {
         actions={(
           <>
             {can(module.key, 'create') ? <Button variant="secondary" icon={<Upload />} onClick={() => setImporting(true)}>Import</Button> : null}
-            {can(module.key, 'export') ? <a className="btn btn-secondary" href={api.url(`/records/${module.key}/export?${new URLSearchParams(Object.entries(params).filter(([k, v]) => v && k !== 'page' && k !== 'limit'))}`)}><Download />Export</a> : null}
+            {can(module.key, 'export') ? (
+              <Menu align="right" trigger={({ toggle }) => <Button variant="secondary" icon={<Download />} onClick={toggle}>Export</Button>}>
+                <a className="menu-item" role="menuitem" href={exportHref('xlsx')}>Excel (.xlsx)</a>
+                <a className="menu-item" role="menuitem" href={exportHref('csv')}>CSV</a>
+              </Menu>
+            ) : null}
             {can(module.key, 'create') ? <ButtonLink href={href(`/${module.key}/new`)} icon={<Plus />}>New {module.labelSingular.toLowerCase()}</ButtonLink> : null}
           </>
         )}
@@ -236,7 +246,16 @@ export function ModuleList({ module }) {
                       {module.customerLink ? <td>{refs[r.customer]?.title ?? <span className="subtle">—</span>}</td> : null}
                       {module.key === 'warranties' ? <td><StatusBadge status={r.state} />{r.openClaims ? <> <Badge tone="violet" plain>{r.openClaims} open claim{r.openClaims > 1 ? 's' : ''}</Badge></> : null}</td> : null}
                       {visibleColumns.map((f) => <td key={f.key} className={['currency', 'number', 'percent'].includes(f.type) ? 'num' : ''}><FieldValue field={f} value={readField(f, r)} refs={refs} compact /></td>)}
-                      {module.key === 'products' ? <td className="num">{r.trackStock ? <span className={r.lowStock != null && r.stock <= r.lowStock ? 'strong' : ''} style={{ color: r.lowStock != null && r.stock <= r.lowStock ? 'var(--danger)' : undefined }}>{r.stock} {r.unit}</span> : <span className="subtle">—</span>}</td> : null}
+                      {module.key === 'products' ? (
+                        <td className="num" onClick={(e) => e.stopPropagation()}>
+                          {!r.trackStock ? <span className="subtle">—</span> : (
+                            <span className="row" style={{ justifyContent: 'flex-end' }}>
+                              <span className={r.lowStock != null && r.stock <= r.lowStock ? 'strong' : ''} style={{ color: r.lowStock != null && r.stock <= r.lowStock ? 'var(--danger)' : undefined }}>{r.stock} {r.unit}</span>
+                              {can('products', 'edit') ? <IconButton size="sm" icon={<PackagePlus />} label={`Adjust stock of ${r.name}`} onClick={() => setAdjusting(r)} /> : null}
+                            </span>
+                          )}
+                        </td>
+                      ) : null}
                       {module.key === 'customers' ? <td className="num">{r.receivableMinor ? money(r.receivableMinor, currency) : <span className="subtle">—</span>}</td> : null}
                     </tr>
                   ))}
@@ -249,6 +268,7 @@ export function ModuleList({ module }) {
       </div>
 
       <ImportDialog open={importing} onClose={() => setImporting(false)} module={module} />
+      {adjusting ? <StockDialog item={adjusting} open onClose={() => setAdjusting(null)} onSaved={() => invalidate(`records:${slug}:${module.key}`)} /> : null}
     </>
   );
 }

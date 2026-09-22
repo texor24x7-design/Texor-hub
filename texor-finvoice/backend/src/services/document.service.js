@@ -489,11 +489,25 @@ function warrantiesFor(doc, items, userId) {
   return rows;
 }
 
-export async function issueInvoice(req, id) {
+/**
+ * Issues an invoice, and takes the money for it in the same breath.
+ *
+ * A counter sale is one act, not two: the bill is raised and paid before the
+ * customer has put their wallet away. Letting the editor issue and settle in a
+ * single call is what keeps that one act atomic — the alternative, three calls
+ * from a browser, leaves an issued-but-unpaid invoice behind whenever the
+ * second one fails.
+ */
+export async function issueInvoice(req, id, tenders = []) {
   const ws = req.workspace;
   let issued;
+  let payments = [];
+  if (tenders.length && !can(ws, req.member, 'payments', 'create')) {
+    throw ApiError.forbidden('Your role cannot record payments.');
+  }
 
   await mongoose.connection.transaction(async (session) => {
+    payments = [];
     const doc = await findDocument(req, 'invoices', id, { session });
     if (doc.status !== 'draft') throw ApiError.conflict(`This invoice is already ${doc.status}.`);
     if (!doc.lines.length) throw ApiError.badRequest('Add at least one line before issuing.');
@@ -531,10 +545,141 @@ export async function issueInvoice(req, id) {
     if (doc.quotation) await Quotation.updateOne({ _id: doc.quotation, workspace: ws._id }, { status: 'converted', invoice: doc._id }, { session });
 
     issued = doc;
+    // Paid last, so the payment lands against an invoice that is already whole:
+    // numbered, stock moved, receivable raised.
+    for (const tender of tenders) {
+      const applied = await applyPayment(req, doc, tender, session);
+      payments.push(applied.payment);
+      issued = applied.invoice;
+    }
   });
 
   await audit(req, { action: 'invoices.issued', module: 'invoices', recordId: issued._id, summary: `Issued ${issued.number} for ${issued.billTo.name}`, metadata: { totalMinor: issued.totals.totalMinor } });
+  await auditPayments(req, payments, issued.number);
   return serializeDocument('invoices', issued.toObject());
+}
+
+/**
+ * What a line does to the world: how many came off the shelf, and what warranty
+ * went out with them. Keyed by item, because that is the grain stock moves at.
+ */
+function effectOf(lines, items) {
+  const byItem = new Map();
+  for (const line of lines) {
+    const item = line.item ? items.get(String(line.item)) : null;
+    if (!item) continue;
+    const key = String(item._id);
+    const seen = byItem.get(key) ?? { quantity: 0, serials: [], tracked: item.kind === 'product' && item.trackStock };
+    seen.quantity += Number(line.quantity) || 0;
+    seen.serials.push(...(line.serials ?? []));
+    byItem.set(key, seen);
+  }
+  return byItem;
+}
+
+const sameEffect = (a, b) => a?.quantity === b?.quantity && (a?.serials ?? []).join() === (b?.serials ?? []).join();
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+
+/**
+ * Correcting an invoice after it has gone out.
+ *
+ * An issued invoice is normally final — that is the whole reason the figures
+ * lock — but a wrong quantity does not stop being wrong because it was printed,
+ * and a shop with no way to fix it will simply delete the record and start
+ * again. So the owner, and only the owner, may amend one; every change is
+ * audited, and the number, the date and the customer stay put, because those
+ * three are the invoice's identity rather than its contents. Change one of
+ * those and it is a different invoice: void this one and issue that.
+ *
+ * Everything issuing did is undone and redone in the same transaction: stock
+ * moves by the difference, warranties for the lines that changed are reissued,
+ * the customer's balance moves by the change in the total, and the status is
+ * worked out again from what has already been paid.
+ */
+export async function amendInvoice(req, id, body) {
+  const ws = req.workspace;
+  if (req.member.role !== 'owner') {
+    throw ApiError.forbidden('Only the owner can change an invoice once it has been issued.');
+  }
+
+  let amended;
+  let was;
+  await mongoose.connection.transaction(async (session) => {
+    const doc = await findDocument(req, 'invoices', id, { session });
+    if (doc.status === 'draft') throw ApiError.conflict('This invoice is still a draft — edit it the usual way.');
+    if (doc.status === 'void') throw ApiError.conflict('A void invoice can no longer be changed.');
+
+    const input = parseDocument(ws, 'invoices', body, { hidden: hiddenFields(ws, req.member, 'invoices'), partial: true });
+    if (input.customer && String(input.customer) !== String(doc.customer)) {
+      throw ApiError.conflict('An issued invoice keeps the customer it was billed to. Void it and issue a new one to bill someone else.');
+    }
+    if (input.date && !sameDay(input.date, doc.date)) {
+      throw ApiError.conflict(`${doc.number} is numbered in the series for its date, so the date cannot change. Void it and issue a new one.`);
+    }
+
+    const before = { totalMinor: doc.totals.totalMinor, lines: doc.lines.map((l) => l.toObject()) };
+
+    const { custom, customer: _c, date: _d, ...rest } = input;
+    doc.set(rest);
+    if (custom) { doc.custom = { ...(doc.custom ?? {}), ...custom }; doc.markModified('custom'); }
+
+    // Both sets of lines, so an item dropped from the invoice can still be put back on the shelf.
+    const items = await loadItems(ws._id, [...before.lines, ...doc.lines], { session });
+    checkSerials(doc, items);
+    await checkSerialsUnsold(doc, items, session);
+    recompute(doc, ws, items);
+
+    const owing = doc.totals.totalMinor - (doc.creditedMinor ?? 0);
+    if (doc.amountPaidMinor > owing) {
+      throw ApiError.conflict(`${(doc.amountPaidMinor / 100).toFixed(2)} has already been received against ${doc.number}, which is more than the new total of ${(owing / 100).toFixed(2)}. Remove a payment, or raise a credit note instead.`);
+    }
+
+    const wasEffect = effectOf(before.lines, items);
+    const nowEffect = effectOf(doc.lines, items);
+    const touched = [...new Set([...wasEffect.keys(), ...nowEffect.keys()])]
+      .filter((key) => !sameEffect(wasEffect.get(key), nowEffect.get(key)));
+
+    // Stock moves by the difference only, so an edit that changed nothing about
+    // an item leaves no row in its ledger at all.
+    for (const key of touched) {
+      const delta = (wasEffect.get(key)?.quantity ?? 0) - (nowEffect.get(key)?.quantity ?? 0);
+      if (!delta || !(wasEffect.get(key)?.tracked ?? nowEffect.get(key)?.tracked)) continue;
+      await stock.move({ workspace: ws._id, item: key, quantity: delta, reason: 'adjustment', invoice: doc._id, note: `Amended ${doc.number}`, user: req.user._id }, { session });
+    }
+
+    if (touched.length) {
+      // A warranty that has been claimed against is evidence, not a derived row.
+      const claimed = await Warranty.findOne({ workspace: ws._id, invoice: doc._id, item: { $in: touched }, claims: { $exists: true, $ne: [] } }).select('itemName').session(session).lean();
+      if (claimed) {
+        throw ApiError.conflict(`There is a warranty claim against the ${claimed.itemName} on this invoice. Void it and issue a new one rather than changing that line.`);
+      }
+      await Warranty.updateMany({ workspace: ws._id, invoice: doc._id, item: { $in: touched }, status: 'active' }, { status: 'void' }, { session });
+      const reissued = warrantiesFor(doc, items, req.user._id).filter((w) => touched.includes(String(w.item)));
+      if (reissued.length) await Warranty.insertMany(reissued, { session });
+    }
+
+    // Paid, part paid or still owing is a fact about the new total, not the old one.
+    doc.status = doc.amountPaidMinor <= 0 ? 'issued' : doc.amountPaidMinor >= owing ? 'paid' : 'partial';
+    doc.paidAt = doc.status === 'paid' ? (doc.paidAt ?? new Date()) : null;
+
+    await Customer.updateOne({ _id: doc.customer }, { $inc: { receivableMinor: doc.totals.totalMinor - before.totalMinor } }, { session });
+
+    doc.searchText = searchTextFor(doc);
+    doc.updatedBy = req.user._id;
+    await doc.save({ session });
+
+    was = before;
+    amended = doc;
+  });
+
+  await audit(req, {
+    action: 'invoices.amended',
+    module: 'invoices',
+    recordId: amended._id,
+    summary: `Amended ${amended.number}${was.totalMinor === amended.totals.totalMinor ? '' : `, ${(was.totalMinor / 100).toFixed(2)} → ${(amended.totals.totalMinor / 100).toFixed(2)}`}`,
+    metadata: { fromMinor: was.totalMinor, toMinor: amended.totals.totalMinor, lines: amended.lines.length },
+  });
+  return serializeDocument('invoices', amended.toObject());
 }
 
 /**
@@ -794,46 +939,82 @@ export async function invoiceFromRecord(req, moduleKey, recordId) {
 
 // ── payments ──────────────────────────────────────────────────────────────────
 
-export async function recordPayment(req, invoiceId, body) {
+/**
+ * One payment against an already-loaded invoice, inside the caller's
+ * transaction. Split tenders (half cash, half UPI) call this once per mode:
+ * each keeps its own row, so the cash drawer, the by-mode totals and the
+ * customer's statement stay true without any of them learning about splits.
+ */
+async function applyPayment(req, doc, body, session) {
   const input = parseBody(req.workspace, 'payments', { date: new Date().toISOString(), ...body }, { hidden: [] });
   const modes = req.workspace.preferences?.paymentModes ?? [];
   if (modes.length && !modes.includes(input.mode)) {
     throw ApiError.badRequest('Some fields need attention.', [{ field: 'mode', message: 'Choose one of your payment modes.' }]);
   }
 
-  let payment;
+  // Atomic and capped: two cashiers recording the same payment at once cannot
+  // overpay the invoice, and nor can the second half of a split that no longer fits.
+  const invoice = await Invoice.findOneAndUpdate(
+    { _id: doc._id, status: { $in: ['issued', 'partial'] }, $expr: { $lte: [{ $add: ['$amountPaidMinor', input.amountMinor] }, { $subtract: ['$totals.totalMinor', '$creditedMinor'] }] } },
+    [
+      { $set: { amountPaidMinor: { $add: ['$amountPaidMinor', input.amountMinor] } } },
+      { $set: {
+        status: { $cond: [{ $gte: ['$amountPaidMinor', { $subtract: ['$totals.totalMinor', '$creditedMinor'] }] }, 'paid', 'partial'] },
+        paidAt: { $cond: [{ $gte: ['$amountPaidMinor', { $subtract: ['$totals.totalMinor', '$creditedMinor'] }] }, new Date(), null] },
+      } },
+    ],
+    { returnDocument: 'after', session, updatePipeline: true },
+  );
+  if (!invoice) {
+    throw ApiError.badRequest('Some fields need attention.', [{ field: 'amountMinor', message: 'That is more than is still owed on this invoice.' }]);
+  }
+
+  const [payment] = await Payment.create([{
+    ...input, workspace: req.workspace._id, invoice: doc._id, invoiceNumber: invoice.number, customer: doc.customer,
+    createdBy: req.user._id, updatedBy: req.user._id, searchText: `${invoice.number} ${doc.billTo.name} ${input.mode} ${input.reference ?? ''}`.toLowerCase(),
+  }], { session });
+  await Customer.updateOne({ _id: doc.customer }, { $inc: { receivableMinor: -input.amountMinor } }, { session });
+
+  return { payment, invoice };
+}
+
+/** The audit line each recorded payment leaves. Written after its transaction commits. */
+const auditPayments = (req, payments, number) => Promise.all(payments.map((payment) => audit(req, {
+  action: 'payments.recorded', module: 'payments', recordId: payment._id,
+  summary: `Recorded ${payment.mode} payment on ${number}`,
+  metadata: { amountMinor: payment.amountMinor, invoice: String(payment.invoice) },
+})));
+
+/**
+ * Money received against an invoice: one payment, or several modes at once.
+ * Every mode in a split lands in the same transaction, so a bill is never
+ * half-settled because the second tender was refused.
+ */
+export async function recordPayment(req, invoiceId, body) {
+  const inputs = Array.isArray(body?.payments) ? body.payments : [body];
+  if (!inputs.length) throw ApiError.badRequest('Add at least one payment.');
+
+  const payments = [];
   let invoice;
   await mongoose.connection.transaction(async (session) => {
+    payments.length = 0;
     const doc = await findDocument(req, 'invoices', invoiceId, { session });
     if (!['issued', 'partial'].includes(doc.status)) {
       throw ApiError.conflict(doc.status === 'draft' ? 'Issue this invoice before recording a payment.' : `This invoice is ${doc.status}.`);
     }
-
-    // Atomic and capped: two cashiers recording the same payment at once cannot overpay the invoice.
-    invoice = await Invoice.findOneAndUpdate(
-      { _id: doc._id, status: { $in: ['issued', 'partial'] }, $expr: { $lte: [{ $add: ['$amountPaidMinor', input.amountMinor] }, { $subtract: ['$totals.totalMinor', '$creditedMinor'] }] } },
-      [
-        { $set: { amountPaidMinor: { $add: ['$amountPaidMinor', input.amountMinor] } } },
-        { $set: {
-          status: { $cond: [{ $gte: ['$amountPaidMinor', { $subtract: ['$totals.totalMinor', '$creditedMinor'] }] }, 'paid', 'partial'] },
-          paidAt: { $cond: [{ $gte: ['$amountPaidMinor', { $subtract: ['$totals.totalMinor', '$creditedMinor'] }] }, new Date(), null] },
-        } },
-      ],
-      { returnDocument: 'after', session, updatePipeline: true },
-    );
-    if (!invoice) {
-      throw ApiError.badRequest('Some fields need attention.', [{ field: 'amountMinor', message: 'That is more than is still owed on this invoice.' }]);
+    for (const input of inputs) {
+      const applied = await applyPayment(req, doc, input, session);
+      payments.push(applied.payment);
+      invoice = applied.invoice;
     }
-
-    [payment] = await Payment.create([{
-      ...input, workspace: req.workspace._id, invoice: doc._id, invoiceNumber: doc.number, customer: doc.customer,
-      createdBy: req.user._id, updatedBy: req.user._id, searchText: `${doc.number} ${doc.billTo.name} ${input.mode} ${input.reference ?? ''}`.toLowerCase(),
-    }], { session });
-    await Customer.updateOne({ _id: doc.customer }, { $inc: { receivableMinor: -input.amountMinor } }, { session });
   });
 
-  await audit(req, { action: 'payments.recorded', module: 'payments', recordId: payment._id, summary: `Recorded ${input.mode} payment on ${invoice.number}`, metadata: { amountMinor: input.amountMinor, invoice: String(invoice._id) } });
-  return { payment: payment.toObject(), invoice: serializeDocument('invoices', invoice.toObject()) };
+  await auditPayments(req, payments, invoice.number);
+  return {
+    payment: payments[0].toObject(),
+    payments: payments.map((p) => p.toObject()),
+    invoice: serializeDocument('invoices', invoice.toObject()),
+  };
 }
 
 export async function deletePayment(req, paymentId) {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Barcode, Plus, Send, Trash2 } from 'lucide-react';
-import { Alert, Button, Dialog, Field, PageHeader, SkeletonRows, Switch, useToast, CardTable } from '@/components/ui';
+import { Alert, Button, Dialog, Field, PageHeader, Segmented, SkeletonRows, Switch, useToast, CardTable } from '@/components/ui';
 import { FieldInput, GstinInput, WIDE_TYPES } from '@/components/fields/FieldInput';
 import { MoneyInput } from '@/components/fields/MoneyInput';
 import { ReferencePicker } from '@/components/fields/ReferencePicker';
@@ -15,8 +15,10 @@ import { STATES, stateFromGstin } from '@/lib/shared/india.mjs';
 import { computeDocument } from '@/lib/shared/tax.mjs';
 import { linesFromPackage } from '@/lib/shared/packages.mjs';
 import { useWorkspace } from '@/lib/workspace';
+import { SplitPayment, receivedOf } from './SplitPayment';
 
 const today = () => toDateInput(new Date());
+const addDays = (days) => toDateInput(new Date(Date.now() + days * 86400000));
 
 /**
  * The lines a picked catalogue row becomes — several of them when it is a
@@ -199,7 +201,7 @@ function QuickItem({ open, initialName, onClose, onCreated }) {
  * tax engine the API uses, so what is shown here is what gets stored.
  */
 export function DocumentEditor({ module, id }) {
-  const { api, slug, href, can, workspace, prefs, currency, module: moduleOf, hidden } = useWorkspace();
+  const { api, slug, href, can, member, workspace, prefs, currency, module: moduleOf, hidden } = useWorkspace();
   const router = useRouter();
   const params = useSearchParams();
   const toast = useToast();
@@ -266,6 +268,7 @@ export function DocumentEditor({ module, id }) {
       setStatus(d.status);
       const itemIds = [...new Set(d.lines.filter((l) => l.item).map((l) => l.item))];
       setDoc({
+        number: d.number,
         customer: d.customer, customerTitle: d.billTo?.name, customerState: d.billTo?.stateCode, date: toDateInput(d.date),
         dueDate: toDateInput(d.dueDate), validUntil: toDateInput(d.validUntil), placeOfSupply: d.placeOfSupply, reference: d.reference,
         notes: d.notes, terms: d.terms, custom: d.custom ?? {}, discount: d.discount?.value ? d.discount : null, roundOff: d.roundOff,
@@ -288,7 +291,36 @@ export function DocumentEditor({ module, id }) {
     lines: doc.lines, sellerState: workspace.stateCode, placeOfSupply, discount: doc.discount, roundOff: doc.roundOff, taxMode, currency,
   }), [doc.lines, doc.discount, doc.roundOff, placeOfSupply, workspace.stateCode, taxMode, currency]);
 
+  /**
+   * How this bill is being settled. It rides inside `doc` so the restored draft
+   * remembers it, and defaults to how this trade sells: a counter that is paid
+   * on the spot (`dueDays` 0) starts on "paid in full", a trade that invoices
+   * starts on credit.
+   */
+  /**
+   * Correcting an invoice that has already gone out. Only the owner is offered
+   * it, and the server checks that again — `approve` is not the same as owning
+   * the business.
+   */
+  const amending = Boolean(id) && isInvoice && member?.role === 'owner' && ['issued', 'partial', 'paid'].includes(status);
+  // Money is taken as part of issuing, so an invoice that is already issued
+  // takes none here: its payments are recorded from the invoice itself.
+  const takesMoney = isInvoice && !amending && can(kind, 'approve') && can('payments', 'create');
+
+  const defaultSettle = { how: prefs.dueDays === 0 ? 'full' : 'credit', mode: prefs.paymentModes?.[0] ?? 'Cash', rows: [] };
+  const settle = doc.settle ?? defaultSettle;
+
+  // In "full" the amount is derived from the live total rather than stored, so
+  // editing a line after choosing it can never leave a stale figure behind.
+  const splitRows = settle.rows.length ? settle.rows : [{ mode: settle.mode, amountMinor: computed.totals.totalMinor }];
+  const tenders = !takesMoney ? [] : settle.how === 'full'
+    ? (computed.totals.totalMinor > 0 ? [{ mode: settle.mode, amountMinor: computed.totals.totalMinor }] : [])
+    : settle.how === 'split' ? splitRows : [];
+  const receivedMinor = receivedOf(tenders);
+  const balanceMinor = computed.totals.totalMinor - receivedMinor;
+
   const set = (patch) => setDoc((d) => ({ ...d, ...patch }));
+  const setSettle = (patch) => set({ settle: { ...settle, ...patch } });
   const setLine = (index, patch) => setDoc((d) => ({ ...d, lines: d.lines.map((l, i) => (i === index ? { ...l, ...patch } : l)) }));
   const removeLine = (index) => setDoc((d) => ({ ...d, lines: d.lines.length === 1 ? [blankLine(prefs)] : d.lines.filter((_, i) => i !== index) }));
   const addItem = (item) => setDoc((d) => {
@@ -316,8 +348,11 @@ export function DocumentEditor({ module, id }) {
 
   function body() {
     return {
-      customer: doc.customer,
-      date: doc.date,
+      // An amendment never carries the invoice's identity. Leaving them out is
+      // not only tidier than sending values the server will refuse to change —
+      // a date input reads back in local time, so in a timezone behind UTC an
+      // untouched date would return a day early and read as a change.
+      ...(amending ? {} : { customer: doc.customer, date: doc.date }),
       ...(isInvoice ? { dueDate: doc.dueDate || null } : isNote ? {} : { validUntil: doc.validUntil || null }),
       placeOfSupply: doc.placeOfSupply || '',
       reference: doc.reference,
@@ -335,14 +370,30 @@ export function DocumentEditor({ module, id }) {
   }
 
   async function save(then) {
+    const issuing = then !== 'draft';
+    // Caught here as well as on the server: the server would refuse the tender
+    // that does not fit and roll the whole issue back, which reads like the
+    // save failed for no reason.
+    if (issuing && isInvoice && balanceMinor < 0) {
+      setError(`That is ${money(-balanceMinor, currency)} more than the total. Change the amounts, or add the extra as a line.`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     setBusy(then);
     setError(null);
     setErrors({});
     try {
-      const { document: saved } = savedId.current ? await api.patch(`/documents/${kind}/${savedId.current}`, body()) : await api.post(`/documents/${kind}`, body());
+      const path = `/documents/${kind}/${savedId.current}${amending ? '/amend' : ''}`;
+      const { document: saved } = savedId.current ? await api.patch(path, body()) : await api.post(`/documents/${kind}`, body());
       savedId.current = saved._id;
       // An invoice needs a number before it can go anywhere, so sending issues it too.
-      if (then !== 'draft' && isInvoice) await api.post(`/documents/invoices/${saved._id}/issue`);
+      // Issued and settled in one call, so a counter sale cannot end up issued
+      // but unpaid because the second request never landed.
+      if (then !== 'draft' && isInvoice && !amending) {
+        await api.post(`/documents/invoices/${saved._id}/issue`, {
+          payments: tenders.filter((row) => Number(row.amountMinor) > 0).map(({ mode, amountMinor }) => ({ mode, amountMinor })),
+        });
+      }
       if (then !== 'draft' && isNote) await api.post(`/documents/${kind}/${saved._id}/issue-note`);
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
       invalidate(`documents:${slug}:${kind}`);
@@ -350,7 +401,12 @@ export function DocumentEditor({ module, id }) {
       invalidate(`dashboard:${slug}`);
       // Start composing now so the send sheet is already filled in when it opens.
       if (then === 'send') prefetch(`compose:${slug}:${kind}:${saved._id}`, () => api.get(`/documents/${kind}/${saved._id}/compose`));
-      if (then !== 'send') toast(then === 'issue' ? `${module.labelSingular} issued` : 'Saved');
+      if (then !== 'send') {
+        // A draft takes no money — say so rather than losing the amount quietly.
+        if (amending) toast(`${module.labelSingular} corrected`);
+        else if (then === 'draft' && receivedMinor > 0) toast('Saved as a draft. The payment is recorded when you issue it.');
+        else toast(then === 'issue' ? `${module.labelSingular} issued` : 'Saved');
+      }
       // The view decides whether that means a roll of paper or nothing at all.
       const after = [then === 'send' ? 'send=1' : '', then !== 'draft' ? 'printed=1' : ''].filter(Boolean).join('&');
       router.replace(href(`/${kind}/${saved._id}`) + (after ? `?${after}` : ''));
@@ -376,12 +432,20 @@ export function DocumentEditor({ module, id }) {
   });
 
   if (!loaded) return <SkeletonRows rows={10} />;
-  if (id && (isInvoice || isNote) && status !== 'draft') {
-    return <Alert kind="info" title="This invoice has been issued">Its figures are final. <Link href={href(`/${kind}/${id}`)}>Open it</Link> to record payments, send it, change the due date or void it.</Alert>;
+  if (id && (isInvoice || isNote) && status !== 'draft' && !amending) {
+    return <Alert kind="info" title={`This ${module.labelSingular.toLowerCase()} has been issued`}>Its figures are final. <Link href={href(`/${kind}/${id}`)}>Open it</Link> to record payments, send it, change the due date or void it.</Alert>;
   }
 
   // Only an approver can issue, and an invoice cannot be sent before it is issued.
   const canSend = (!isInvoice && !isNote) || can(kind, 'approve');
+  const modes = prefs.paymentModes?.length ? prefs.paymentModes : ['Cash'];
+  const dueField = module.fields.find((f) => f.key === 'dueDate');
+  const showDue = isInvoice && !dueField?.hidden;
+  const dueDateInput = (
+    <Field label={dueField?.label ?? 'Due date'} error={errors.dueDate} htmlFor="due-date">
+      <input id="due-date" type="date" className="input" value={doc.dueDate} onChange={(e) => set({ dueDate: e.target.value })} placeholder={prefs.dueDays ? `${prefs.dueDays} days` : ''} />
+    </Field>
+  );
   const canAddItem = can('products', 'create') || can('services', 'create');
   const showSerialColumn = doc.lines.some((l) => l.meta?.trackSerials || l.serials?.length);
   const interState = computed.interState;
@@ -402,42 +466,42 @@ export function DocumentEditor({ module, id }) {
   return (
     <>
       <PageHeader
-        sticky
         title={id ? `Edit ${module.labelSingular.toLowerCase()}` : `New ${module.labelSingular.toLowerCase()}`}
         crumbs={[{ label: module.label, href: href(`/${kind}`) }, { label: id ? 'Edit' : 'New' }]}
-        actions={(
-          <>
-            <Button variant="secondary" onClick={() => router.back()}>Cancel</Button>
-            <Button variant={canSend ? 'secondary' : 'primary'} loading={busy === 'draft'} onClick={() => save('draft')}>{isInvoice || isNote ? 'Save draft' : 'Save'}</Button>
-            {(isInvoice || isNote) && canSend ? <Button variant="secondary" loading={busy === 'issue'} onClick={() => save('issue')}>Save & issue</Button> : null}
-            {canSend ? <Button icon={<Send />} loading={busy === 'send'} onClick={() => save('send')} title="Save and send (⌘↵ or Ctrl+↵)">Save & send</Button> : null}
-          </>
-        )}
       />
 
       <div className="stack">
         {error ? <Alert kind="error" title={error}>{Object.values(errors).filter(Boolean).slice(0, 4).join(' ')}</Alert> : null}
+        {amending ? (
+          <Alert kind="warning" title={`You are changing ${doc.number ?? 'an invoice'} after it was issued`}>
+            The customer may already have a copy of it. Its number, date and customer stay as they are; everything else
+            is re-worked when you save — stock, warranties and what this customer owes. The change is recorded against
+            your name. To correct the money without touching the original, raise a credit note instead.
+          </Alert>
+        ) : null}
         {taxMode === 'none' ? <Alert kind="info">No GST is charged because this business has no GSTIN. <Link href={href('/settings/business')}>Add your GSTIN</Link> to issue tax invoices.</Alert> : null}
 
         <section className="card">
           <div className="card-body stack">
             <div className="grid-4">
-              <Field label={moduleOf('customers')?.labelSingular ?? 'Customer'} required error={errors.customer} className="span-2">
-                <ReferencePicker
-                  refModule="customers"
-                  value={doc.customer}
-                  title={doc.customerTitle}
-                  invalid={Boolean(errors.customer)}
-                  onChange={(value, row) => set({ customer: value, customerTitle: row?.title ?? '', customerState: row?.raw?.stateCode ?? '', placeOfSupply: '' })}
-                  onCreate={can('customers', 'create') ? (name) => setQuick(name) : undefined}
-                />
+              <Field label={moduleOf('customers')?.labelSingular ?? 'Customer'} required error={errors.customer} className="span-2"
+                hint={amending ? 'Fixed once issued — void and reissue to bill someone else.' : undefined}>
+                {amending ? <input className="input" value={doc.customerTitle ?? ''} readOnly disabled /> : (
+                  <ReferencePicker
+                    refModule="customers"
+                    value={doc.customer}
+                    title={doc.customerTitle}
+                    invalid={Boolean(errors.customer)}
+                    onChange={(value, row) => set({ customer: value, customerTitle: row?.title ?? '', customerState: row?.raw?.stateCode ?? '', placeOfSupply: '' })}
+                    onCreate={can('customers', 'create') ? (name) => setQuick(name) : undefined}
+                  />
+                )}
               </Field>
-              <Field label={module.fields.find((f) => f.key === 'date')?.label ?? 'Date'} required error={errors.date}>
-                <input type="date" className="input" value={doc.date} onChange={(e) => set({ date: e.target.value })} />
+              <Field label={module.fields.find((f) => f.key === 'date')?.label ?? 'Date'} required error={errors.date}
+                hint={amending ? 'Fixed by the number series.' : undefined}>
+                <input type="date" className="input" value={doc.date} disabled={amending} onChange={(e) => set({ date: e.target.value })} />
               </Field>
-              {isInvoice && module.fields.find((f) => f.key === 'dueDate')?.hidden ? null : isInvoice ? (
-                <Field label={module.fields.find((f) => f.key === 'dueDate')?.label ?? 'Due date'} error={errors.dueDate}><input type="date" className="input" value={doc.dueDate} onChange={(e) => set({ dueDate: e.target.value })} placeholder={prefs.dueDays ? `${prefs.dueDays} days` : ''} /></Field>
-              ) : isNote ? null : (
+              {isInvoice ? (showDue && !takesMoney ? dueDateInput : null) : isNote ? null : (
                 <Field label={module.fields.find((f) => f.key === 'validUntil')?.label ?? 'Valid until'} error={errors.validUntil}><input type="date" className="input" value={doc.validUntil} onChange={(e) => set({ validUntil: e.target.value })} /></Field>
               )}
             </div>
@@ -593,12 +657,79 @@ export function DocumentEditor({ module, id }) {
           </div>
         </section>
 
+        {takesMoney ? (
+          <section className="card">
+            <div className="card-header">
+              <h2>Payment</h2>
+              <Segmented label="How this bill is settled" value={settle.how} onChange={(how) => setSettle({ how })} options={[
+                { value: 'full', label: 'Paid in full' },
+                { value: 'split', label: 'Split' },
+                { value: 'credit', label: 'On credit' },
+              ]} />
+            </div>
+            <div className="card-body stack">
+              {settle.how === 'full' ? (
+                <Field label="Received by" hint={`${money(computed.totals.totalMinor, currency)} in one go.`}>
+                  <div className="row wrap" style={{ gap: 6 }}>
+                    {modes.map((mode) => (
+                      <button key={mode} type="button" className={`btn btn-sm ${settle.mode === mode ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setSettle({ mode })}>{mode}</button>
+                    ))}
+                  </div>
+                </Field>
+              ) : null}
+
+              {settle.how === 'split' ? (
+                <SplitPayment rows={splitRows} onChange={(rows) => setSettle({ rows })} modes={modes} currency={currency} dueMinor={computed.totals.totalMinor} />
+              ) : null}
+
+              {/* Money left owing is the whole reason a due date exists, so it is
+                  asked for here, the moment there is some — not hidden up in the header. */}
+              {balanceMinor > 0 && showDue ? (
+                <Field label={dueField?.label ?? 'Due date'} error={errors.dueDate} htmlFor="due-date"
+                  hint={`${money(balanceMinor, currency)} stays on credit${prefs.dueDays ? '' : ' — due on receipt unless you pick a date'}.`}>
+                  <div className="row wrap">
+                    <input id="due-date" type="date" className="input" style={{ width: 'auto' }} value={doc.dueDate} onChange={(e) => set({ dueDate: e.target.value })} />
+                    {[['Today', 0], ['7 days', 7], ['15 days', 15], ['30 days', 30]].map(([text, days]) => (
+                      <button key={days} type="button" className={`btn btn-sm ${doc.dueDate === addDays(days) ? 'btn-primary' : 'btn-secondary'}`} onClick={() => set({ dueDate: addDays(days) })}>{text}</button>
+                    ))}
+                  </div>
+                </Field>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
         <section className="card">
           <div className="card-body grid-2">
             <Field label={module.fields.find((f) => f.key === 'notes')?.label ?? 'Notes'} hint="Printed on the document."><textarea className="input" rows={3} value={doc.notes} onChange={(e) => set({ notes: e.target.value })} /></Field>
             <Field label={module.fields.find((f) => f.key === 'terms')?.label ?? 'Terms & conditions'} hint={!id ? 'Pre-filled from your settings.' : undefined}><textarea className="input" rows={3} value={doc.terms} onChange={(e) => set({ terms: e.target.value })} /></Field>
           </div>
         </section>
+      </div>
+
+      {/*
+        * Save, issue and send sit at the bottom beside the total they act on:
+        * it is where the eye already is once the last line is in, and on a phone
+        * it is the only part of a long form a thumb can reach.
+        */}
+      <div className="action-bar">
+        <div className="action-bar-total">
+          <span className="tiny subtle">Total</span>
+          <strong className="num">{money(t.totalMinor, currency)}</strong>
+          {takesMoney && receivedMinor > 0 ? (
+            <span className="tiny subtle">{balanceMinor > 0 ? `${money(balanceMinor, currency)} on credit` : 'Paid in full'}</span>
+          ) : null}
+        </div>
+        <div className="action-bar-buttons">
+          <Button variant="ghost" onClick={() => router.back()}>Cancel</Button>
+          <Button variant={canSend ? 'secondary' : 'primary'} loading={busy === 'draft'} onClick={() => save('draft')}>{amending ? 'Save changes' : isInvoice || isNote ? 'Save draft' : 'Save'}</Button>
+          {(isInvoice || isNote) && canSend && !amending ? (
+            <Button variant="secondary" loading={busy === 'issue'} onClick={() => save('issue')}>
+              {isInvoice && receivedMinor > 0 ? `Issue & take ${money(receivedMinor, currency)}` : 'Save & issue'}
+            </Button>
+          ) : null}
+          {canSend ? <Button icon={<Send />} loading={busy === 'send'} onClick={() => save('send')} title="Save and send (⌘↵ or Ctrl+↵)">{amending ? 'Save & resend' : 'Save & send'}</Button> : null}
+        </div>
       </div>
 
       <QuickItem open={quickItem != null} initialName={quickItem?.name}

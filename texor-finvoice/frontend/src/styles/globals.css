@@ -501,6 +501,33 @@ a.list-row:hover { background: var(--surface-muted); }
  * It used to fade out with a gradient stretched `-100vw` on either side, which
  * laid a pale smear over the dark step panel and sliced the cards in half.
  */
+/*
+ * The document editor's action bar: the save, issue and send buttons, and the
+ * total they act on, held at the bottom of the page.
+ *
+ * Sticky rather than fixed on a desktop, so it stays inside the content column
+ * and never lies across the sidebar; it becomes a fixed bar on a phone, where
+ * the content column is the whole screen anyway.
+ */
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding: 0.7rem 0.9rem calc(0.7rem + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+.action-bar-total { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; margin-right: auto; }
+.action-bar-total strong { font-size: 1.15rem; }
+.action-bar-buttons { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+
 .onboard-actions {
   position: sticky;
   bottom: 0;
@@ -791,18 +818,23 @@ a.list-row:hover { background: var(--surface-muted); }
   /* Headers stack: title, then its actions on their own line. */
   .page-header { flex-direction: column; align-items: stretch; gap: 0.75rem; margin-bottom: 1rem; }
   .page-header--sticky { position: static; margin: 0 0 1rem; padding: 0; border-bottom: 0; }
-  /* A form's save buttons ride in a bar at the bottom, where a thumb is. */
-  .page-header--sticky > .row:last-child {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-    display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
-    padding: 0.6rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom));
-    background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgb(16 24 40 / 8%);
-  }
-  .page-header--sticky > .row:last-child > .btn { width: 100%; }
-  .page-header--sticky > .row:last-child > .btn:last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .content:has(.page-header--sticky) { padding-bottom: 8.5rem; }
   .toasts { left: 0.75rem; right: 0.75rem; bottom: 0.75rem; width: auto; }
-  body:has(.page-header--sticky) .toasts { bottom: 7.5rem; }
+
+  /* The bar leaves the content column and pins to the bottom, where a thumb is. */
+  .action-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    display: block;
+    margin: 0; border-radius: 0; border-width: 1px 0 0;
+    padding: 0.6rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 16px rgb(16 24 40 / 8%);
+  }
+  .action-bar-total { justify-content: space-between; margin: 0 0 0.5rem; }
+  .action-bar-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .action-bar-buttons .btn { width: 100%; }
+  /* An odd button out takes the full width rather than leaving a gap. */
+  .action-bar-buttons .btn:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .content:has(.action-bar) { padding-bottom: 12rem; }
+  body:has(.action-bar) .toasts { bottom: 10.5rem; }
 
   .card-body, .card-pad { padding: 1rem; }
   .card-header { padding: 0.85rem 1rem; flex-wrap: wrap; }

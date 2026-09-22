@@ -21,6 +21,7 @@ import { bulkSchema, checkSchema, markSchema } from '../services/attendance.serv
 import { claimSchema, claimUpdateSchema } from '../services/warranty.service.js';
 import { designSchema } from '../services/design.service.js';
 import { ALLOWED_TYPES } from '../services/file.service.js';
+import { SHEET_TYPES } from '../services/sheet.service.js';
 import { assertCan } from '../services/rbac.service.js';
 import env from '../config/env.js';
 
@@ -45,6 +46,9 @@ export function createApiRouter() {
     deliver: rateLimit({ name: 'deliver', limit: 60, message: 'Too many sends in a row. Try again shortly.' }),
     upload: rateLimit({ name: 'upload', limit: 120 }),
     importing: rateLimit({ name: 'import', limit: 10, windowMs: 300_000, message: 'Imports are limited to ten every five minutes.' }),
+    // Reading a file to show what is in it is cheap next to writing 2000 records
+    // from it, and someone lining columns up will do it several times over.
+    reading: rateLimit({ name: 'sheet-read', limit: 60, windowMs: 300_000, message: 'Too many files read in a row. Try again shortly.' }),
   };
 
   router.get('/health', (_req, res) => res.json({ status: 'ok', service: 'finvoice' }));
@@ -127,7 +131,8 @@ export function createApiRouter() {
 
   // ── Record modules (customers, products, services, warranties, staff, custom) ──
   w.get('/records/:module', authorize(byParam, 'view'), records.list);
-  w.get('/records/:module/export', authorize(byParam, 'export'), records.exportCsv);
+  w.get('/records/:module/export', authorize(byParam, 'export'), records.exportSheet);
+  w.post('/records/:module/parse', limit.reading, authorize(byParam, 'create'), express.raw({ type: SHEET_TYPES, limit: env.uploadMaxBytes }), records.parseSheet);
   w.post('/records/:module/import', limit.importing, authorize(byParam, 'create'), validate(records.importSchema), records.importRows);
   w.post('/records/:module', authorize(byParam, 'create'), records.create);
   w.get('/records/:module/:id', authorize(byParam, 'view'), records.get);
@@ -165,7 +170,9 @@ export function createApiRouter() {
   w.post('/designs/:key/duplicate', authorize('settings', 'edit'), designs.duplicate);
   w.delete('/designs/:key', authorize('settings', 'edit'), designs.remove);
 
-  w.post('/documents/invoices/:id/issue', authorize('invoices', 'approve'), docs.issue);
+  w.post('/documents/invoices/:id/issue', authorize('invoices', 'approve'), validate(docs.issueSchema), docs.issue);
+  // Owner-only, and checked again in the service: `approve` is not the same as being the owner.
+  w.patch('/documents/invoices/:id/amend', authorize('invoices', 'edit'), docs.amend);
   w.post('/documents/:kind/:id/issue-note', noteKind, authorize(kindParam, 'approve'), docs.issueNote);
   w.post('/documents/invoices/:id/note/:kind', noteKind, authorize(kindParam, 'create'), docs.noteFromInvoice);
   w.post('/documents/invoices/:id/void', authorize('invoices', 'approve'), validate(docs.voidSchema), docs.voidInvoice);

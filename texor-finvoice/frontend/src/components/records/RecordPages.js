@@ -13,6 +13,7 @@ import { date, dateTime, money } from '@/lib/format';
 import { recordTitle, useWorkspace } from '@/lib/workspace';
 import { Activity } from './Activity';
 import { Statement } from './Statement';
+import { StockDialog } from './StockDialog';
 import { RecordForm } from './RecordForm';
 
 const titleOf = (record, module) => recordTitle(module, record);
@@ -168,11 +169,8 @@ function LinkedRecords({ module, customerId }) {
 
 function StockPanel({ item, onChanged }) {
   const { api, slug, can } = useWorkspace();
-  const toast = useToast();
   const { data, reload } = useResource(`stock:${slug}:${item._id}`, () => api.get(`/products/${item._id}/stock`));
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ quantity: '', reason: 'purchase', note: '' });
-  const [busy, setBusy] = useState(false);
 
   if (!item.trackStock) return null;
   const REASONS = { opening: 'Opening stock', sale: 'Sold', void: 'Invoice voided', adjustment: 'Adjustment', purchase: 'Stock received', return: 'Returned' };
@@ -190,21 +188,7 @@ function StockPanel({ item, onChanged }) {
           <span className="num subtle" style={{ width: 48, textAlign: 'right' }}>{m.balance}</span>
         </div>
       ))}
-      <Dialog open={open} onClose={() => setOpen(false)} title="Adjust stock" size="narrow"
-        footer={<><Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button><Button loading={busy} onClick={async () => {
-          setBusy(true);
-          try {
-            await api.post(`/products/${item._id}/stock`, { quantity: Number(form.quantity), reason: form.reason, note: form.note });
-            setOpen(false); setForm({ quantity: '', reason: 'purchase', note: '' });
-            reload(); onChanged(); toast('Stock updated');
-          } catch (error) { toast(error.message, 'error'); } finally { setBusy(false); }
-        }}>Save</Button></>}>
-        <div className="stack">
-          <Field label="What happened"><select className="input" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}><option value="purchase">Received new stock</option><option value="return">Customer returned</option><option value="adjustment">Correction (use − to remove)</option></select></Field>
-          <Field label="Quantity" hint="Negative numbers remove stock."><input className="input" type="number" step="any" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} autoFocus /></Field>
-          <Field label="Note"><input className="input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Supplier bill no., reason…" /></Field>
-        </div>
-      </Dialog>
+      <StockDialog item={item} open={open} onClose={() => setOpen(false)} onSaved={() => { reload(); onChanged(); }} />
     </section>
   );
 }
