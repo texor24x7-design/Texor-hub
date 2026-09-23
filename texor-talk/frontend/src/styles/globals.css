@@ -550,11 +550,23 @@ p { margin: 0; }
 .tile--compact .tile__badge { width: 1.4rem; height: 1.4rem; font-size: 0.75rem; }
 
 /* ── spotlight and presenting ─────────────────────────────────────────────── */
+/**
+ * The rail sits beside the feature, not under it.
+ *
+ * A shared screen is limited by whichever dimension runs out first, and on a
+ * desktop that is always the height — so a row of thumbnails along the bottom
+ * was spending the scarce dimension to buy back the one already going spare as
+ * black bars down the sides. Beside the feature it costs width instead, and
+ * the share fills the full height of the stage.
+ *
+ * Narrow windows and phones put it back along the bottom: there the height is
+ * what is plentiful and the width is what there is none of.
+ */
 .meet__present {
   height: 100%;
   display: grid;
-  /* The strip takes what it needs; the feature takes everything left. */
-  grid-template-rows: minmax(0, 1fr) auto;
+  /* The rail takes what it needs; the feature takes everything left. */
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.6rem;
   min-height: 0;
 }
@@ -584,23 +596,40 @@ p { margin: 0; }
 
 .meet__strip {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
-  justify-content: center;
-  overflow-x: auto;
-  padding-bottom: 0.25rem;
+  /* `safe` so a rail that has outgrown the stage scrolls from the top rather
+     than centring its overflow out of reach above the scroll box. */
+  justify-content: safe center;
+  overflow-y: auto;
+  padding-right: 0.25rem;
   scrollbar-width: thin;
   flex: none;
+  min-height: 0;
 }
-/* Sized in the strip rather than by the grid maths — these are thumbnails, and
-   a fixed height keeps the row steady as people come and go. */
+/* Sized here rather than by the grid maths — these are thumbnails, and a fixed
+   size keeps the rail steady as people come and go. */
 .meet__strip .tile {
   flex: 0 0 auto;
-  width: auto;
-  height: clamp(4.5rem, 14vh, 7.5rem);
+  width: clamp(8rem, 12vw, 12rem);
+  height: auto;
   aspect-ratio: 16 / 9;
 }
-/* Many people in the strip: let it start from the left so it can scroll. */
+/* Many people in the rail: let it start from the top so it can scroll. */
 .meet__strip--full { justify-content: flex-start; }
+
+/* Not enough width to give any of it away: back to a row under the feature. */
+@media (max-width: 64rem), (orientation: portrait) {
+  .meet__present { grid-template-columns: none; grid-template-rows: minmax(0, 1fr) auto; }
+  .meet__strip {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-right: 0;
+    padding-bottom: 0.25rem;
+  }
+  .meet__strip .tile { width: auto; height: clamp(4.5rem, 14vh, 7.5rem); }
+}
 
 /* ── the bottom bar ───────────────────────────────────────────────────────── */
 .meet__bar {
