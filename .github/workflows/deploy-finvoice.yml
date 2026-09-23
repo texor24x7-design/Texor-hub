@@ -55,6 +55,14 @@ jobs:
             cd texor-finvoice/backend
             npm ci
 
+            # npm no longer runs a dependency's install scripts unless they are
+            # approved, so Puppeteer's postinstall never fetches Chromium and
+            # every PDF — invoices, emailed copies — fails with a 503. Asking for
+            # the browser directly does not depend on that policy, and it skips
+            # the download when the cache already has it.
+            echo "==> Ensuring the PDF renderer has its browser"
+            npx --yes puppeteer browsers install chrome
+
             echo "==> Running Finvoice tests"
             NODE_ENV=test npm test
 

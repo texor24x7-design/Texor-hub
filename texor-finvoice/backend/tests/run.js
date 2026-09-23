@@ -15,6 +15,7 @@
  */
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { hostname } from 'node:os';
 import mongoose from 'mongoose';
 import { connectForTests } from './db.mjs';
 
@@ -29,6 +30,20 @@ const E2E = ['foundation.test.mjs', 'documents.test.mjs', 'operations.test.mjs',
 const only = process.argv.slice(2);
 const selected = (file) => only.length === 0 || only.some((word) => file.includes(word));
 
+/**
+ * The test database is named after the machine running the suites.
+ *
+ * Everyone's `.env` points at the same cluster, so a plain `<db>_test` is one
+ * database shared by every developer and by the deploy box. Two runs at once
+ * then wipe and re-seed under each other: the symptom is a suite dying on a
+ * duplicate `texorId`, several suites away from whatever actually collided.
+ *
+ * Per-machine rather than per-run, so an interrupted run leaves one reusable
+ * database behind instead of a new one every time; two runs on the *same*
+ * machine are caught by the port check below.
+ */
+const runnerTag = () => (hostname().toLowerCase().replace(/[^a-z0-9]/g, '') || 'local').slice(0, 20);
+
 function testUri(uri) {
   if (!uri) {
     console.error('MONGODB_URI is not set. Run with --env-file=.env');
@@ -41,7 +56,7 @@ function testUri(uri) {
     process.exit(1);
   }
   if (name.endsWith('_test')) return url.toString();
-  url.pathname = `/${name}_test`;
+  url.pathname = `/${name}_${runnerTag()}_test`;
   return url.toString();
 }
 
