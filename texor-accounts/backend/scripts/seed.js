@@ -132,12 +132,48 @@ async function seedProducts() {
   return created;
 }
 
+/**
+ * Vew, the desktop browser, signs its user in with their Texor Account the way
+ * Chrome signs you in with a Google Account.
+ *
+ * It is a *public* client: a desktop app cannot keep a secret, so there is none,
+ * and PKCE (required for every client here) is what protects the code. It is
+ * first-party, so it skips consent and receives a refresh token like the other
+ * Texor products.
+ *
+ * The redirect URI is on the account site but no page needs to exist there:
+ * Vew runs the sign-in in its own window and catches the redirect before any
+ * request is made, so the code never leaves the browser. It is still an https
+ * URI we own, so if that interception ever failed the code would land with
+ * Texor, not with a stranger.
+ */
+async function seedBrowser() {
+  const clientId = 'vew';
+  if (await Client.findOne({ clientId }).exec()) {
+    console.log(`· client "${clientId}" already registered`);
+    return;
+  }
+  await registerClient({
+    clientId,
+    clientName: 'Vew',
+    description: 'The Vew browser, signed in with your Texor Account.',
+    redirectUris: [`${env.accountsWebOrigin}/browser/signed-in`],
+    postLogoutRedirectUris: [],
+    appUrl: env.accountsWebOrigin,
+    allowedScopes: ['openid', 'profile', 'email', 'offline_access'],
+    tokenEndpointAuthMethod: 'none',
+    isFirstParty: true,
+  });
+  console.log(`· registered client "${clientId}" (public, PKCE — no secret)`);
+}
+
 async function main() {
   await connectDatabase();
 
   console.log(`\nSeeding Texor Account (${env.NODE_ENV})\n`);
   await seedAdmin();
   const created = await seedProducts();
+  await seedBrowser();
 
   if (created.length) {
     console.log('\n─────────────────────────────────────────────────────────────');
