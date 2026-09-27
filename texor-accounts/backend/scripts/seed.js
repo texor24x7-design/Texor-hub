@@ -14,7 +14,7 @@ import { connectDatabase } from '../src/config/db.js';
 import User from '../src/models/User.js';
 import Client from '../src/models/Client.js';
 import { hashPassword } from '../src/utils/password.js';
-import { registerClient } from '../src/services/client.service.js';
+import { registerClient, updateClient } from '../src/services/client.service.js';
 
 const DEV = !env.isProduction;
 /**
@@ -149,22 +149,31 @@ async function seedProducts() {
  */
 async function seedBrowser() {
   const clientId = 'vew';
-  if (await Client.findOne({ clientId }).exec()) {
-    console.log(`· client "${clientId}" already registered`);
+  const redirectUris = [`${env.accountsWebOrigin}/browser/signed-in`];
+  const existing = await Client.findOne({ clientId }).exec();
+  if (existing) {
+    // Unlike the products above, Vew's only redirect is derived from ACCOUNTS_WEB_ORIGIN, so a run
+    // with the wrong origin (e.g. a local .env against production) is repaired by re-running.
+    if (existing.redirectUris.join() !== redirectUris.join()) {
+      await updateClient(clientId, { redirectUris, appUrl: env.accountsWebOrigin });
+      console.log(`· client "${clientId}" redirect updated → ${redirectUris[0]}`);
+    } else {
+      console.log(`· client "${clientId}" already registered (${redirectUris[0]})`);
+    }
     return;
   }
   await registerClient({
     clientId,
     clientName: 'Vew',
     description: 'The Vew browser, signed in with your Texor Account.',
-    redirectUris: [`${env.accountsWebOrigin}/browser/signed-in`],
+    redirectUris,
     postLogoutRedirectUris: [],
     appUrl: env.accountsWebOrigin,
     allowedScopes: ['openid', 'profile', 'email', 'offline_access'],
     tokenEndpointAuthMethod: 'none',
     isFirstParty: true,
   });
-  console.log(`· registered client "${clientId}" (public, PKCE — no secret)`);
+  console.log(`· registered client "${clientId}" (public, PKCE — no secret) → ${redirectUris[0]}`);
 }
 
 async function main() {
