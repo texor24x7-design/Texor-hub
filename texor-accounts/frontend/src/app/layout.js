@@ -1,4 +1,4 @@
-import { Stack_Sans_Headline } from 'next/font/google';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 
 import '@/styles/globals.css';
 
@@ -9,7 +9,7 @@ import '@/styles/globals.css';
  * Loaded here rather than per page so every route is set in it and so it is
  * downloaded once.
  *
- * Taken as the variable font: 200–700 in a single file, which is less to
+ * Taken as the variable font: 200–800 in a single file, which is less to
  * download than the four static weights this interface uses, and lets a rule
  * ask for a weight in between where that reads better.
  *
@@ -17,7 +17,7 @@ import '@/styles/globals.css';
  * the finished page still makes no request to anybody else — which matters
  * more here than anywhere: this is the page that handles passwords.
  */
-const texorSans = Stack_Sans_Headline({
+const texorSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
   variable: '--font-texor',
   display: 'swap',

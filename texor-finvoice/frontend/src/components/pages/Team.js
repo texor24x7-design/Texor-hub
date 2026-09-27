@@ -12,7 +12,7 @@ const ACTION_LABELS = { view: 'View', create: 'Create', edit: 'Edit', delete: 'D
 const APPROVE_HINTS = { invoices: 'issue & void', quotations: 'send & decide', staff: 'mark others', warranties: 'resolve claims', gst: 'file' };
 
 export function Members({ data, reload }) {
-  const { api, slug, can, member: me } = useWorkspace();
+  const { api, slug, can, boot, member: me } = useWorkspace();
   const toast = useToast();
   const confirm = useConfirm();
   const [inviting, setInviting] = useState(false);
@@ -42,12 +42,36 @@ export function Members({ data, reload }) {
     try { await api.del(`/team/members/${member._id}`); reload(); invalidate(`records:${slug}:staff`); } catch (error) { toast(error.message, 'error'); }
   }
 
+  // A seat is taken by anyone who is in or on their way in; someone switched off
+  // has given theirs back. Mirrors what the server counts.
+  const seats = data.members.filter((m) => m.status !== 'disabled').length;
+  const limit = boot?.limits?.members ?? null;
+  const full = limit != null && seats >= limit;
+
   return (
     <div className="card">
       <div className="card-header">
-        <div><h2>People with access</h2><p className="small muted">Everyone signs in with their own Texor account.</p></div>
-        {editable ? <Button icon={<MailPlus />} onClick={() => setInviting(true)}>Invite</Button> : null}
+        <div>
+          <h2>People with access</h2>
+          <p className="small muted">
+            Everyone signs in with their own Texor account.
+            {limit != null ? <> {seats} of {limit} seats used on Lite.</> : null}
+          </p>
+        </div>
+        {editable ? (
+          <Button icon={<MailPlus />} onClick={() => setInviting(true)} disabled={full}
+            title={full ? `All ${limit} Lite seats are taken. Switch off someone who has left, or move to Pro.` : undefined}>
+            Invite
+          </Button>
+        ) : null}
       </div>
+      {full && editable ? (
+        <div className="card-body" style={{ paddingBottom: 0 }}>
+          <Alert kind="info" title={`All ${limit} seats are in use`}>
+            Finvoice Lite covers {limit} people. Switch off someone who has left to free a seat, or move this business to Pro in Settings.
+          </Alert>
+        </div>
+      ) : null}
       <div className="table-wrap">
         <CardTable>
           <thead><tr><th>Person</th><th>Role</th><th>Status</th><th>Joined</th><th className="tight" /></tr></thead>

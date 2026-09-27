@@ -1,4 +1,4 @@
-import { Stack_Sans_Headline } from 'next/font/google';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 
 import '@/styles/globals.css';
 
@@ -7,7 +7,7 @@ import '@/styles/globals.css';
  * not feel like changing companies. `next/font` downloads it at build time and
  * serves it from this deployment — no request to anybody else at runtime.
  */
-const texorSans = Stack_Sans_Headline({
+const texorSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
   variable: '--font-texor',
   display: 'swap',

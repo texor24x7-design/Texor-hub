@@ -103,7 +103,8 @@ export function screenFor(module) {
   if (module.locked) return 'pro';
   if (module.key === 'dashboard') return 'dashboard';
   if (module.document) return 'documents';
-  if (['payments', 'schedules', 'staff', 'team', 'settings'].includes(module.key)) return module.key;
-  if (module.edition === 'pro') return 'pro';
+  if (['payments', 'schedules', 'staff', 'team', 'settings', 'gst', 'bills'].includes(module.key)) return module.key;
+  // A Pro module with no fields and no screen of its own is still only a promise.
+  if (module.edition === 'pro' && !module.fields?.length) return 'pro';
   return 'records';
 }

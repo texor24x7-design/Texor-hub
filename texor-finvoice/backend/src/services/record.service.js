@@ -15,6 +15,7 @@ import Item from '../models/Item.js';
 import Member from '../models/Member.js';
 import Record from '../models/Record.js';
 import Staff from '../models/Staff.js';
+import Vendor from '../models/Vendor.js';
 import Warranty from '../models/Warranty.js';
 import Workspace from '../models/Workspace.js';
 import ApiError from '../utils/ApiError.js';
@@ -34,6 +35,7 @@ const STORES = {
   warranties: { model: Warranty, base: {} },
   staff: { model: Staff, base: {} },
   expenses: { model: Expense, base: {} },
+  vendors: { model: Vendor, base: {} },
 };
 
 export function storeFor(moduleKey) {
@@ -59,6 +61,7 @@ const TITLE_SOURCES = {
   services: { model: Item, select: 'name kind', title: (d) => d.name },
   staff: { model: Staff, select: 'name designation', title: (d) => d.name, subtitle: (d) => d.designation },
   warranties: { model: Warranty, select: 'itemName serial', title: (d) => d.itemName, subtitle: (d) => d.serial },
+  vendors: { model: Vendor, select: 'name phone', title: (d) => d.name, subtitle: (d) => d.phone },
 };
 
 function titleSource(refModule) {
@@ -286,6 +289,14 @@ HOOKS.products.listFilter = (filter, query) => {
 HOOKS.customers.listFilter = (filter, query) => {
   if (query.receivable === '1') filter.receivableMinor = { $gt: 0 };
 };
+HOOKS.vendors = {
+  beforeSave(data) {
+    if (data.gstin && !data.stateCode) data.stateCode = india.stateFromGstin(data.gstin);
+  },
+  listFilter(filter, query) {
+    if (query.payable === '1') filter.payableMinor = { $gt: 0 };
+  },
+};
 
 const hooksFor = (module) => HOOKS[module.key] ?? {};
 
@@ -299,7 +310,26 @@ function filterValue(field, raw) {
   return String(raw);
 }
 
-const SORTABLE = new Set(['updatedAt', 'createdAt', 'name', 'title', 'endDate', 'startDate', 'stock', 'priceMinor', 'receivableMinor']);
+/**
+ * Which columns a table may be sorted by.
+ *
+ * Taken from the module's own fields rather than a fixed list, so a workspace
+ * that adds a field can sort by it — and so the path handed to Mongo is one this
+ * server wrote, never one the query string did.
+ */
+const SORTABLE_TYPES = new Set(['text', 'email', 'phone', 'url', 'gstin', 'state', 'select', 'number', 'currency', 'percent', 'date', 'datetime', 'checkbox', 'time']);
+/** Sortable whatever the module says: the housekeeping stamps and the cached figures the tables show. */
+const ALWAYS_SORTABLE = new Set(['updatedAt', 'createdAt', 'title', 'stock', 'receivableMinor']);
+
+function sortFor(module, raw) {
+  const key = String(raw ?? '-updatedAt');
+  const wanted = key.replace(/^-/, '');
+  const direction = key.startsWith('-') ? -1 : 1;
+  if (ALWAYS_SORTABLE.has(wanted)) return { [wanted]: direction, _id: -1 };
+  const field = module.fields.find((f) => f.key === wanted && SORTABLE_TYPES.has(f.type));
+  if (!field) return { updatedAt: -1, _id: -1 };
+  return { [field.custom ? `custom.${field.key}` : field.key]: direction, _id: -1 };
+}
 
 export async function list(req, moduleKey, query = {}) {
   const module = requireUsableModule(req.workspace, moduleKey);
@@ -319,11 +349,16 @@ export async function list(req, moduleKey, query = {}) {
   }
   hooksFor(module).listFilter?.(filter, query);
 
+  // An explicit set of ids: what "export the rows I ticked" asks for. Asking for
+  // ids and naming none that exist selects nothing — falling back to the whole
+  // table would quietly hand back far more than was ticked.
+  if (query.ids !== undefined) {
+    filter._id = { $in: String(query.ids).split(',').filter((id) => mongoose.isValidObjectId(id)) };
+  }
+
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 500);
   const page = Math.max(Number(query.page) || 1, 1);
-  const sortKey = String(query.sort ?? '-updatedAt');
-  const sortField = sortKey.replace(/^-/, '');
-  const sort = SORTABLE.has(sortField) ? { [sortField]: sortKey.startsWith('-') ? -1 : 1, _id: -1 } : { updatedAt: -1 };
+  const sort = sortFor(module, query.sort);
 
   const [docs, total] = await Promise.all([
     model.find(filter).sort(sort).skip((page - 1) * limit).limit(limit).lean(),
@@ -470,6 +505,30 @@ export async function update(req, moduleKey, id, body) {
   await rememberWords(req, moduleKey, data);
   await audit(req, { action: 'record.updated', module: moduleKey, recordId: doc._id, summary: `Updated ${module.labelSingular.toLowerCase()}`, metadata: { fields: changed } });
   return { record: serialize(module, doc.toObject(), hidden), refs };
+}
+
+/**
+ * Deleting a tick-box selection. One update and one audit line, rather than a
+ * request per row — a list of fifty is otherwise fifty chances to half-finish.
+ */
+export async function removeMany(req, moduleKey, ids) {
+  const module = requireUsableModule(req.workspace, moduleKey);
+  const { model, base } = storeFor(moduleKey);
+  const wanted = [...new Set(ids.filter((id) => mongoose.isValidObjectId(id)))];
+  if (!wanted.length) throw ApiError.badRequest('Nothing was selected.');
+
+  const filter = { _id: { $in: wanted }, workspace: req.workspace._id, deletedAt: null, ...base };
+  if (req.scope === 'own') filter.createdBy = req.user._id;
+
+  const { modifiedCount } = await model.updateMany(filter, { $set: { deletedAt: new Date(), updatedBy: req.user._id } });
+  if (modifiedCount) {
+    await audit(req, {
+      action: 'record.deleted', module: moduleKey,
+      summary: `Deleted ${modifiedCount} ${(modifiedCount === 1 ? module.labelSingular : module.label).toLowerCase()}`,
+      metadata: { ids: wanted.slice(0, 100), count: modifiedCount },
+    });
+  }
+  return { deleted: modifiedCount, asked: wanted.length };
 }
 
 export async function remove(req, moduleKey, id) {

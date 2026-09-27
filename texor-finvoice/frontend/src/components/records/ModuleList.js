@@ -2,17 +2,20 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
-import { Download, KanbanSquare, PackagePlus, Plus, Search, Settings2, Table2, Upload } from 'lucide-react';
+import { Download, KanbanSquare, PackagePlus, Plus, Search, Settings2, Table2, Trash2, Upload } from 'lucide-react';
 import { Icon } from '@/components/Icon';
-import { Badge, Button, ButtonLink, EmptyState, IconButton, Menu, PageHeader, Pagination, Segmented, SkeletonRows, StatusBadge, Tabs, useToast, CardTable } from '@/components/ui';
+import { Badge, Button, ButtonLink, EmptyState, IconButton, Menu, PageHeader, Pagination, Segmented, SkeletonRows, SortTh, StatusBadge, Tabs, useConfirm, useToast, CardTable } from '@/components/ui';
 import { FieldValue, readField } from '@/components/fields/FieldValue';
 import { invalidate, useDebounced, useResource, useStored } from '@/lib/data';
 import { money } from '@/lib/format';
 import { recordTitle, useWorkspace } from '@/lib/workspace';
 import { ImportDialog } from './ImportDialog';
 import { StockDialog } from './StockDialog';
+
+/** Mirrors the server's rule in `record.service.js`, so a header only offers what it can deliver. */
+const SORTABLE_TYPES = new Set(['text', 'email', 'phone', 'url', 'gstin', 'state', 'select', 'number', 'currency', 'percent', 'date', 'datetime', 'checkbox', 'time']);
 
 const LISTABLE = new Set(['text', 'email', 'phone', 'select', 'currency', 'number', 'date', 'datetime', 'reference', 'checkbox', 'gstin', 'state', 'percent', 'multiselect', 'image']);
 
@@ -70,35 +73,67 @@ export function ModuleList({ module }) {
   const { api, slug, href, can, hidden, currency } = useWorkspace();
   const router = useRouter();
   const toast = useToast();
+  const confirm = useConfirm();
   const roleHidden = hidden(module.key);
   const boardField = module.fields.find((f) => f.key === module.boardField);
   const [view, setView] = useStored(`fv:${slug}:${module.key}:view`, boardField ? 'board' : 'table');
   const [columns, setColumns] = useStored(`fv:${slug}:${module.key}:columns`, null);
-  const [q, setQ] = useState('');
-  const [tab, setTab] = useState('');
-  const [filters, setFilters] = useState({});
-  const [page, setPage] = useState(1);
   const [importing, setImporting] = useState(false);
   const [adjusting, setAdjusting] = useState(null);
+
+  /**
+   * Search, tab, filters, sort and page live in the URL, the way the document
+   * lists already do it: a filtered table can then be linked to a colleague or
+   * bookmarked, and Back goes where it looks like it should.
+   */
+  const urlParams = useSearchParams();
+  const tab = urlParams.get('tab') ?? '';
+  const sort = urlParams.get('sort') ?? '';
+  const page = Math.max(Number(urlParams.get('page')) || 1, 1);
+  const [q, setQ] = useState(() => urlParams.get('q') ?? '');
   const search = useDebounced(q);
+  const filters = useMemo(
+    () => Object.fromEntries([...urlParams].filter(([k]) => k.startsWith('f.')).map(([k, v]) => [k.slice(2), v])),
+    [urlParams],
+  );
+
+  const setParams = (patch) => {
+    const next = new URLSearchParams(urlParams);
+    for (const [k, v] of Object.entries(patch)) { if (v) next.set(k, v); else next.delete(k); }
+    // Narrowing the list starts again from the top; only paging keeps its place.
+    if (!('page' in patch)) next.delete('page');
+    router.replace(`?${next}`, { scroll: false });
+  };
+  // Keep typing snappy: the box is local, the URL catches up with the debounce.
+  useEffect(() => { if (search !== (urlParams.get('q') ?? '')) setParams({ q: search }); }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const isBoard = view === 'board' && boardField;
 
-  useEffect(() => setPage(1), [search, tab, filters]);
-
   const params = useMemo(() => {
-    const p = { q: search, page: isBoard ? 1 : page, limit: isBoard ? 300 : 50 };
+    const p = { q: search, page: isBoard ? 1 : page, limit: isBoard ? 300 : 50, sort };
     if (tab === 'lowStock') p.lowStock = '1';
     else if (tab === 'receivable') p.receivable = '1';
     else if (tab) p.state = tab;
     for (const [key, value] of Object.entries(filters)) if (value) p[`f.${key}`] = value;
     return p;
-  }, [search, page, tab, filters, isBoard]);
+  }, [search, page, tab, filters, sort, isBoard]);
 
-  /** Whatever the table is showing — search, tab and filters — is what gets exported. */
-  const exportHref = (format) => api.url(`/records/${module.key}/export?${new URLSearchParams([...Object.entries(params).filter(([k, v]) => v && k !== 'page' && k !== 'limit'), ['format', format]])}`);
+  /**
+   * Whatever the table is showing — search, tab and filters — is what gets
+   * exported, or just the ticked rows when there are some.
+   */
+  const exportHref = (format, ids) => api.url(`/records/${module.key}/export?${new URLSearchParams([
+    ...Object.entries(params).filter(([k, v]) => v && k !== 'page' && k !== 'limit'),
+    ...(ids?.length ? [['ids', ids.join(',')]] : []),
+    ['format', format],
+  ])}`);
 
   const key = `records:${slug}:${module.key}:${JSON.stringify(params)}`;
   const { data, loading, error, mutate } = useResource(key, () => api.get(`/records/${module.key}`, params));
+
+  // Ticks belong to the rows on screen, so a new query starts a new selection.
+  const [selected, setSelected] = useState(() => new Set());
+  useEffect(() => { setSelected(new Set()); }, [key]);
 
   /**
    * The stored preference says *which* columns are on; the order is always the
@@ -133,6 +168,36 @@ export function ModuleList({ module }) {
   const records = data?.records ?? [];
   const refs = data?.refs ?? {};
 
+  // Ticking rows is only worth offering to someone who can then do something with them.
+  const canTick = can(module.key, 'delete') || can(module.key, 'export');
+  const allTicked = records.length > 0 && records.every((r) => selected.has(r._id));
+  const toggleRow = (id) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAll = () => setSelected(allTicked ? new Set() : new Set(records.map((r) => r._id)));
+
+  async function deleteSelected() {
+    const count = selected.size;
+    const noun = (count === 1 ? module.labelSingular : module.label).toLowerCase();
+    if (!(await confirm({
+      title: `Delete ${count} ${noun}?`,
+      message: `They will be removed from lists and search. Anything already billed keeps its own copy of them.`,
+      confirmLabel: `Delete ${count}`,
+      danger: true,
+    }))) return;
+    try {
+      const { deleted } = await api.post(`/records/${module.key}/bulk-delete`, { ids: [...selected] });
+      setSelected(new Set());
+      invalidate(`records:${slug}:${module.key}`);
+      invalidate(`dashboard:${slug}`);
+      toast(`Deleted ${deleted} ${(deleted === 1 ? module.labelSingular : module.label).toLowerCase()}`);
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -153,14 +218,14 @@ export function ModuleList({ module }) {
       />
 
       <div className="card">
-        {PRESET_TABS[module.key] ? <div style={{ padding: '0 0.9rem' }}><Tabs tabs={PRESET_TABS[module.key]} value={tab} onChange={setTab} /></div> : null}
+        {PRESET_TABS[module.key] ? <div style={{ padding: '0 0.9rem' }}><Tabs tabs={PRESET_TABS[module.key]} value={tab} onChange={(value) => setParams({ tab: value })} /></div> : null}
         <div className="toolbar">
           <div className="input-icon grow" style={{ maxWidth: 360 }}>
             <Search aria-hidden="true" />
             <input className="input" placeholder={`Search ${module.label.toLowerCase()}…`} value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
           </div>
           {filterable.slice(0, 3).map((f) => (
-            <select key={f.key} className="input" style={{ width: 'auto', minWidth: 140 }} value={filters[f.key] ?? ''} onChange={(e) => setFilters((prev) => ({ ...prev, [f.key]: e.target.value }))} aria-label={f.label}>
+            <select key={f.key} className="input" style={{ width: 'auto', minWidth: 140 }} value={filters[f.key] ?? ''} onChange={(e) => setParams({ [`f.${f.key}`]: e.target.value })} aria-label={f.label}>
               <option value="">{f.label}: all</option>
               {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -185,6 +250,16 @@ export function ModuleList({ module }) {
             <Segmented label="View" value={view} onChange={setView} options={[{ value: 'board', icon: <KanbanSquare />, label: 'Board' }, { value: 'table', icon: <Table2 />, label: 'Table' }]} />
           ) : null}
         </div>
+
+        {selected.size && !isBoard ? (
+          <div className="bulk-bar">
+            <span className="strong">{selected.size} selected</span>
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>Clear</Button>
+            <div className="grow" />
+            {can(module.key, 'export') ? <a className="btn btn-secondary btn-sm" href={exportHref('xlsx', [...selected])}><Download />Export selected</a> : null}
+            {can(module.key, 'delete') ? <Button variant="danger" size="sm" icon={<Trash2 />} onClick={deleteSelected}>Delete</Button> : null}
+          </div>
+        ) : null}
 
         {error ? <div className="card-body"><div className="alert alert-error">{error.message}</div></div> : null}
         {loading && !data ? <SkeletonRows /> : null}
@@ -222,17 +297,33 @@ export function ModuleList({ module }) {
               <CardTable>
                 <thead>
                   <tr>
-                    <th>{titleField?.label ?? 'Name'}</th>
+                    {canTick ? (
+                      <th className="tick-col">
+                        <input type="checkbox" checked={allTicked} onChange={toggleAll}
+                          aria-label={allTicked ? 'Clear selection' : `Select all ${records.length} on this page`} />
+                      </th>
+                    ) : null}
+                    <SortTh field={titleField?.key ?? 'title'} label={titleField?.label ?? 'Name'} value={sort} onChange={(next) => setParams({ sort: next })} />
                     {module.customerLink ? <th>Customer</th> : null}
                     {module.key === 'warranties' ? <th>Status</th> : null}
-                    {visibleColumns.map((f) => <th key={f.key} className={['currency', 'number', 'percent'].includes(f.type) ? 'num' : ''}>{f.label}</th>)}
-                    {module.key === 'products' ? <th className="num">In stock</th> : null}
-                    {module.key === 'customers' ? <th className="num">Owes</th> : null}
+                    {visibleColumns.map((f) => {
+                      const numeric = ['currency', 'number', 'percent'].includes(f.type);
+                      return SORTABLE_TYPES.has(f.type)
+                        ? <SortTh key={f.key} field={f.key} label={f.label} value={sort} onChange={(next) => setParams({ sort: next })} desc={numeric || f.type === 'date' || f.type === 'datetime'} className={numeric ? 'num' : ''} />
+                        : <th key={f.key} className={numeric ? 'num' : ''}>{f.label}</th>;
+                    })}
+                    {module.key === 'products' ? <SortTh field="stock" label="In stock" value={sort} onChange={(next) => setParams({ sort: next })} desc className="num" /> : null}
+                    {module.key === 'customers' ? <SortTh field="receivableMinor" label="Owes" value={sort} onChange={(next) => setParams({ sort: next })} desc className="num" /> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {records.map((r) => (
                     <tr key={r._id} className="clickable" onClick={() => router.push(href(`/${module.key}/${r._id}`))}>
+                      {canTick ? (
+                        <td className="tick-col" onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" checked={selected.has(r._id)} onChange={() => toggleRow(r._id)} aria-label={`Select ${recordTitle(module, r)}`} />
+                        </td>
+                      ) : null}
                       <td>
                         <div className="row">
                           {r.image || r.photo ? <img src={`${process.env.NEXT_PUBLIC_API_ORIGIN}/api/files/${r.image || r.photo}`} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} /> : null}
@@ -262,7 +353,7 @@ export function ModuleList({ module }) {
                 </tbody>
               </CardTable>
             </div>
-            <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
+            <Pagination page={data.page} limit={data.limit} total={data.total} onPage={(next) => setParams({ page: next > 1 ? String(next) : '' })} />
           </>
         ) : null}
       </div>

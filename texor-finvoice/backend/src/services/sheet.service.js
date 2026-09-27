@@ -88,5 +88,17 @@ export const toXlsx = ([headings = [], ...body]) => writeXlsxFile(
   { stickyRowsCount: 1 },
 ).toBuffer();
 
+/**
+ * Several named sheets in one file — a filing return is a workbook, not a table.
+ * Each sheet is `{ name, rows }`, and each one's first row is its headings.
+ */
+export const toWorkbook = (sheets) => writeXlsxFile(
+  sheets.map(({ name, rows: [headings = [], ...body] }) => ({
+    sheet: name.slice(0, 31),
+    data: [headings.map((v) => ({ value: cell(v), fontWeight: 'bold' })), ...body.map((row) => row.map(cell))],
+    stickyRowsCount: 1,
+  })),
+).toBuffer();
+
 export const extensionOf = (format) => (format === 'xlsx' ? 'xlsx' : 'csv');
 export const contentTypeOf = (format) => (format === 'xlsx' ? XLSX_TYPE : 'text/csv; charset=utf-8');

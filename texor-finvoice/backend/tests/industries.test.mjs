@@ -7,11 +7,12 @@
 import { call, check, connect, finish, section, seedUser } from './helpers.mjs';
 
 const db = await connect();
-const owner = await seedUser(db, { texorId: 'tx-packs', email: 'packs@test.test', displayName: 'Pack Tester' });
 const { body: { industries } } = await call(null, '/api/industries');
 
 for (const pack of industries) {
   section(pack.name);
+  // One free business per person, so each pack is set up by an owner of its own.
+  const owner = await seedUser(db, { texorId: `tx-pack-${pack.key}`, email: `${pack.key}@packs.test`, displayName: 'Pack Tester' });
   const created = await call(owner, '/api/workspaces', { method: 'POST', body: { name: `${pack.name} Test`, industry: pack.key, gstin: '27AAPFU0939F1ZV', sample: true } });
   check('workspace is created', created.status === 201, created.body);
   const W = `/api/w/${created.body.workspace.slug}`;

@@ -6,7 +6,7 @@
  * one file.
  */
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Info, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronRight, ChevronsUpDown, Info, X } from 'lucide-react';
 import Link from 'next/link';
 import { initials } from '@/lib/format';
 import { ComboList, useCombo } from './fields/combo';
@@ -72,6 +72,27 @@ export function Alert({ kind = 'error', children, title }) {
       <Glyph aria-hidden="true" />
       <div>{title ? <div className="strong">{title}</div> : null}{children}</div>
     </div>
+  );
+}
+
+/**
+ * A column header that sorts the table.
+ *
+ * `value` is the list's current `key` / `-key` string and `onChange` is handed
+ * the next one. Numbers and dates start descending, because the first thing
+ * anyone wants from an Amount column is the biggest one.
+ */
+export function SortTh({ field, label, value, onChange, desc = false, className = '' }) {
+  const active = value === field || value === `-${field}`;
+  const descending = value === `-${field}`;
+  const next = active ? (descending ? field : `-${field}`) : (desc ? `-${field}` : field);
+  return (
+    <th className={className} aria-sort={active ? (descending ? 'descending' : 'ascending') : 'none'}>
+      <button type="button" className={`th-sort${active ? ' active' : ''}`} onClick={() => onChange(next)}>
+        {label}
+        {active ? (descending ? <ArrowDown aria-hidden="true" /> : <ArrowUp aria-hidden="true" />) : <ChevronsUpDown aria-hidden="true" />}
+      </button>
+    </th>
   );
 }
 

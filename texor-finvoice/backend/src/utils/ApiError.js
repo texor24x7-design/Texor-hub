@@ -33,6 +33,11 @@ export class ApiError extends Error {
     return new ApiError(409, 'conflict', message, details);
   }
 
+  /** Not a refusal but a ceiling: the thing asked for is real, this edition just does not include it. */
+  static upgradeRequired(message) {
+    return new ApiError(402, 'upgrade_required', message);
+  }
+
   static tooManyRequests(message = 'Too many requests. Try again shortly.') {
     return new ApiError(429, 'rate_limited', message);
   }

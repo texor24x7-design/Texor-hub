@@ -64,7 +64,7 @@ const partySchema = new Schema(
   { _id: false },
 );
 
-const totalsSchema = new Schema(
+export const totalsSchema = new Schema(
   {
     grossMinor: { type: Number, default: 0 },
     discountMinor: { type: Number, default: 0 },

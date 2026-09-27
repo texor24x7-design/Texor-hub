@@ -285,6 +285,30 @@ export const CORE_MODULES = [
   { key: 'settings', label: 'Settings', labelSingular: 'Settings', icon: 'settings', edition: 'lite', group: 'admin', actions: ['view', 'edit'], fields: [] },
 
   // Finvoice Pro — registered so the sidebar can show what upgrading unlocks.
+  {
+    key: 'vendors', label: 'Vendors', labelSingular: 'Vendor', icon: 'truck', edition: 'pro', group: 'purchases', actions: CRUD,
+    titleField: 'name',
+    fields: [
+      field('name', 'Name', 'text', { required: true, locked: true }),
+      field('phone', 'Phone', 'phone'),
+      field('email', 'Email', 'email'),
+      field('gstin', 'GSTIN', 'gstin'),
+      field('stateCode', 'State', 'state'),
+      field('address', 'Address', 'address'),
+      field('paymentTerms', 'Pays in (days)', 'number', { section: 'Terms', help: 'How long this supplier gives you to pay.' }),
+      field('accountNumber', 'Bank account', 'text', { section: 'Terms' }),
+      field('ifsc', 'IFSC', 'text', { section: 'Terms' }),
+      field('payableMinor', 'You owe', 'currency', { readOnly: true }),
+      field('notes', 'Notes', 'longtext'),
+    ],
+  },
+
+  {
+    key: 'bills', label: 'Purchase bills', labelSingular: 'Bill', icon: 'receipt-indian-rupee', edition: 'pro', group: 'purchases',
+    actions: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    titleField: 'number', fields: [],
+  },
+
   { key: 'reports', label: 'Reports', labelSingular: 'Report', icon: 'chart-no-axes-combined', edition: 'pro', group: 'insights', actions: ['view', 'export'], fields: [], teaser: 'Profit & loss, sales by payment mode, stock valuation and GST summaries.' },
   { key: 'gst', label: 'GST filing', labelSingular: 'GST return', icon: 'landmark', edition: 'pro', group: 'insights', actions: ['view', 'export', 'approve'], fields: [], teaser: 'GSTR-1 and GSTR-3B prepared from your invoices, plus e-invoice IRN and e-way bills.' },
   { key: 'crm', label: 'CRM pipeline', labelSingular: 'Lead', icon: 'kanban', edition: 'pro', group: 'growth', actions: CRUD, fields: [], teaser: 'Leads, deals and follow-ups that turn into quotations.' },
@@ -299,6 +323,7 @@ export const MODULE_GROUPS = [
   { key: 'sales', label: 'Sales' },
   { key: 'catalogue', label: 'Catalogue' },
   { key: 'operations', label: 'Operations' },
+  { key: 'purchases', label: 'Purchases' },
   { key: 'aftersales', label: 'After sales' },
   { key: 'people', label: 'People' },
   { key: 'insights', label: 'Insights' },

@@ -18,6 +18,9 @@ export const get = async (req, res) => res.json(await records.get(req, moduleKey
 export const create = async (req, res) => res.status(201).json(await records.create(req, moduleKey(req), req.body));
 export const update = async (req, res) => res.json(await records.update(req, moduleKey(req), req.params.id, req.body));
 
+export const bulkDeleteSchema = z.object({ ids: z.array(z.string()).min(1).max(200) });
+export const removeMany = async (req, res) => res.json(await records.removeMany(req, moduleKey(req), req.body.ids));
+
 export async function remove(req, res) {
   await records.remove(req, moduleKey(req), req.params.id);
   res.json({ ok: true });

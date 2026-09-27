@@ -246,6 +246,30 @@ select.input { appearance: none; padding-right: 2rem; background-image: url("dat
 /* ── tables ─────────────────────────────────────────────────────────────── */
 .table-wrap { overflow-x: auto; }
 .table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.8125rem; }
+/* A sortable header is still a header: the button carries none of its own chrome. */
+.th-sort {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  background: none; border: 0; padding: 0; margin: 0; cursor: pointer;
+  font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+}
+.th-sort svg { width: 13px; height: 13px; opacity: 0.35; }
+.th-sort:hover { color: var(--text); }
+.th-sort:hover svg { opacity: 0.7; }
+.th-sort.active { color: var(--text); }
+.th-sort.active svg { opacity: 1; color: var(--brand-600, var(--text)); }
+th[aria-sort] .th-sort:focus-visible { outline: 2px solid var(--brand-400); outline-offset: 2px; border-radius: 3px; }
+
+/* The tick column stays out of the way of the data. */
+.tick-col { width: 36px; padding-right: 0 !important; }
+.tick-col input { cursor: pointer; }
+
+/* The strip that appears once rows are ticked. */
+.bulk-bar {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.55rem 0.9rem;
+  background: var(--surface-muted); border-bottom: 1px solid var(--border);
+}
+
 .table th { text-align: left; font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-subtle); padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); background: var(--surface-muted); white-space: nowrap; position: sticky; top: 0; z-index: 1; }
 .table td { padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .table tbody tr:last-child td { border-bottom: 0; }

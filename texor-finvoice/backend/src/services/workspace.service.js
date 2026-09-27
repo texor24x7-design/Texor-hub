@@ -9,6 +9,7 @@ import Record from '../models/Record.js';
 import User from '../models/User.js';
 import Workspace from '../models/Workspace.js';
 import ApiError from '../utils/ApiError.js';
+import { assertBusiness, limitsFor } from './entitlement.service.js';
 import { INDUSTRIES, industry } from '../industries/index.js';
 import { MODULE_GROUPS } from '../modules/registry.js';
 import { india } from '../shared.js';
@@ -121,6 +122,7 @@ async function seedSample(pack, workspace, user, session) {
 export async function createWorkspace(user, input) {
   const pack = industry(input.industry);
   if (!pack) throw ApiError.badRequest('Choose an industry.', [{ field: 'industry', message: 'Choose an industry.' }]);
+  await assertBusiness(user);
 
   const gstin = india.normaliseGstin(input.gstin);
   const stateCode = india.stateFromGstin(gstin) || input.stateCode || '';
@@ -199,6 +201,9 @@ export function bootstrap(workspace, member, user) {
     workspace: details,
     modules: visible,
     groups: MODULE_GROUPS,
+    // What this edition allows, so the screens can say so before somebody is
+    // stopped by it rather than after.
+    limits: limitsFor(workspace.edition),
     permissions,
     hiddenFields: member.role === 'owner' ? {} : role?.hiddenFields ?? {},
     member: { _id: member._id, role: member.role, roleName: role?.name ?? member.role, name: member.name || user.displayName, email: member.email },

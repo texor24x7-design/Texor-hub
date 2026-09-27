@@ -258,6 +258,25 @@ const label = (req, kind) => moduleOf(req.workspace, kind).labelSingular;
 
 // ── reads ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Sorting a document table. A fixed map rather than a field lookup: these
+ * columns are the document's own shape, not a module's editable fields, and two
+ * of them sort by a path the table does not name.
+ */
+const DOCUMENT_SORTS = {
+  number: 'number', date: 'date', dueDate: 'dueDate', validUntil: 'validUntil',
+  status: 'status', customer: 'billTo.name', total: 'totals.totalMinor',
+};
+// Deliberately absent: the balance. It is `total − paid − credited`, computed on
+// read, so there is no field to sort by and a header offering it would lie.
+
+function sortFor(raw) {
+  const key = String(raw ?? '-date');
+  const path = DOCUMENT_SORTS[key.replace(/^-/, '')];
+  if (!path) return { date: -1, createdAt: -1 };
+  return { [path]: key.startsWith('-') ? -1 : 1, createdAt: -1 };
+}
+
 export async function list(req, kind, query = {}) {
   requireUsableModule(req.workspace, kind);
   const model = modelFor(kind);
@@ -292,8 +311,9 @@ export async function list(req, kind, query = {}) {
 
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
   const page = Math.max(Number(query.page) || 1, 1);
+  const sort = sortFor(query.sort);
   const [docs, total, sums] = await Promise.all([
-    model.find(filter).select('-lines -seller -taxSummary').sort({ date: -1, createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    model.find(filter).select('-lines -seller -taxSummary').sort(sort).skip((page - 1) * limit).limit(limit).lean(),
     model.countDocuments(filter),
     model.aggregate([{ $match: filter }, { $group: { _id: null, totalMinor: { $sum: '$totals.totalMinor' }, paidMinor: { $sum: '$amountPaidMinor' }, creditedMinor: { $sum: '$creditedMinor' } } }]),
   ]);

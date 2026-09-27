@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Search } from 'lucide-react';
 import { Icon } from '@/components/Icon';
-import { ButtonLink, EmptyState, PageHeader, Pagination, SkeletonRows, StatusBadge, Tabs, CardTable } from '@/components/ui';
+import { ButtonLink, EmptyState, PageHeader, Pagination, SkeletonRows, SortTh, StatusBadge, Tabs, CardTable } from '@/components/ui';
 import { useDebounced, useResource } from '@/lib/data';
 import { date, money } from '@/lib/format';
 import { useWorkspace } from '@/lib/workspace';
@@ -31,12 +31,13 @@ export function DocumentList({ module }) {
   // Back and bookmarks behave the way people expect.
   const urlParams = useSearchParams();
   const state = urlParams.get('state') ?? '';
+  const sort = urlParams.get('sort') ?? '';
   const [q, setQ] = useState(() => urlParams.get('q') ?? '');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const search = useDebounced(q);
-  useEffect(() => setPage(1), [state, search, from, to]);
+  useEffect(() => setPage(1), [state, search, from, to, sort]);
 
   const setFilter = (patch) => {
     const next = new URLSearchParams(urlParams);
@@ -49,7 +50,7 @@ export function DocumentList({ module }) {
   // Keep typing snappy: the box is local, the URL catches up with the debounce.
   useEffect(() => { if (search !== (urlParams.get('q') ?? '')) setFilter({ q: search }); }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const params = useMemo(() => ({ state, q: search, from, to: to ? `${to}T23:59:59` : '', page }), [state, search, from, to, page]);
+  const params = useMemo(() => ({ state, q: search, from, to: to ? `${to}T23:59:59` : '', page, sort }), [state, search, from, to, page, sort]);
   const { data, loading, error } = useResource(`documents:${slug}:${kind}:${JSON.stringify(params)}`, () => api.get(`/documents/${kind}`, params));
   const isInvoice = kind === 'invoices';
   const isNote = kind === 'credit_notes' || kind === 'debit_notes';
@@ -95,8 +96,17 @@ export function DocumentList({ module }) {
               <CardTable className="table doc-table">
                 <thead>
                   <tr>
-                    <th>Number</th><th>Customer</th>{printable.map((f) => <th key={f.key}>{f.label}</th>)}<th>Date</th><th>{isInvoice ? 'Due' : isNote ? 'Against' : 'Valid until'}</th><th>Status</th>
-                    <th className="num">Amount</th>{isInvoice ? <th className="num">Balance</th> : null}
+                    <SortTh field="number" label="Number" value={sort} onChange={(next) => setFilter({ sort: next })} desc />
+                    <SortTh field="customer" label="Customer" value={sort} onChange={(next) => setFilter({ sort: next })} />
+                    {printable.map((f) => <th key={f.key}>{f.label}</th>)}
+                    <SortTh field="date" label="Date" value={sort} onChange={(next) => setFilter({ sort: next })} desc />
+                    {isNote
+                      ? <th>Against</th>
+                      : <SortTh field={isInvoice ? 'dueDate' : 'validUntil'} label={isInvoice ? 'Due' : 'Valid until'} value={sort} onChange={(next) => setFilter({ sort: next })} desc />}
+                    <SortTh field="status" label="Status" value={sort} onChange={(next) => setFilter({ sort: next })} />
+                    <SortTh field="total" label="Amount" value={sort} onChange={(next) => setFilter({ sort: next })} desc className="num" />
+                    {/* Balance is computed on read, so there is nothing to sort it by. */}
+                    {isInvoice ? <th className="num">Balance</th> : null}
                   </tr>
                 </thead>
                 <tbody>

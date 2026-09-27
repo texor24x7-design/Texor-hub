@@ -1,4 +1,4 @@
-import { Stack_Sans_Headline } from 'next/font/google';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 
 import '@/styles/globals.css';
 
@@ -10,14 +10,14 @@ import { resolveOrigin } from '@/lib/origin.mjs';
  * Loaded here rather than per page so every route is set in it — the board, a
  * note, the landing page — and so it is downloaded once.
  *
- * Taken as the variable font: 200–700 in a single file, which is less to
+ * Taken as the variable font: 200–800 in a single file, which is less to
  * download than the four static weights this interface uses, and lets a rule
  * ask for a weight in between where that reads better.
  *
  * `next/font` fetches it at build time and serves it from this deployment, so
  * the finished page still makes no request to anybody else.
  */
-const notesSans = Stack_Sans_Headline({
+const notesSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
   variable: '--font-notes',
   display: 'swap',

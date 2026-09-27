@@ -10,6 +10,8 @@ import { DocumentView } from '@/components/documents/DocumentView';
 import { ModuleList } from '@/components/records/ModuleList';
 import { RecordCreate, RecordDetail, RecordEdit } from '@/components/records/RecordPages';
 import { screenFor, useWorkspace } from '@/lib/workspace';
+import { Bills } from './Bills';
+import { Gst } from './Gst';
 import { Payments } from './Payments';
 import { Schedules } from './Schedules';
 import { ProTeaser } from './ProTeaser';
@@ -39,6 +41,8 @@ export function ModuleRoute({ moduleKey, mode = 'list', id }) {
   if (screen === 'settings') return <Redirect to={href('/settings/business')} />;
   if (screen === 'team') return <Team module={m} />;
   if (screen === 'payments') return <Payments module={m} />;
+  if (screen === 'gst') return <Gst module={m} />;
+  if (screen === 'bills') return <Bills module={m} />;
   if (screen === 'schedules') return <Schedules module={m} />;
 
   if (screen === 'documents') {

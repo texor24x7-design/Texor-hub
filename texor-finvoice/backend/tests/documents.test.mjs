@@ -221,27 +221,30 @@ section('voiding');
 
 section('invoice from a job card');
 {
-  const car = await call(owner, '/api/workspaces', { method: 'POST', body: { name: 'Sparkle Wash', industry: 'car_wash', gstin: '27AAPFU0939F1ZV', sample: true } });
+  // A person gets one free business, so these two get owners of their own.
+  const washer = await seedUser(db, { texorId: 'tx-wash', email: 'wash@volt.test', displayName: 'Wash Owner' });
+  const car = await call(washer, '/api/workspaces', { method: 'POST', body: { name: 'Sparkle Wash', industry: 'car_wash', gstin: '27AAPFU0939F1ZV', sample: true } });
   const C = `/api/w/${car.body.workspace.slug}`;
-  const { body: { items: washes } } = await call(owner, `${C}/items?q=foam`);
-  const customer = await call(owner, `${C}/records/customers`, { method: 'POST', body: { name: 'Arjun' } });
-  const vehicle = await call(owner, `${C}/records/c_vehicles`, { method: 'POST', body: { customer: customer.body.record._id, custom: { regNo: 'MH14 XY 9090', vehicleType: 'suv' } } });
+  const { body: { items: washes } } = await call(washer, `${C}/items?q=foam`);
+  const customer = await call(washer, `${C}/records/customers`, { method: 'POST', body: { name: 'Arjun' } });
+  const vehicle = await call(washer, `${C}/records/c_vehicles`, { method: 'POST', body: { customer: customer.body.record._id, custom: { regNo: 'MH14 XY 9090', vehicleType: 'suv' } } });
   // The picker copies the catalogue default price onto the job card, exactly as the form does.
-  const job = await call(owner, `${C}/records/c_job_cards`, { method: 'POST', body: { customer: customer.body.record._id, custom: { vehicle: vehicle.body.record._id, work: [{ item: washes[0]._id, description: washes[0].name, quantity: 1, priceMinor: washes[0].priceMinor }] } } });
-  const bill = await call(owner, `${C}/records/c_job_cards/${job.body.record._id}/invoice`, { method: 'POST' });
+  const job = await call(washer, `${C}/records/c_job_cards`, { method: 'POST', body: { customer: customer.body.record._id, custom: { vehicle: vehicle.body.record._id, work: [{ item: washes[0]._id, description: washes[0].name, quantity: 1, priceMinor: washes[0].priceMinor }] } } });
+  const bill = await call(washer, `${C}/records/c_job_cards/${job.body.record._id}/invoice`, { method: 'POST' });
   check('a job card becomes a draft invoice', bill.status === 201, bill.body);
   const suvPrice = washes[0].variants.find((v) => v.name === 'SUV').priceMinor;
   check('priced at the SUV variant because the vehicle is an SUV', bill.body.document?.lines[0].priceMinor === suvPrice && bill.body.document.lines[0].variant === 'SUV', bill.body.document?.lines[0]);
   check('with the vehicle number on the invoice', bill.body.document?.custom.vehicleNo === 'MH14 XY 9090');
   check("and the car wash pack's tax-inclusive pricing, so the SUV wash bills at its menu price", bill.body.document?.lines[0].priceIncludesTax === true && bill.body.document.totals.totalMinor === suvPrice, bill.body.document?.totals);
-  const newService = await call(owner, `${C}/records/services`, { method: 'POST', body: { name: 'Headlight restoration', priceMinor: 99900 } });
+  const newService = await call(washer, `${C}/records/services`, { method: 'POST', body: { name: 'Headlight restoration', priceMinor: 99900 } });
   check('a new service picks up the workspace tax defaults', newService.body.record?.priceIncludesTax === true && newService.body.record.taxRate === 18, newService.body.record);
-  const twice = await call(owner, `${C}/records/c_job_cards/${job.body.record._id}/invoice`, { method: 'POST' });
+  const twice = await call(washer, `${C}/records/c_job_cards/${job.body.record._id}/invoice`, { method: 'POST' });
   check('a job card is billed once', twice.status === 409);
-  const gstFree = await call(owner, '/api/workspaces', { method: 'POST', body: { name: 'Unregistered Wash', industry: 'car_wash', sample: true } });
+  const unreg = await seedUser(db, { texorId: 'tx-unreg', email: 'unreg@volt.test', displayName: 'Unregistered Owner' });
+  const gstFree = await call(unreg, '/api/workspaces', { method: 'POST', body: { name: 'Unregistered Wash', industry: 'car_wash', sample: true } });
   const U = `/api/w/${gstFree.body.workspace.slug}`;
-  const uc = await call(owner, `${U}/records/customers`, { method: 'POST', body: { name: 'Walk-in' } });
-  const ui = await call(owner, `${U}/documents/invoices`, { method: 'POST', body: { customer: uc.body.record._id, lines: [{ description: 'Foam wash', quantity: 1, priceMinor: 30000, taxRate: 18 }] } });
+  const uc = await call(unreg, `${U}/records/customers`, { method: 'POST', body: { name: 'Walk-in' } });
+  const ui = await call(unreg, `${U}/documents/invoices`, { method: 'POST', body: { customer: uc.body.record._id, lines: [{ description: 'Foam wash', quantity: 1, priceMinor: 30000, taxRate: 18 }] } });
   check('a business without a GSTIN charges no GST', ui.body.document?.totals.taxMinor === 0 && ui.body.document.totals.totalMinor === 30000, ui.body.document?.totals);
 }
 

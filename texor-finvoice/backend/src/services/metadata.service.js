@@ -68,7 +68,7 @@ export function moduleOf(workspace, key) {
 
 export function requireUsableModule(workspace, key) {
   const module = moduleOf(workspace, key);
-  if (module.locked) throw new ApiError(402, 'upgrade_required', `${module.label} is part of Finvoice Pro.`);
+  if (module.locked) throw ApiError.upgradeRequired(`${module.label} is part of Finvoice Pro.`);
   if (!module.enabled) throw ApiError.notFound(`${module.label} is switched off in this workspace.`);
   return module;
 }

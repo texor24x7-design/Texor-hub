@@ -10,6 +10,7 @@ import Member from '../models/Member.js';
 import Staff from '../models/Staff.js';
 import Workspace from '../models/Workspace.js';
 import ApiError from '../utils/ApiError.js';
+import { assertSeat } from '../services/entitlement.service.js';
 import { ACTIONS } from '../modules/registry.js';
 import { record as audit } from '../services/audit.service.js';
 import { effectiveModules } from '../services/metadata.service.js';
@@ -43,6 +44,8 @@ export async function invite(req, res) {
     throw ApiError.conflict(existing.status === 'invited' ? `${email} is already invited.` : `${email} is already on the team.`, [{ field: 'email', message: 'Already on the team.' }]);
   }
 
+  await assertSeat(req.workspace);
+
   const member = existing
     ? await Member.findByIdAndUpdate(existing._id, { role, status: existing.user ? 'active' : 'invited', invitedBy: req.user._id }, { returnDocument: 'after' })
     : await Member.create({ workspace: req.workspace._id, email, name, role, status: 'invited', invitedBy: req.user._id });
@@ -71,6 +74,8 @@ export async function updateMember(req, res) {
   }
   if (status) {
     if (status === 'active' && !member.user) throw ApiError.badRequest('This person has not accepted their invitation yet.');
+    // Switching someone back on takes a seat, exactly as inviting them does.
+    if (status === 'active' && member.status !== 'active') await assertSeat(req.workspace);
     member.status = status;
   }
   await member.save();

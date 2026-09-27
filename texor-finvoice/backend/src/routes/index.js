@@ -22,6 +22,8 @@ import { claimSchema, claimUpdateSchema } from '../services/warranty.service.js'
 import { designSchema } from '../services/design.service.js';
 import { ALLOWED_TYPES } from '../services/file.service.js';
 import { SHEET_TYPES } from '../services/sheet.service.js';
+import * as gst from '../controllers/gst.controller.js';
+import * as purchases from '../controllers/purchase.controller.js';
 import { assertCan } from '../services/rbac.service.js';
 import env from '../config/env.js';
 
@@ -108,6 +110,18 @@ export function createApiRouter() {
   // ── Files ───────────────────────────────────────────────────────────────────
   w.post('/files', limit.upload, express.raw({ type: ALLOWED_TYPES, limit: env.uploadMaxBytes }), files.upload);
 
+  // ── Purchases (Pro) ─────────────────────────────────────────────────────────
+  w.get('/bills', authorize('bills', 'view'), purchases.list);
+  w.post('/bills', authorize('bills', 'create'), validate(purchases.billSchema), purchases.record);
+  w.get('/bills/:id', authorize('bills', 'view'), purchases.get);
+  w.post('/bills/:id/void', authorize('bills', 'approve'), purchases.voidBill);
+  w.post('/bills/:id/payments', authorize('bills', 'edit'), validate(purchases.payBillSchema), purchases.pay);
+
+  // ── GST filing (Pro) ────────────────────────────────────────────────────────
+  // `authorize` refuses a locked module with 402, so Lite never reaches these.
+  w.get('/gst/gstr1', authorize('gst', 'view'), gst.gstr1);
+  w.get('/gst/gstr1/export', authorize('gst', 'export'), gst.gstr1Export);
+
   // ── Catalogue helpers ───────────────────────────────────────────────────────
   w.get('/items', records.searchItems);
   w.get('/products/:id/stock', authorize('products', 'view'), records.stockMovements);
@@ -137,6 +151,8 @@ export function createApiRouter() {
   w.post('/records/:module', authorize(byParam, 'create'), records.create);
   w.get('/records/:module/:id', authorize(byParam, 'view'), records.get);
   w.patch('/records/:module/:id', authorize(byParam, 'edit'), records.update);
+  // Before `/:id`, or "bulk-delete" is read as a record id.
+  w.post('/records/:module/bulk-delete', authorize(byParam, 'delete'), validate(records.bulkDeleteSchema), records.removeMany);
   w.delete('/records/:module/:id', authorize(byParam, 'delete'), records.remove);
 
   // ── Quotations & invoices ───────────────────────────────────────────────────

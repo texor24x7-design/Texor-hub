@@ -25,7 +25,7 @@ const TEST_API = `http://localhost:${TEST_PORT}`;
 /** Pure logic — no server, no database. */
 const UNIT = ['money.test.mjs', 'india.test.mjs', 'tax.test.mjs', 'render.test.mjs', 'signature.test.mjs', 'ratelimit.test.mjs', 'attendance.test.mjs', 'icons.test.mjs', 'pay.test.mjs', 'components.test.mjs'];
 /** End to end, against the spawned API. */
-const E2E = ['foundation.test.mjs', 'documents.test.mjs', 'operations.test.mjs', 'industries.test.mjs', 'sweep.test.mjs', 'notes.test.mjs', 'razorpay.test.mjs', 'ledger.test.mjs', 'packages.test.mjs', 'people.test.mjs', 'customise.test.mjs', 'inventory.test.mjs', 'counter.test.mjs', 'amend.test.mjs'];
+const E2E = ['foundation.test.mjs', 'documents.test.mjs', 'operations.test.mjs', 'industries.test.mjs', 'sweep.test.mjs', 'notes.test.mjs', 'razorpay.test.mjs', 'ledger.test.mjs', 'packages.test.mjs', 'people.test.mjs', 'customise.test.mjs', 'inventory.test.mjs', 'counter.test.mjs', 'amend.test.mjs', 'lists.test.mjs', 'entitlements.test.mjs', 'gst.test.mjs', 'purchases.test.mjs'];
 
 const only = process.argv.slice(2);
 const selected = (file) => only.length === 0 || only.some((word) => file.includes(word));
