@@ -499,7 +499,16 @@ p { margin: 0; }
 .tile--compact { aspect-ratio: 16 / 10; }
 .tile--screen { aspect-ratio: auto; height: 100%; background: #000; }
 
-.tile__video { width: 100%; height: 100%; object-fit: cover; display: block; }
+/**
+ * Pinned to the tile, never sized by itself.
+ *
+ * In the flow, a `<video>` brings its own intrinsic size — the stream's
+ * resolution — and the tile's auto-sized grid row grew to fit it. A 1080p share
+ * on a window less than 1080px tall came out taller than the stage, and the
+ * tile's `overflow: hidden` cut the bottom off. That is why it looked right on
+ * a large display and cropped on a laptop or a phone, fullscreen included.
+ */
+.tile__video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 /* Our own preview only: a mirrored remote feed makes other people's text
    backwards, which is the opposite of helpful. */
 .tile__video--mirrored { transform: scaleX(-1); }
@@ -583,6 +592,8 @@ p { margin: 0; }
   position: relative;
   min-height: 0;
   display: grid;
+  /* One definite cell, so a tile's `height: 100%` means the stage's height. */
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
 }
 .meet__present-main > .tile {
@@ -618,8 +629,13 @@ p { margin: 0; }
 /* Many people in the rail: let it start from the top so it can scroll. */
 .meet__strip--full { justify-content: flex-start; }
 
-/* Not enough width to give any of it away: back to a row under the feature. */
-@media (max-width: 64rem), (orientation: portrait) {
+/*
+ * Not enough width to give any of it away: back to a row under the feature.
+ *
+ * Portrait only. A phone on its side is the shape a shared movie wants, and
+ * there the height is what is scarce — a row under it would take a fifth of it.
+ */
+@media (orientation: portrait) {
   .meet__present { grid-template-columns: none; grid-template-rows: minmax(0, 1fr) auto; }
   .meet__strip {
     flex-direction: row;
@@ -1076,7 +1092,14 @@ p { margin: 0; }
 @media (max-width: 52rem) {
   .meet { grid-template-columns: 1fr; grid-template-areas: 'stage' 'panel' 'bar'; }
   .meet__panel { width: auto; margin: 0 0.5rem; max-height: 45vh; }
+}
+/* Sized for the row under the feature, which a phone only has upright. */
+@media (max-width: 52rem) and (orientation: portrait) {
   .meet__strip .tile { flex-basis: 7rem; }
+}
+/* A phone, either way up, has no pixels to spare on a frame around the picture. */
+@media (max-width: 52rem), (max-height: 30rem) {
+  .meet__stage { padding: 0.35rem; }
 }
 
 /**

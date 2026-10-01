@@ -675,6 +675,22 @@ export class MeetingRoom {
       source: info.source,
     });
 
+    /**
+     * A little slack for a shared screen, none for a face.
+     *
+     * A conversation needs the lowest delay there is. A shared screen — often a
+     * video or a movie — is watched, not answered, and a quarter of a second
+     * of buffer is what lets a lost packet be re-sent and arrive in time
+     * instead of showing as a stutter on a patchy connection.
+     */
+    if (info.source === 'screen' || info.source === 'screenAudio') {
+      try {
+        consumer.rtpReceiver.jitterBufferTarget = 250;
+      } catch {
+        // Not every engine exposes it; the default adaptive buffer still applies.
+      }
+    }
+
     // Hand the track over before resuming, so the first frames have somewhere
     // to land. The server started this consumer paused for exactly this reason.
     this.on.track?.({
@@ -717,14 +733,14 @@ export class MeetingRoom {
     return snapshot;
   }
 
-  async produceVideo(track, encodings, source) {
+  async produceVideo(track, encodings, source, streamId) {
     try {
-      return await this.sendTransport.produce({ track, encodings, appData: { source } });
+      return await this.sendTransport.produce({ track, streamId, encodings, appData: { source } });
     } catch (error) {
       this.on.warning?.(
         `Your browser refused the preferred video settings for your ${source}, so it is being sent at a single quality.`,
       );
-      return this.sendTransport.produce({ track, appData: { source } });
+      return this.sendTransport.produce({ track, streamId, appData: { source } });
     }
   }
 
@@ -995,9 +1011,21 @@ export class MeetingRoom {
       // Read-only in some engines; the sender preference below still applies.
     }
 
+    /**
+     * The picture and its sound as one stream, apart from the mic and camera.
+     *
+     * A receiver lip-syncs the audio and video that share a stream id, and by
+     * default every track we send shares one — so a movie's picture could be
+     * timed against the presenter's microphone instead of its own soundtrack,
+     * and drift. Its own id pairs it with the right audio.
+     */
+    const streamId = `screen-${track.id}`;
+
     let producer;
     try {
-      producer = await this.produceVideo(track, screenEncodings(this.limits?.screenBitrate), 'screen');
+      producer = await this.produceVideo(
+        track, screenEncodings(this.limits?.screenBitrate), 'screen', streamId,
+      );
       await this.applyDegradation(
         producer,
         SCREEN_MODES[mode]?.degradationPreference ?? 'maintain-framerate',
@@ -1025,6 +1053,7 @@ export class MeetingRoom {
       try {
         const audioProducer = await this.sendTransport.produce({
           track: audioTrack,
+          streamId,
           appData: { source: 'screenAudio' },
           codecOptions: {
             // Stereo, and no discontinuous transmission: DTX saves bandwidth by

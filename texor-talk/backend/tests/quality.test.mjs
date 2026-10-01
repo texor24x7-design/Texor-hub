@@ -127,8 +127,10 @@ for (const id of TIER_ORDER) {
     camera.every((e, i) => i === 0 || e.maxBitrate > camera[i - 1].maxBitrate));
   check(`${id} camera resolutions shrink for the lower layers`,
     camera.every((e, i) => i === 0 || e.scaleResolutionDownBy < camera[i - 1].scaleResolutionDownBy));
-  check(`${id} screen stays a single layer`, screen.length === 1);
-  check(`${id} screen is sent at exactly the grant`, screen[0].maxBitrate === screenBitrate);
+  check(`${id} screen sends three simulcast layers`, screen.length === 3);
+  check(`${id} screen tops out at exactly the grant`, screen[screen.length - 1].maxBitrate === screenBitrate);
+  check(`${id} screen layers climb`,
+    screen.every((e, i) => i === 0 || e.maxBitrate > screen[i - 1].maxBitrate));
   check(`${id} sets no scalabilityMode`,
     [...camera, ...screen].every((e) => e.scalabilityMode === undefined));
 }

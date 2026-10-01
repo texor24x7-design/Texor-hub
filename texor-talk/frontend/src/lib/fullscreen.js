@@ -105,7 +105,14 @@ export function useFullscreen(elementRef, videoRef) {
       // second request while already fullscreen is rejected.
       if (action === 'exit') return;
 
-      await enterFullscreen(target, videoRef?.current);
+      const video = videoRef?.current;
+      await enterFullscreen(target, video);
+
+      // A wide picture on an upright phone fills a third of the screen. Android
+      // will turn it for us once fullscreen; desktops and iOS refuse, harmlessly.
+      if (video?.videoWidth > video?.videoHeight) {
+        window.screen?.orientation?.lock?.('landscape').catch(() => {});
+      }
     } catch {
       // A rejected request is not worth an error message — the button simply
       // did not take, and the user can see that it did not.

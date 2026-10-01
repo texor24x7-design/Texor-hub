@@ -206,9 +206,9 @@ check('the camera sends three simulcast layers', CAMERA_ENCODINGS.length === 3);
 check('its layers are ordered smallest first',
   CAMERA_ENCODINGS.every((e, i, a) => i === 0 || e.scaleResolutionDownBy < a[i - 1].scaleResolutionDownBy),
   JSON.stringify(CAMERA_ENCODINGS.map((e) => e.scaleResolutionDownBy)));
-check('the screen sends a single layer', SCREEN_ENCODINGS.length === 1);
-check('the screen layer has the higher ceiling',
-  SCREEN_ENCODINGS[0].maxBitrate > Math.max(...CAMERA_ENCODINGS.map((e) => e.maxBitrate)));
+check('the screen sends three simulcast layers', SCREEN_ENCODINGS.length === 3);
+check('the top screen layer has the higher ceiling',
+  SCREEN_ENCODINGS[2].maxBitrate > Math.max(...CAMERA_ENCODINGS.map((e) => e.maxBitrate)));
 
 console.log('\n── negotiation ──');
 const hostPeer = new TestPeer(host, code);

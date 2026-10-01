@@ -92,19 +92,28 @@ export function screenConstraints({ frameRate = 30, maxHeight = 1080 } = {}) {
 }
 
 /**
- * Screen: one layer, at a much higher ceiling than a camera gets.
+ * Screen: three layers, topped by a much higher ceiling than a camera gets.
  *
- * No simulcast, deliberately — everybody watching a shared screen should see
- * exactly what the person sharing sees, and layers would mean some of them
- * quietly getting a worse one.
+ * This used to be one layer, so that everybody saw exactly what the sharer
+ * saw. On a real call that promise breaks the other way: an SFU cannot shrink
+ * a single layer, so a viewer whose downlink is below the stream's bitrate gets
+ * every frame late or not at all — a picture that freezes, then jumps. With
+ * three, the SFU hands each viewer the best layer their connection can carry,
+ * and anybody on a good connection still gets the full one.
  *
- * The ceiling is high because screen content is expensive: a 1080p desktop at
- * 30fps with text, scrolling and a video playing in a corner will use all of
- * this. Set it too low and the encoder makes up the difference by dropping
- * frames, which is what "the quality is fine but it keeps sticking" looks like.
+ * The ceiling is high because screen content is expensive: a 1080p movie or
+ * desktop at 30fps will use all of it. Set it too low and the encoder makes up
+ * the difference by dropping frames, which is what "the quality is fine but it
+ * keeps sticking" looks like.
+ *
+ * Smallest first, as with the camera.
  */
 export function screenEncodings(maxBitrate = 5_000_000) {
-  return [{ maxBitrate }];
+  return [
+    { scaleResolutionDownBy: 4, maxBitrate: Math.round(maxBitrate * 0.12) },
+    { scaleResolutionDownBy: 2, maxBitrate: Math.round(maxBitrate * 0.35) },
+    { scaleResolutionDownBy: 1, maxBitrate },
+  ];
 }
 
 export const SCREEN_ENCODINGS = screenEncodings();
